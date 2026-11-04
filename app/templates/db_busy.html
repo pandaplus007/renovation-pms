@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}系统忙{% endblock %}
+{% block page_title %}系统忙{% endblock %}
+{% block content %}
+{# 数据库写锁等待超时。busy_timeout 已经等过一轮（30 秒）还是没拿到锁才到这，
+   所以这里的动作是「重试」而不是「解释原理」——用户只需要知道东西没丢、点一下再来。
+   配色写法与 403.html 一致：数字用 --text-muted，图标用 --primary，不写字面色。 #}
+<div class="card" style="max-width:560px;margin:60px auto;">
+  <div class="card-body text-center p-5">
+    <div class="fs-1 fw-bold mb-3" style="color:var(--text-muted);">503</div>
+    <h5 class="mb-2"><i class="bi bi-hourglass-split me-1" style="color:var(--primary);"></i>系统忙，请稍后重试</h5>
+    <p class="text-muted">
+      刚才有多位同事同时提交，等待 30 秒仍未排上队。<br>
+      <strong>本次操作没有生效，但也没有丢数据</strong>——请重新提交一次。
+    </p>
+    <div class="d-flex gap-2 justify-content-center mt-3">
+      <button type="button" class="btn btn-primary" onclick="location.reload()">
+        <i class="bi bi-arrow-clockwise"></i> 重新提交
+      </button>
+      <a href="/" class="btn btn-outline-secondary"><i class="bi bi-house"></i> 返回首页</a>
+    </div>
+    <p class="text-muted mt-3 mb-0" style="font-size:var(--fs-0);">
+      若反复出现，说明数据库放在的网络磁盘上未启用并发写模式，请联系管理员。
+    </p>
+  </div>
+</div>
+{% endblock %}

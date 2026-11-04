@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}项目毛利报表{% endblock %}
+{% block page_title %}项目毛利报表{% endblock %}
+{% block content %}
+{% set active_sub = 'profit' %}
+{% include "reports/_tabs.html" %}
+
+<div class="card mb-3 no-print">
+  <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="small text-muted">
+      <strong>收入</strong> = 施工合同额 + 已确认变更　|　
+      <strong>成本</strong>分两档看：已下单（当前发生的）与已签约（合同全额）
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-secondary" onclick="window.print()">
+        <i class="bi bi-printer"></i> 打印
+      </button>
+      <a href="/reports/profit/export" class="btn btn-sm btn-outline-success">
+        <i class="bi bi-file-earmark-excel"></i> 导出 Excel
+      </a>
+    </div>
+  </div>
+</div>
+
+{# ---------- 口径对照：这张卡是本页面存在的理由 ---------- #}
+<div class="card mb-3">
+  <div class="card-header py-2">
+    <i class="bi bi-columns-gap me-1"></i>毛利区间对照
+    <span class="small text-muted ms-1">两个口径的差额 = 尚未下单的合同款</span>
+  </div>
+  <div class="card-body py-2">
+    <div class="row g-3 text-center">
+      {# 「下限」是技术词，看表的人不会自动理解它是「更保守的那个数」。
+         改成业务说法，并把**为什么是这个数**直接写在标签里——
+         每个数字都要能自己解释自己，不依赖读者记得上一段说明。 #}
+      <div class="col-md-4">
+        <div class="text-muted small">毛利 · 只算已下单成本<span class="text-muted">（乐观）</span></div>
+        <div class="fs-4 fw-bold {{ 'text-success' if totals.profit >= 0 else 'text-danger' }}">
+          {{ totals.profit|money }}
+        </div>
+        <div class="small text-muted">成本 {{ totals.ordered_cost|money }}　毛利率 <strong>{{ totals.profit_rate }}%</strong></div>
+        <div class="small text-muted">只扣了已发生的采购分包，剩余合同款还没花出去</div>
+      </div>
+      <div class="col-md-4">
+        <div class="text-muted small">毛利 · 按合同全额计成本<span class="text-muted">（保守）</span></div>
+        <div class="fs-4 fw-bold {{ 'text-success' if totals.profit_low >= 0 else 'text-danger' }}">
+          {{ totals.profit_low|money }}
+        </div>
+        <div class="small text-muted">成本 {{ totals.committed_cost|money }}　毛利率 <strong>{{ totals.profit_rate_low }}%</strong></div>
+        <div class="small text-muted">假设合同上会赚的钱全部按已签约价格花掉</div>
+      </div>
+      <div class="col-md-4">
+        <div class="text-muted small">尚未下单的合同款（敞口）</div>
+        <div class="fs-4 fw-bold text-warning">{{ totals.uncommitted|money }}</div>
+        <div class="small text-muted">已签约但还没下单的钱</div>
+      </div>
+    </div>
+
+    {% if totals.uncommitted and totals.revenue %}
+    <div class="alert alert-info py-2 mt-2 mb-0 small">
+      <i class="bi bi-info-circle me-1"></i>
+      两个口径相差 <strong>{{ totals.uncommitted|money }}</strong>，占收入
+      <strong>{{ (totals.uncommitted / totals.revenue * 100)|round(1) }}%</strong>。
+      这部分合同款已签约但尚未下单——<strong>真实利润大概率落在
+      {{ totals.profit|money }} 与 {{ totals.profit_low|money }} 之间</strong>，
+      取决于这些合同最终会执行多少。
+      装修行业成本率常见区间 65-75%，可拿这个区间对照判断项目是否异常。
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ---------- 明细表 ---------- #}
+<div class="card">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-table me-1"></i>逐项目明细</span>
+    <span class="small text-muted">成本按两档列示，横向对比</span>
+  </div>
+  <div class="table-responsive">
+    {# 次要列（已签约口径的成本/毛利率）默认收起。
+       「查毛利」的主视角是：已下单成本下的毛利和毛利率，加上已收与敞口；
+       已签约口径是补充视角——它回答「如果剩余合同款全花掉会怎样」。
+       两组都要留着（这是这个报表存在的理由），但主次要分清。
+       base.html 的 JS 见到 data-col-minor 会自动注入「展开 N 列」按钮。 #}
+  <table class="table table-sm align-middle mb-0 table-card table-wide"
+         data-col-minor data-col-key="pms-profit-cols">
+      <thead class="table-light">
+        <tr>
+          <th>项目</th><th>状态</th>
+          <th class="text-end">合同额</th>
+          <th class="text-end">已确认变更</th>
+          <th class="text-end">收入合计</th>
+          <th class="text-end">已收款</th>
+          <th class="text-end">采购<br><small class="text-muted">已下单</small></th>
+          <th class="text-end">分包<br><small class="text-muted">已下单</small></th>
+          <th class="text-end">费用</th>
+          <th class="text-end">成本<br><small class="text-muted">已下单口径</small></th>
+          <th class="text-end col-minor">成本<br><small class="text-muted">已签约口径</small></th>
+          <th class="text-end">毛利<br><small class="text-muted">已下单口径</small></th>
+          <th class="text-end">毛利率</th>
+          {# 下面两列与上面「毛利/毛利率」是同一组指标的两个口径，
+             所以用同样的写法（口径写在第二行），不再叫「下限」——
+             「下限」是技术词，看表的人不会自动知道它是更保守的那个数。 #}
+          <th class="text-end">毛利<br><small class="text-muted">已签约口径</small></th>
+          <th class="text-end col-minor">毛利率<br><small class="text-muted">已签约口径</small></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{{ 'table-warning' if r.thin else '' }}">
+          <td class="fw-semibold"><a href="/projects/{{ r.project.id }}">{{ r.project.name }}</a></td>
+          <td><span class="badge text-bg-light">{{ r.project.status }}</span></td>
+          <td class="text-end text-money">¥{{ r.contract|money }}</td>
+          <td class="text-end text-money {{ 'text-success' if r.change else 'text-muted' }}">
+            {% if r.change %}+¥{{ r.change|money }}{% else %}—{% endif %}
+          </td>
+          <td class="text-end text-money fw-semibold">¥{{ r.revenue|money }}</td>
+          <td class="text-end text-money text-success">¥{{ r.received|money }}</td>
+          <td class="text-end text-money">¥{{ r.purchase|money }}</td>
+          <td class="text-end text-money">¥{{ r.subcontract|money }}</td>
+          <td class="text-end text-money">¥{{ r.cost|money }}</td>
+          <td class="text-end text-money">¥{{ r.ordered_cost|money }}</td>
+          {# col-minor 必须与表头一一对应，否则收起列时会错位。
+             判定依据：查这页时看不看。「已签约口径的成本/毛利率」是补充
+             视角，主视角是已下单口径 + 已收 + 应收余额，所以收起。 #}
+          <td class="text-end text-money col-minor {{ 'text-warning' if r.uncommitted > 0 else '' }}">
+            ¥{{ r.committed_cost|money }}
+            {% if r.uncommitted > 0 %}
+            <div class="small text-muted">含未下单 {{ r.uncommitted|money }}</div>
+            {% endif %}
+          </td>
+          <td class="text-end text-money fw-semibold {{ 'text-danger' if r.profit < 0 else 'text-success' }}">
+            ¥{{ r.profit|money }}
+          </td>
+          <td class="text-end {{ 'text-danger' if r.profit_rate < 0 else '' }}">{{ r.profit_rate }}%</td>
+          <td class="text-end text-money {{ 'text-danger' if r.profit_low < 0 else '' }}">¥{{ r.profit_low|money }}</td>
+          <td class="text-end col-minor {{ 'text-danger' if r.profit_rate_low < 20 else '' }}">{{ r.profit_rate_low }}%</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="15" class="text-center text-muted py-4">暂无项目数据</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if rows %}
+      <tfoot class="table-light">
+        <tr class="fw-semibold">
+          <td colspan="2">合计</td>
+          <td class="text-end">{{ totals.contract|money }}</td>
+          <td class="text-end">{{ totals.change|money }}</td>
+          <td class="text-end">{{ totals.revenue|money }}</td>
+          <td class="text-end text-success">{{ totals.received|money }}</td>
+          <td class="text-end">{{ totals.purchase|money }}</td>
+          <td class="text-end">{{ totals.subcontract|money }}</td>
+          <td class="text-end">{{ totals.cost|money }}</td>
+          <td class="text-end">{{ totals.ordered_cost|money }}</td>
+          {# 合计行也要跟表头一致标 col-minor，否则收起后合计行会串位。 #}
+          <td class="text-end col-minor">{{ totals.committed_cost|money }}</td>
+          <td class="text-end {{ 'text-danger' if totals.profit < 0 else 'text-success' }}">{{ totals.profit|money }}</td>
+          <td class="text-end">{{ totals.profit_rate }}%</td>
+          <td class="text-end {{ 'text-danger' if totals.profit_low < 0 else '' }}">{{ totals.profit_low|money }}</td>
+          <td class="text-end col-minor">{{ totals.profit_rate_low }}%</td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+<div class="card mt-3 no-print">
+  <div class="card-body small text-muted">
+    <strong>口径说明</strong>
+    <ul class="mb-0 mt-1">
+      <li><strong>收入</strong> = 施工合同额 + 已确认变更。分界线是<strong>业主有没有签字</strong>——「已定价待业主审」虽然已经报出去等签，在账上仍是零</li>
+      <li><strong>成本·已下单口径</strong> = 采购单明细金额 + 分包单金额 + 费用　← 当前实际已发生的支出</li>
+      <li><strong>成本·已签约口径</strong> = 采购合同额 + 分包合同额 + 费用　← 把已签但未下单的合同款也算进去</li>
+      <li>两个口径的差 = <strong>未下单敞口</strong>。已下单口径的毛利偏高（<strong>乐观</strong>），已签约口径偏低（<strong>保守</strong>），真实值在两者之间</li>
+      <li>已签约口径的毛利率低于 20% 的项目行会标红——装修行业成本率常见 65-75%，毛利低于 20% 通常意味着还有成本没录入</li>
+      <li><strong>结算金额</strong>：合同有填 <code>settle_amount</code> 时以它为准，否则按「合同额 + 已确认变更」自动推导。见项目详情页的变更签证</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

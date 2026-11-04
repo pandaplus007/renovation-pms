@@ -1,0 +1,558 @@
+/* ============================================================
+   Linear 层级修订层（linear.css）
+   ------------------------------------------------------------
+   只做「结构层」的借鉴，不动品牌色：
+   · Linear 的强项是层级纪律——表面只差 3~5 个明度点、
+     1px 发丝线代替阴影、四级文字对比度、单一强调色。
+   · 纸底从 Basecamp 的米白改成蓝色系（#F4F7FC），主色仍是 #3568BE。
+   · 本文件必须排在 basecamp.css 之后加载；删掉 base.html 里那一行即回滚。
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. 令牌：值阶梯 / 发丝线 / 微投影
+   ------------------------------------------------------------ */
+
+html:root:not([data-bs-theme="dark"]) {
+  /* ---- 蓝色纸底（替换 Basecamp 的米白）----
+     画布带一点天光蓝，面板再深一档，卡片保持纯白：
+     白卡片在蓝底上自然「浮」起来，层级仍然不靠阴影。
+     色相统一在 215°，只改明度，避免蓝底和蓝色主色互相打架。 */
+  --bg: #EDF3FB;
+  --surface: #FFFFFF;
+  --surface-2: #E3ECF8;
+  --surface-3: #FFFFFF;
+  --gray-50: #EDF3FB;
+  --gray-100: #E3ECF8;
+  --gray-200: #D5E1F1;
+  --gray-300: #C2D1E6;
+  --sidebar-bg: #E5EEF9;
+  --sidebar-active: #FFFFFF;
+  --sidebar-text: #37434F;
+  --sidebar-group-fg: #566373;   /* 5.2:1，分组标题在蓝底上也过 AA */
+  --input-bg: #FFFFFF;
+  --input-border: #C9D5E4;
+  --proj-hero-bg: #FFFFFF;
+  --bs-body-bg: #EDF3FB;
+  --bs-secondary-bg: #E3ECF8;
+  --bs-secondary-bg-rgb: 227, 236, 248;
+  --bs-tertiary-bg: #E3ECF8;
+  --bs-table-hover-bg: rgba(20, 44, 78, .04);
+
+  /* 文字四级：正文 12.4:1、次要 6.4:1、三级 5.1:1（压在面板上 4.7:1） */
+  --text: #22303E;
+  --text-2: #4E5B69;
+  --text-3: #5F6B78;   /* 第三级只给元信息，蓝底上仍过 AA */
+  --text-muted: #4E5B69;
+
+  /* 分隔线：半透明墨色，叠在蓝底上是一条冷灰细线 */
+  --border: rgba(20, 44, 78, .11);
+  --border-strong: rgba(20, 44, 78, .18);
+  --card-border: rgba(20, 44, 78, .09);
+  --line-1: rgba(20, 44, 78, .09);
+  --line-2: rgba(20, 44, 78, .16);
+
+  /* 投影只保留“贴着纸面”的一层，取消大范围柔光 */
+  --shadow-sm: 0 1px 2px rgba(18, 24, 30, .05);
+  --shadow: 0 1px 2px rgba(18, 24, 30, .05), 0 8px 24px -14px rgba(18, 24, 30, .16);
+  --shadow-lg: 0 16px 40px -18px rgba(18, 24, 30, .22);
+
+  /* 控件圆角比卡片小一档：Linear 用 6/8 给控件、12 给卡片 */
+  --radius-ctl: 8px;
+  --row-h: 38px;
+  --dur: 160ms;
+  --ease: cubic-bezier(.2, .6, .2, 1);
+}
+
+html:root[data-bs-theme="dark"] {
+  /* 深色跟着走冷灰蓝：原来的暖炭色 #1A1917 配蓝底浅色会显得两套主题不是一家人 */
+  --bg: #101419;
+  --surface: #171C23;
+  --surface-2: #1E242C;
+  --surface-3: #232A33;
+  --gray-50: #101419;
+  --gray-100: #1E242C;
+  --gray-200: #2A323D;
+  --gray-300: #3A4453;
+  --sidebar-bg: #141920;
+  --sidebar-active: #222A34;
+  --input-bg: #1B2129;
+  --input-border: #3A4453;
+  --proj-hero-bg: #171C23;
+  --bs-body-bg: #101419;
+  --bs-secondary-bg: #1E242C;
+  --bs-secondary-bg-rgb: 30, 36, 44;
+  --bs-tertiary-bg: #1E242C;
+  --bs-table-hover-bg: rgba(232, 238, 246, .05);
+
+  --text: #E8EEF6;
+  --text-2: #B4BFCC;
+  --text-3: #8E9AA8;
+  --text-muted: #B4BFCC;
+
+  --border: rgba(232, 238, 246, .13);
+  --border-strong: rgba(232, 238, 246, .22);
+  --card-border: rgba(232, 238, 246, .10);
+  --line-1: rgba(232, 238, 246, .09);
+  --line-2: rgba(232, 238, 246, .16);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 10px 28px -16px rgba(0, 0, 0, .55);
+  --shadow-lg: 0 18px 44px -20px rgba(0, 0, 0, .70);
+
+  --radius-ctl: 8px;
+  --row-h: 38px;
+  --dur: 160ms;
+  --ease: cubic-bezier(.2, .6, .2, 1);
+}
+
+/* ---- 浅色下的第三档：冷纸白（几乎无蓝）----
+   由 <html data-canvas="paper"> 激活；深色模式不参与这套覆盖
+   （选择器里的 :not([data-bs-theme="dark"]) 会把它挡掉）。 */
+html[data-canvas="paper"]:root:not([data-bs-theme="dark"]) {
+  --bg: #F4F7FC;
+  --surface-2: #EDF2F9;
+  --surface-3: #FFFFFF;
+  --gray-50: #F4F7FC;
+  --gray-100: #EDF2F9;
+  --gray-200: #E2E9F3;
+  --gray-300: #CFD9E6;
+  --sidebar-bg: #EDF2F9;
+  --bs-body-bg: #F4F7FC;
+  --bs-secondary-bg: #EDF2F9;
+  --bs-secondary-bg-rgb: 237, 242, 249;
+  --bs-tertiary-bg: #EDF2F9;
+}
+
+/* 设置页：外观三选一（蓝底 / 冷纸白 / 深色） */
+.appearance-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.appearance-opt {
+  text-align: left;
+  border: 1px solid var(--line-1);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 10px;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.appearance-opt:hover { border-color: var(--border-strong); }
+.appearance-opt.is-on {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(53, 104, 190, .14);
+}
+.appearance-preview {
+  display: block;
+  position: relative;
+  height: 52px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--line-1);
+  margin-bottom: 8px;
+}
+.appearance-preview i { position: absolute; top: 0; bottom: 0; left: 0; width: 26%; }
+.appearance-preview b {
+  position: absolute;
+  left: 32%; top: 14%;
+  width: 58%; height: 72%;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+}
+.prev-blue { background: #EDF3FB; }
+.prev-blue i { background: #E5EEF9; }
+.prev-paper { background: #F4F7FC; }
+.prev-paper i { background: #E9F1FA; }
+.prev-dark { background: #101419; border-color: #232A33; }
+.prev-dark i { background: #141920; }
+.prev-dark b { background: #171C23; box-shadow: none; }
+.appearance-name { display: block; font-size: 13px; font-weight: 600; color: var(--text); }
+.appearance-desc { display: block; font-size: 12px; line-height: 1.45; color: var(--text-3); margin-top: 2px; }
+
+@media (max-width: 575.98px) {
+  .appearance-grid { grid-template-columns: 1fr; }
+}
+
+/* 项目首字色块：Basecamp 用实色块 + 白字，白字压 #1DB847 只有 2.6:1。
+   改成「22% 色底 + 正文色字」，颜色记号还在，对比度回到 10:1 以上。 */
+.proj-swatch {
+  --sw: var(--primary);
+  background: color-mix(in srgb, var(--sw) 22%, var(--surface)) !important;
+  color: var(--text) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sw) 26%, transparent);
+  font-weight: 600;
+}
+
+html[data-bs-theme="dark"] .proj-swatch {
+  background: color-mix(in srgb, var(--sw) 26%, var(--surface)) !important;
+}
+
+/* 合同节点这类内联浅色底徽章：底色是模板算出来的马卡龙色，
+   文字却继承了 --text-2，深色主题下只有 1.2:1。统一压深色字。 */
+html:root:not([data-bs-theme="dark"]) .badge[style*="background"],
+html:root[data-bs-theme="dark"] .badge[style*="background"] {
+  color: #1E2327 !important;
+}
+
+/* ------------------------------------------------------------
+   2. 数字：等宽、右对齐、收紧字距
+   ------------------------------------------------------------ */
+
+.table .text-end,
+.table th.text-end,
+.table td.text-end,
+.text-money,
+.tabular-nums,
+.stat-card .stat-num,
+.fs-4.fw-bold,
+h1 .text-money {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -.01em;
+}
+
+/* ------------------------------------------------------------
+   3. 表格：36~38px 行高 + 发丝线
+   ------------------------------------------------------------ */
+
+.table { font-size: 13px; }
+
+.table thead th {
+  height: 34px;
+  padding: 7px 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--line-2);
+  background: transparent;
+}
+
+.table tbody td {
+  padding: 9px 14px;
+  line-height: 1.5;
+  border-bottom: 1px solid var(--line-1);
+  vertical-align: middle;
+}
+
+.table tbody tr:last-child td { border-bottom: none; }
+
+/* 悬停用“加一层墨”而不是换底色，避免整行发黄 */
+.table-hover tbody tr:hover,
+.table-hover tbody tr:nth-child(even):hover,
+.table tbody tr:hover {
+  background: rgba(20, 44, 78, .04) !important;
+}
+
+html[data-bs-theme="dark"] .table-hover tbody tr:hover,
+html[data-bs-theme="dark"] .table tbody tr:hover {
+  background: rgba(232, 238, 246, .055) !important;
+}
+
+/* 合计行：只加一条稍深的线，不用实底 */
+.table tfoot td,
+.table tr.fw-bold td,
+.table tr[style*="border-top"] td {
+  border-top: 1px solid var(--line-2);
+  font-weight: 600;
+}
+
+.table-sm > :not(caption) > * > * { padding: 6px 12px; }
+.table-sm thead th { font-size: 11px; height: 30px; }
+.table-sm tbody { font-size: 12.5px; }
+
+/* 表头吸顶时用画布色，不透明，滚过去不会透字 */
+.sup-pay-scroll .table thead th,
+.table-responsive .table thead th { background: var(--surface); }
+
+/* ------------------------------------------------------------
+   4. 卡片：1px 发丝线 + 微投影，取消 hover 抬升
+   ------------------------------------------------------------ */
+
+.card,
+.stat-card {
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.card:hover,
+.stat-card:hover {
+  box-shadow: var(--shadow-sm);
+  border-color: var(--border-strong);
+  transform: none;
+}
+
+.card-header {
+  padding: 13px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--line-1);
+}
+
+.card-body { padding: 18px; }
+.card-footer { border-top: 1px solid var(--line-1); padding: 10px 18px; }
+.card-title { font-size: 14px; font-weight: 600; }
+
+.stat-card { padding: 14px 16px 13px; min-height: 84px; }
+.stat-card .stat-label { font-size: 12px; font-weight: 500; color: var(--text-2); }
+.stat-card .stat-label::before { width: 6px; height: 6px; opacity: .8; }
+.stat-card .stat-num { font-size: 23px; font-weight: 600; margin-top: 6px; }
+.stat-card .stat-sub { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+
+/* ------------------------------------------------------------
+   5. 按钮 / 输入：控件统一 8px 圆角、32px 高、13px 字
+   ------------------------------------------------------------ */
+
+.btn {
+  border-radius: var(--radius-ctl);
+  min-height: 32px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.btn-sm { min-height: 28px; padding: 4px 10px; font-size: 12.5px; border-radius: 7px; }
+.btn-lg { min-height: 38px; padding: 8px 16px; font-size: 14px; }
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(53, 104, 190, .22) !important;
+}
+
+.btn-primary,
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:active,
+.btn-primary:disabled {
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: #fff !important;
+}
+
+.btn-primary:hover { background: #2F5DAE !important; border-color: #2F5DAE !important; }
+html[data-bs-theme="dark"] .btn-primary,
+html[data-bs-theme="dark"] .btn-primary:hover { background: #8CB4F0 !important; border-color: #8CB4F0 !important; color: #1B1A18 !important; }
+
+.form-control,
+.form-select {
+  border-radius: var(--radius-ctl);
+  border-color: var(--line-2);
+  font-size: 13px;
+  min-height: 34px;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(53, 104, 190, .14);
+}
+
+.form-label { font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+
+/* ------------------------------------------------------------
+   6. 侧栏 / 顶栏：靠发丝线分层，选中项只抬 1px 投影
+   ------------------------------------------------------------ */
+
+.sidebar { border-right: 1px solid var(--line-1); }
+.sidebar-brand { padding: 18px 16px 12px; font-size: 14.5px; }
+.sidebar-nav { padding: 8px 8px 14px; }
+.sidebar-group-title { padding: 14px 10px 5px; font-size: 10.5px; letter-spacing: .07em; }
+
+.sidebar-nav .nav-item {
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: 13.5px;
+  line-height: 19px;
+  gap: 10px;
+  margin: 1px 0;
+}
+
+.sidebar-nav .nav-item:not(.active):hover {
+  background: rgba(20, 44, 78, .05);
+}
+
+html[data-bs-theme="dark"] .sidebar-nav .nav-item:not(.active):hover {
+  background: rgba(232, 238, 246, .06);
+}
+
+/* 分组卡：财务 / 采招 / 项目 这些分组连同它下面的子项装进一张淡框里，
+   而不是每个条目各画一圈边（那样三十行会变成栅格）。
+   框比背景只深一点点，靠 10px 圆角和 6px 内边距把它和相邻组分隔开。 */
+.nav-group {
+  margin: 0 0 8px;
+  padding: 2px 6px 6px;
+  border: 1px solid rgba(20, 44, 78, .07);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .22);
+}
+
+.nav-group:last-child { margin-bottom: 0; }
+
+html[data-bs-theme="dark"] .nav-group {
+  border-color: rgba(232, 238, 246, .08);
+  background: rgba(255, 255, 255, .03);
+}
+
+.nav-group > .sidebar-group-title {
+  margin: 0 -6px 4px;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid rgba(20, 44, 78, .06);
+}
+
+html[data-bs-theme="dark"] .nav-group > .sidebar-group-title {
+  border-bottom-color: rgba(232, 238, 246, .07);
+}
+
+.sidebar-nav .nav-item.active,
+.pt-links a.active {
+  background: var(--sidebar-active);
+  box-shadow: inset 0 0 0 1px rgba(20, 44, 78, .10), 0 1px 2px rgba(18, 24, 30, .05);
+}
+
+html[data-bs-theme="dark"] .sidebar-nav .nav-item.active,
+html[data-bs-theme="dark"] .pt-links a.active {
+  box-shadow: inset 0 0 0 1px rgba(232, 238, 246, .10), 0 1px 2px rgba(0, 0, 0, .35);
+}
+
+.sidebar-footer { border-top: 1px solid var(--line-1); padding: 10px 16px; }
+.sidebar-footer a { font-size: 13px; }
+
+.topbar {
+  height: 60px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--line-1);
+}
+.content { padding: 26px 36px 56px; }
+.page-head { margin-bottom: 16px; }
+.page-head h5, .topbar h5 { font-size: 19px; font-weight: 650; }
+
+/* ------------------------------------------------------------
+   7. 徽章 / 标签：10% 透明底 + 深色字，取消实色块
+   ------------------------------------------------------------ */
+
+.badge,
+.badge-status,
+.badge-category,
+.entity-tag,
+.tag-info {
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  line-height: 16px;
+}
+
+html:root:not([data-bs-theme="dark"]) .badge,
+html:root:not([data-bs-theme="dark"]) .badge-status,
+html:root:not([data-bs-theme="dark"]) .badge-category {
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--line-1);
+}
+
+html:root:not([data-bs-theme="dark"]) .entity-tag,
+html:root:not([data-bs-theme="dark"]) .tag-info {
+  background: rgba(61, 117, 203, .10);
+  color: var(--tag-fg);
+  border: 1px solid rgba(61, 117, 203, .18);
+}
+
+/* 语义色：只给 10% 底，不再用实色胶囊 */
+/* ⚠ Bootstrap 的 .text-bg-info 自带 `color:#000 !important`（它假设底色是浅青），
+   而 style.css 又把底色压成深蓝 #146DC7 —— 两者一叠就是「黑字压深蓝」，5.48:1 的底
+   被黑字吃掉。这里把文字改回白色（#146DC7 压白 5.48:1，AA），深浅两套都适用。 */
+html:root:not([data-bs-theme="dark"]) .badge.text-bg-info,
+html:root[data-bs-theme="dark"] .badge.text-bg-info {
+  background: #146DC7 !important;
+  color: #FFFFFF !important;
+  border-color: #146DC7 !important;
+}
+html:root:not([data-bs-theme="dark"]) .badge.text-bg-success {
+  background: rgba(36, 161, 72, .10);
+  border-color: rgba(36, 161, 72, .20);
+}
+html:root:not([data-bs-theme="dark"]) .badge.text-bg-danger {
+  background: rgba(235, 69, 90, .10);
+  border-color: rgba(235, 69, 90, .20);
+}
+html:root:not([data-bs-theme="dark"]) .badge.text-bg-warning {
+  background: rgba(232, 163, 61, .12);
+  border-color: rgba(232, 163, 61, .24);
+}
+
+/* 标签令牌同步成半透明，JS 生成的下拉/标签也跟着变 */
+html:root:not([data-bs-theme="dark"]) {
+  --tag-bg: rgba(61, 117, 203, .10);
+  --tag-bg-hover: rgba(61, 117, 203, .16);
+  --tag-border: rgba(61, 117, 203, .18);
+  --tag2-bg: rgba(232, 163, 61, .12);
+  --tag2-bg-hover: rgba(232, 163, 61, .18);
+  --tag2-border: rgba(232, 163, 61, .24);
+  --bs-table-hover-bg: rgba(20, 44, 78, .04);
+}
+
+/* ------------------------------------------------------------
+   8. 提示条 / 进度 / 分页：同一套半径与线
+   ------------------------------------------------------------ */
+
+.alert {
+  border-radius: var(--radius-ctl);
+  border-width: 1px;
+  font-size: 13px;
+  padding: 10px 13px;
+}
+
+.progress { height: 5px; background: rgba(20, 44, 78, .09); }
+html[data-bs-theme="dark"] .progress { background: rgba(232, 238, 246, .10); }
+
+.pagination .page-link { border-radius: 7px; border-color: var(--line-1); font-size: 12.5px; padding: 4px 9px; }
+
+.nav-tabs { border-bottom: 1px solid var(--line-1); }
+.nav-tabs .nav-link { font-size: 13px; padding: 8px 10px; }
+
+/* ------------------------------------------------------------
+   9. 响应式：basecamp.css 的 .main{margin-left:252px} 没有媒体查询，
+      而它排在 style.css 之后，会盖掉 style.css 里的
+      @media (max-width:991.98px){.main{margin-left:0}}。
+      结果是手机上正文被挤成 138px 宽的一条。这里按同断点补回来。
+   ------------------------------------------------------------ */
+
+@media (max-width: 991.98px) {
+  .main { margin-left: 0; }
+  .content { padding: 18px 16px 44px; }
+  .topbar { height: 56px; padding: 0 16px; }
+  .page-head { margin-bottom: 14px; }
+}
+
+@media (max-width: 575.98px) {
+  .content { padding: 14px 12px 36px; }
+  .card-header { padding: 11px 14px; }
+  .card-body { padding: 14px; }
+  .table thead th { padding: 7px 10px; }
+  .table tbody td { padding: 9px 10px; }
+  .stat-card { padding: 12px 13px 11px; min-height: 74px; }
+  .stat-card .stat-num { font-size: 20px; }
+}
+
+/* ------------------------------------------------------------
+   10. 密度与动效收口
+   ------------------------------------------------------------ */
+
+.nav-item,
+.pt-links a,
+.badge,
+.btn,
+.card,
+.table tbody tr {
+  transition-duration: var(--dur);
+  transition-timing-function: var(--ease);
+}
+
+h1, h2, h3, h4, h5, h6, .page-title { letter-spacing: -.015em; }
+body { text-rendering: optimizeLegibility; }

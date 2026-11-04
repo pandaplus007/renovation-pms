@@ -1,0 +1,479 @@
+{% extends "base.html" %}
+{% block title %}采购单详情{% endblock %}
+
+{% block page_title %}采购单详情{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+{% if back_url %}<a href="{{ back_url }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回</a>
+  {% elif order.contract_id %}<a href="/contracts/{{ order.contract_id }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回采购合同</a>
+  {% else %}<a href="/procurement?tab=orders" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回采购单</a>{% endif %}
+  <div class="d-flex gap-2 align-items-center">
+    <a href="/supplier-payments/new?contract_id={{ order.contract_id or 0 }}&po_id={{ order.id }}&back_url=/purchases/{{ order.id }}" class="btn btn-sm btn-outline-success"><i class="bi bi-cash-stack"></i> 登记付款</a>
+    <a href="/purchases/{{ order.id }}/edit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i> 编辑</a>
+    <span class="badge badge-status {{ order.status | state_badge }}">{{ order.status }}</span>
+    <form method="post" action="/purchases/{{ order.id }}/status" class="d-inline">
+      <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+        {% for s in OPTIONS.po_status %}<option value="{{ s }}" {{ 'selected' if order.status == s else '' }}>{{ s }}</option>{% endfor %}
+      </select>
+    </form>
+    {% if order.items and order.status != '已到货' %}
+    <form method="post" action="/purchases/{{ order.id }}/receive" onsubmit="return confirm('确认到货入库？将为全部明细生成库存入库流水，并累计到项目已采购量。');">
+      <button class="btn btn-sm btn-success"><i class="bi bi-box-arrow-in-down"></i> 到货入库</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/purchases/{{ order.id }}/delete" class="d-inline"
+          onsubmit="return confirm('确定删除该采购单？');">
+      <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> 删除</button>
+    </form>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-3 small">
+      <div class="col-md-3"><span class="text-muted">单号：</span>{{ order.order_no or ('采购单 #' ~ order.id) }}</div>
+      <div class="col-md-3"><span class="text-muted">合同：</span>
+        {% if order.contract %}<a href="/contracts/{{ order.contract_id }}">{{ order.contract.name }}</a>{% else %}—{% endif %}
+      </div>
+      <div class="col-md-3"><span class="text-muted">项目：</span>{{ order.project.name if order.project else '—' }}</div>
+      <div class="col-md-3"><span class="text-muted">供应商：</span>{{ order.supplier.name if order.supplier else '—' }}</div>
+      <div class="col-md-3"><span class="text-muted">日期：</span>{{ order.order_date or '—' }}</div>
+      {% if order.note %}<div class="col-12"><span class="text-muted">备注：</span>{{ order.note }}</div>{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if order.contract %}
+<div class="card mb-3">
+  <div class="card-header"><i class="bi bi-clipboard-data me-1"></i>所属合同进度</div>
+  <div class="card-body">
+    <div class="d-flex justify-content-between flex-wrap gap-2 mb-2">
+      <span><strong>{{ order.contract.name }}</strong>
+        {% if order.contract.contract_no %}<span class="badge text-bg-light ms-1">{{ order.contract.contract_no }}</span>{% endif %}
+        <a href="/contracts/{{ order.contract.id }}" class="btn btn-sm btn-outline-primary ms-2">查看合同</a>
+      </span>
+      <span class="text-muted small">合同金额 <strong>¥{{ order.contract.amount|money }}</strong>
+        | 已下采购单 ¥{{ contract_ordered|money }}
+        | 本单 ¥{{ order.total_amount|money }}（占合同 {{ order_percent }}%）</span>
+    </div>
+    <div class="progress mb-1" style="height:8px">
+      <div class="progress-bar {{ 'bg-success' if contract_progress >= 100 else '' }}" style="width: {{ contract_progress }}%"></div>
+    </div>
+    <div class="small text-muted">合同执行进度 {{ '%.1f'|format(contract_progress) }}%</div>
+    {% if order.contract.milestones %}
+    <div class="mt-2">
+      <div class="small text-muted mb-1">合同时间节点：</div>
+      <div class="d-flex flex-wrap gap-2">
+        {% for ms in order.contract.milestones %}
+        <span class="badge text-bg-light" title="时间节点">{{ ms.name }} {{ ms.m_date }}{% if ms.amount %} ¥{{ ms.amount|money }}{% endif %}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-12">
+    {% if order.contract and order.contract.materials %}
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-box-seam me-1"></i>从合同清单添加（{{ order.contract.name }}）<span class="text-muted small fw-normal">可修改数量，分批采购只填本次数量</span></span>
+        <div class="d-flex align-items-center gap-2">
+          {% if order.items %}
+          <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#ciCollapse">展开清单</button>
+          {% endif %}
+          <label class="small text-muted mb-0"><input type="checkbox" id="cmCheckAll" onchange="document.querySelectorAll('.cm-check').forEach(c=>c.checked=this.checked)"> 全选</label>
+          <button form="contractItemsForm" class="btn btn-sm btn-primary"
+                  onclick="if(!document.querySelector('.cm-check:checked')){alert('请先勾选要添加的材料');return false;}"><i class="bi bi-plus-lg"></i> 添加选中</button>
+        </div>
+      </div>
+      <div class="table-responsive {% if order.items %}collapse{% endif %}" id="ciCollapse">
+        <form id="contractItemsForm" method="post" action="/purchases/{{ order.id }}/items-from-contract">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th style="width:30px"></th><th>材料</th><th>规格</th><th>单位</th><th>本次数量<span class="text-muted">（合同量）</span></th><th>合同单价</th><th>金额</th></tr></thead>
+          <tbody>
+            {% for cm in order.contract.materials %}
+            <tr>
+              <td><input type="checkbox" class="cm-check" name="cm_ids" value="{{ cm.id }}"></td>
+              <td class="fw-semibold">{{ cm.name }}</td>
+              <td class="small">{{ cm.spec or '—' }}</td>
+              <td>{{ cm.unit }}</td>
+              <td><input type="number" step="0.01" name="cm_qty" class="form-control form-control-sm" style="width:90px" value="{{ cm.quantity }}"></td>
+              <td class="text-money">¥{{ cm.unit_price|money }}</td>
+              <td class="text-money">¥{{ cm.amount|money }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    <div class="card">
+      <div class="card-header d-flex justify-content-between">
+        <span>材料明细</span>
+        <span class="d-flex gap-2 align-items-center">
+          <span class="fw-bold">合计 <span id="itemTotal">¥{{ order.total_amount|money }}</span></span>
+          <button class="btn btn-sm btn-outline-danger" type="submit" form="batchDelItemsForm"><i class="bi bi-trash"></i> 批量删除</button>
+          <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#itemAddModal"><i class="bi bi-plus-lg"></i> 添加明细</button>
+          <button class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#itemImportModal"><i class="bi bi-file-earmark-excel"></i> Excel 导入</button>
+        </span>
+      </div>
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead><tr><th style="width:34px"><input type="checkbox" class="form-check-input" id="item-check-all"></th><th>材料</th><th>规格</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th><th>操作</th></tr></thead>
+          <tbody>
+            {% for it in order.items %}
+            <tr>
+              <td><input type="checkbox" class="form-check-input item-check" name="item_ids" value="{{ it.id }}" form="batchDelItemsForm"></td>
+              <td class="fw-semibold">{{ it.material.name }}</td>
+              <td class="small">{{ it.material.spec or '—' }}</td>
+              <td class="small">{{ it.unit or (it.material.unit if it.material else '') }}</td>
+              <td><input type="number" step="any" name="quantity" form="itemform-{{ it.id }}" value="{{ it.quantity }}" style="width:110px;font-size:12px;padding:0.2rem 0.4rem" class="form-control form-control-sm" min="0"></td>
+              <td>
+                <input type="number" step="any" name="unit_price" form="itemform-{{ it.id }}" value="{{ it.unit_price }}" style="width:110px;font-size:12px;padding:0.2rem 0.4rem" class="form-control form-control-sm" min="0" readonly>
+                {% if it.material and it.material.ref_price != it.unit_price %}<i class="bi bi-info-circle text-muted ms-1" title="材料最新参考价 ¥{{ it.material.ref_price|money }}（明细单价为下单时快照）"></i>{% endif %}
+              </td>
+              <td class="text-money item-amount" data-price="{{ it.unit_price }}">¥{{ it.amount|money }}</td>
+              <td class="text-nowrap">
+                <form method="post" action="/purchases/items/{{ it.id }}/update" id="itemform-{{ it.id }}" class="d-inline">
+                  <button class="btn btn-sm btn-outline-primary">存</button>
+                </form>
+                <form method="post" action="/purchases/items/{{ it.id }}/delete" class="d-inline" onsubmit="return confirm('移除该明细？');">
+                  <button class="btn btn-sm btn-outline-danger">删</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-center text-muted py-3">暂无明细，请添加</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <form id="batchDelItemsForm" method="post" action="/purchases/{{ order.id }}/items-batch-delete"
+              onsubmit="return confirm('确认删除所选材料明细？');"></form>
+      </div>
+    </div>
+  </div>
+  
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-receipt me-1"></i>关联发票（{{ order_invoices | length }}）<span class="fw-bold">合计 ¥{{ order_invoice_total|money }}</span></span>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#linkInvoiceModal"><i class="bi bi-link-45deg"></i> 选择发票</button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th style="width:130px">发票号</th><th>类型</th><th>金额</th><th>日期</th><th>状态</th><th></th></tr></thead>
+          <tbody>
+            {% for inv in order_invoices %}
+            <tr>
+              <td class="small" title="{{ inv.invoice_no or '—' }}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ inv.invoice_no or '—' }}</td>
+              <td class="small">{{ inv.invoice_type }}</td>
+              <td class="text-money">¥{{ inv.amount|money }}</td>
+              <td class="small">{{ inv.invoice_date or '—' }}</td>
+              <td><span class="badge {{ inv.status | state_badge }}">{{ inv.status }}</span></td>
+              <td>
+                <form method="post" action="/purchases/{{ order.id }}/unlink-invoice/{{ inv.id }}" class="d-inline">
+                  <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="取消关联"><i class="bi bi-x-lg"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-3">暂无关联发票</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-cash-stack me-1"></i>关联付款（{{ order_payments | length }}）<span class="fw-bold">合计 ¥{{ order_paid_total|money }}</span></span>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#linkPaymentModal"><i class="bi bi-link-45deg"></i> 选择付款</button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>日期</th><th>金额</th><th>方式</th><th>备注</th><th></th></tr></thead>
+          <tbody>
+            {% for p in order_payments %}
+            <tr>
+              <td class="small">{{ p.pay_date or '—' }}</td>
+              <td class="text-money text-danger">¥{{ p.amount|money }}</td>
+              <td class="small">{{ p.pay_method }}</td>
+              <td class="small text-muted">{{ p.note or '' }}</td>
+              <td>
+                <form method="post" action="/purchases/{{ order.id }}/unlink-payment/{{ p.id }}" class="d-inline">
+                  <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="取消关联"><i class="bi bi-x-lg"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center text-muted py-3">暂无关联付款</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- 选择发票模态 -->
+<div class="modal fade" id="linkInvoiceModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/purchases/{{ order.id }}/link-invoices">
+        <div class="modal-header py-2">
+          <h6 class="modal-title">选择已登记发票关联到本采购单</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% if unlinked_invoices %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead><tr><th></th><th style="width:130px">发票号</th><th>类型</th><th>金额</th><th>日期</th><th>购方/销方</th></tr></thead>
+              <tbody>
+                {% for inv in unlinked_invoices %}
+                <tr>
+                  <td><input type="checkbox" name="invoice_ids" value="{{ inv.id }}"></td>
+                  <td class="small" title="{{ inv.invoice_no or '—' }}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ inv.invoice_no or '—' }}</td>
+                  <td class="small">{{ inv.invoice_type }}</td>
+                  <td class="text-money">¥{{ inv.amount|money }}</td>
+                  <td class="small">{{ inv.invoice_date or '—' }}</td>
+                  <td class="small">{{ inv.seller_name or inv.title or '' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="small text-muted mt-1">仅列出未关联采购单的进项发票，可多选。</div>
+          {% else %}
+          <div class="text-muted py-3 text-center">暂无未关联采购单的发票</div>
+          {% endif %}
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-sm btn-primary">关联所选发票</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!-- 选择付款模态 -->
+<div class="modal fade" id="linkPaymentModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/purchases/{{ order.id }}/link-payments">
+        <div class="modal-header py-2">
+          <h6 class="modal-title">选择已登记付款关联到本采购单</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% if unlinked_payments %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead><tr><th></th><th>日期</th><th>金额</th><th>方式</th><th>供应商</th><th>备注</th></tr></thead>
+              <tbody>
+                {% for p in unlinked_payments %}
+                <tr>
+                  <td><input type="checkbox" name="payment_ids" value="{{ p.id }}"></td>
+                  <td class="small">{{ p.pay_date or '—' }}</td>
+                  <td class="text-money text-danger">¥{{ p.amount|money }}</td>
+                  <td class="small">{{ p.pay_method }}</td>
+                  <td class="small">{{ p.supplier.name if p.supplier else '' }}</td>
+                  <td class="small text-muted">{{ p.note or '' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="small text-muted mt-1">仅列出该合同下未关联采购单的付款，可多选。</div>
+          {% else %}
+          <div class="text-muted py-3 text-center">暂无该合同下未关联采购单的付款</div>
+          {% endif %}
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-sm btn-primary">关联所选付款</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 添加明细模态（多选） -->
+<div class="modal fade" id="itemAddModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/purchases/{{ order.id }}/items-batch" id="itemBatchForm">
+        <div class="modal-header">
+          <h5 class="modal-title">添加材料明细（多选）</h5>
+          <div class="d-flex gap-2 align-items-center">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="refreshContractMats()" title="重新从材料管理获取本合同材料（清除缓存）"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+        </div>
+        <div class="modal-body" style="max-height:58vh;overflow:auto;">
+          <div class="small text-muted mb-2">勾选材料并填写用量，默认全选本合同材料，用量默认为合同清单工程量。</div>
+          {% if contract_materials %}
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <strong><i class="bi bi-star-fill text-warning me-1"></i>本合同材料</strong>
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="checkAllContract(true)">全选</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="checkAllContract(false)">取消</button>
+          </div>
+          {% for m in contract_materials %}
+          <div class="d-flex align-items-center gap-2 border-bottom py-1" data-contract-mat="1">
+            <input type="checkbox" class="form-check-input mat-item-check" data-mid="{{ m.id }}" checked>
+            <span class="flex-grow-1 small">{{ m.name }} <span class="text-muted">{{ m.spec }}</span></span>
+            <span class="text-muted small">用量</span>
+            <input type="number" step="any" class="form-control form-control-sm mat-item-qty" style="width:90px" value="{{ contract_qty.get(m.name ~ '||' ~ (m.spec or '')) or m.opening_stock or 1 }}">
+            <span class="text-muted small">单价</span>
+            <input type="number" step="any" class="form-control form-control-sm mat-item-price" style="width:90px" value="{{ contract_price.get(m.name ~ '||' ~ (m.spec or '')) or m.ref_price or 0 }}" readonly>
+          </div>
+          {% endfor %}
+          {% endif %}
+                    {% if not contract_materials %}
+          <div class="text-muted py-3 text-center">本合同暂无可选材料，请先在材料管理中为材料设置所属合同，或使用 Excel 导入。</div>
+          {% endif %}{% if not contract_materials and not other_materials %}
+          <div class="text-muted py-3 text-center">材料库为空，请先在材料管理中新增材料。</div>
+          {% endif %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-sm btn-primary">添加所选材料</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Excel 导入模态 -->
+<div class="modal fade" id="itemImportModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/purchases/{{ order.id }}/import-excel" enctype="multipart/form-data">
+        <div class="modal-header"><h5 class="modal-title">Excel 导入材料明细</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="alert alert-light small mb-3">Excel 需包含列：<strong>材料/材料名称</strong>、<strong>数量</strong>、<strong>单价</strong>（可选 规格/备注）。材料按名称匹配，不存在则自动创建。</div>
+          <input type="file" name="file" class="form-control" accept=".xlsx,.xls,.csv" required>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-sm btn-success">导入</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<script>
+function refreshContractMats(){
+  var url = new URL(window.location.href);
+  url.searchParams.set('open_add', '1');
+  window.location.href = url.toString();
+}
+(function(){
+  var params = new URLSearchParams(window.location.search);
+  if(params.get('open_add') === '1'){
+    var el = document.getElementById('itemAddModal');
+    if(el && window.bootstrap){
+      var m = bootstrap.Modal.getOrCreateInstance(el);
+      m.show();
+    }
+    var u = new URL(window.location.href);
+    u.searchParams.delete('open_add');
+    history.replaceState({}, '', u.toString());
+  }
+  var form = document.getElementById('itemBatchForm');
+  if(!form) return;
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    form.querySelectorAll('input[name="material_ids"]').forEach(x => x.remove());
+    form.querySelectorAll('input[name="quantities"]').forEach(x => x.remove());
+    var rows = document.querySelectorAll('#itemAddModal .mat-item-check');
+    var added = 0;
+    rows.forEach(function(cb){
+      if(!cb.checked) return;
+      var row = cb.closest('div');
+      var qtyEl = row.querySelector('.mat-item-qty');
+      var qty = qtyEl ? parseFloat(qtyEl.value) : 0;
+      if(!qty || qty <= 0) return;
+      // 用行顺序绑定：材料 id 来自 data 属性
+      var mid = cb.getAttribute('data-mid');
+      if(!mid) return;
+      var h1 = document.createElement('input');
+      h1.type='hidden'; h1.name='material_ids'; h1.value=mid;
+      form.appendChild(h1);
+      var h2 = document.createElement('input');
+      h2.type='hidden'; h2.name='quantities'; h2.value=qty;
+      form.appendChild(h2);
+      var priceEl = row.querySelector('.mat-item-price');
+      var price = priceEl ? parseFloat(priceEl.value) : 0;
+      var h3 = document.createElement('input');
+      h3.type='hidden'; h3.name='unit_prices'; h3.value=price || 0;
+      form.appendChild(h3);
+      added++;
+    });
+    if(!added){ alert('请至少勾选一种材料并填写用量'); return; }
+    form.submit();
+  });
+  window.checkAllContract = function(on){
+    document.querySelectorAll('#itemAddModal [data-contract-mat="1"] .mat-item-check')
+      .forEach(cb => cb.checked = on);
+  };
+})();
+</script>
+
+<script>
+(function(){
+  function fmt(n){
+    return '¥' + (Math.round(n * 100) / 100).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  }
+  function recalcRow(row){
+    var qtyEl = row.querySelector('input[name="quantity"]');
+    var amtEl = row.querySelector('.item-amount');
+    if(!qtyEl || !amtEl) return;
+    var price = parseFloat(amtEl.getAttribute('data-price')) || 0;
+    var qty = parseFloat(qtyEl.value) || 0;
+    amtEl.textContent = fmt(price * qty);
+    recalcTotal();
+  }
+  function recalcTotal(){
+    var total = 0;
+    document.querySelectorAll('.item-amount').forEach(function(el){
+      var txt = el.textContent.replace(/[¥,]/g, '');
+      var v = parseFloat(txt) || 0;
+      total += v;
+    });
+    var t = document.getElementById('itemTotal');
+    if(t) t.textContent = fmt(total);
+  }
+  document.querySelectorAll('input[name="quantity"]').forEach(function(el){
+    el.addEventListener('input', function(){ recalcRow(el.closest('tr')); });
+    el.addEventListener('change', function(){ recalcRow(el.closest('tr')); });
+  });
+})();
+</script>
+
+<script>
+(function(){
+  var all = document.getElementById('item-check-all');
+  if(all){
+    all.addEventListener('change', function(e){
+      document.querySelectorAll('.item-check').forEach(cb => cb.checked = e.target.checked);
+    });
+  }
+})();
+</script>
+
+{% endblock %}

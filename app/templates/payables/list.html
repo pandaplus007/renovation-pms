@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}应付账款台账{% endblock %}
+{% block page_title %}应付账款台账{% endblock %}
+{% block content %}
+
+{% if flash %}<div class="alert alert-info py-2">{{ flash }}</div>{% endif %}
+
+<div class="page-head">
+  <div class="search-row">
+    <a href="/payables?kind=all" class="btn btn-sm {{ 'btn-primary' if kind=='all' else 'btn-outline-secondary' }}">全部</a>
+    <a href="/payables?kind=purchase" class="btn btn-sm {{ 'btn-primary' if kind=='purchase' else 'btn-outline-secondary' }}">采购合同</a>
+    <a href="/payables?kind=sub" class="btn btn-sm {{ 'btn-primary' if kind=='sub' else 'btn-outline-secondary' }}">分包合同</a>
+  </div>
+  <a href="/payables/export?kind={{ kind }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-download"></i> 导出
+  </a>
+</div>
+
+{# ---------- 核心：备现金要看的两个数 ---------- #}
+<div class="row g-2 mb-3">
+  <div class="col-md-6">
+    <div class="card border-warning h-100">
+      <div class="card-body py-2">
+        <div class="text-muted small">近期确定要付（已下单未付）</div>
+        <div class="fs-3 fw-bold text-warning">{{ d.total_due|money }}</div>
+        <div class="small text-muted">
+          钱已经下单锁定，只是还没掏 —— <strong>{{ d.count_unpaid }}</strong> 份合同涉及
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body py-2">
+        <div class="text-muted small">潜在应付（合同里还没下单的部分）</div>
+        <div class="fs-3 fw-bold">{{ d.total_potential|money }}</div>
+        <div class="small text-muted">
+          合同签了但未下单，<strong>不一定全要花</strong>（包干合同可能不分批下单）
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% set gap = (d.total_due + d.total_potential) - d.total_balance %}
+{% if gap > 1 %}
+<div class="alert alert-info py-2">
+  <i class="bi bi-info-circle me-1"></i>
+  上面两个数相加（{{ (d.total_due + d.total_potential)|money }}）比「总敞口」（{{ d.total_balance|money }}）多出
+  <strong>{{ gap|money }}</strong>，因为有 {{ over_order_count }} 份合同
+  <strong>已付金额超过了下单金额</strong>（钱付了但没录下单），它们不构成新的欠款。
+  详见下方逐份合同表中的「近期应付」为负的行。
+</div>
+{% endif %}
+
+{# ---------- 概览 ---------- #}
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <div class="row g-3 text-center small">
+      <div class="col"><div class="text-muted">合同总额</div><div class="fs-6 fw-semibold">{{ d.total_amount|money }}</div></div>
+      <div class="col"><div class="text-muted">已下单</div><div class="fs-6">{{ d.total_ordered|money }}</div></div>
+      <div class="col"><div class="text-muted">已付</div><div class="fs-6">{{ d.total_paid|money }}</div></div>
+      <div class="col"><div class="text-muted">总敞口</div><div class="fs-6 fw-semibold">{{ d.total_balance|money }}</div></div>
+      <div class="col"><div class="text-muted">已开票</div><div class="fs-6">{{ d.total_invoiced|money }}</div></div>
+      {% if d.total_over_paid > 0 %}
+      <div class="col"><div class="text-muted">超付</div><div class="fs-6 text-danger">{{ d.total_over_paid|money }}</div></div>
+      {% endif %}
+      {% if d.total_invoice_gap > 0 %}
+      <div class="col"><div class="text-muted">已付未开票</div><div class="fs-6 text-warning">{{ d.total_invoice_gap|money }}</div></div>
+      {% endif %}
+    </div>
+    <div class="text-muted small mt-2 pt-2 border-top">
+      共 <strong>{{ d.count }}</strong> 份合同，其中 <strong>{{ d.count_settled }}</strong> 份已结清。
+      「总敞口 = 合同额 − 已付」是与供应商对账的总数；备现金请看上面的<strong>近期应付</strong>。
+    </div>
+  </div>
+</div>
+
+{# ---------- 按收付款方 ---------- #}
+<div class="card mb-3">
+  <div class="card-header"><i class="bi bi-people me-1"></i>按供应商 / 分包商</div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>供应商 / 分包商</th><th style="width:60px">合同</th>
+        <th style="width:120px" class="text-end">合同额</th>
+        <th style="width:120px" class="text-end">已付</th>
+        <th style="width:120px" class="text-end">近期应付</th>
+        <th style="width:150px">付款进度</th>
+      </tr></thead>
+      <tbody>
+      {% for p in parties %}
+        <tr>
+          <td>{{ p.who }}</td>
+          <td class="small text-muted">{{ p.count }}</td>
+          <td class="text-end text-nowrap">{{ p.amount|money }}</td>
+          <td class="text-end text-nowrap">{{ p.paid|money }}</td>
+          <td class="text-end text-nowrap">
+            {% if p.due_payable > 0.5 %}<strong class="text-warning">{{ p.due_payable|money }}</strong>
+            {% else %}<span class="text-muted">0</span>{% endif %}
+          </td>
+          <td>
+            {# 同上：条与数字并排，避免数字在格子里偏上 3.2px #}
+            <div class="d-flex align-items-center gap-2">
+              <div class="progress progress-xs flex-grow-1" style="min-width:56px">
+                <div class="progress-bar bg-success" style="width:{{ p.settle_pct }}%"></div>
+              </div>
+              <span class="small text-muted text-nowrap num">{{ p.settle_pct }}%</span>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">暂无数据</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ---------- 逐份合同 ---------- #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-file-earmark-text me-1"></i>逐份合同（按近期应付降序）</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card table-wide">
+      <thead><tr>
+        <th>合同</th><th>供应商 / 分包商</th>
+        <th style="width:110px" class="text-end">合同额</th>
+        <th style="width:110px" class="text-end">已下单</th>
+        <th style="width:110px" class="text-end">已付</th>
+        <th style="width:120px" class="text-end">近期应付</th>
+        <th style="width:120px" class="text-end">潜在应付</th>
+        <th style="width:100px">付款率</th>
+        <th style="width:100px">参考日期</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr class="{{ 'table-danger' if r.balance < -0.5 else '' }}">
+          <td>
+            <a href="{{ r.url }}" class="text-decoration-none">{{ r.name }}</a>
+            {% if r.no %}<div class="small text-muted">{{ r.no }}</div>{% endif %}
+          </td>
+          <td class="small">{{ r.who }}</td>
+          <td class="text-end text-nowrap">{{ r.amount|money }}</td>
+          <td class="text-end text-nowrap text-muted">{{ r.ordered|money }}</td>
+          <td class="text-end text-nowrap">{{ r.paid|money }}</td>
+          <td class="text-end text-nowrap">
+            {% if r.due_payable > 0.5 %}<strong class="text-warning">{{ r.due_payable|money }}</strong>
+            {% elif r.due_payable < -0.5 %}<span class="text-secondary" title="已付超过下单额，可能漏录了采购单">付超下单 {{ (-r.due_payable)|money }}</span>
+            {% elif r.balance < -0.5 %}<span class="text-danger">超付 {{ r.over_paid|money }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-end text-nowrap text-muted">
+            {% if r.potential > 0.5 %}{{ r.potential|money }}{% else %}—{% endif %}
+          </td>
+          <td>
+            {# 条与数字**并排**，不是上下堆叠。原来是「条一行、% 一行」，
+               两块各自有高度，数字落在格子里偏上 3.2px——实测出来的
+               （padding 上下对称，所以不是 padding 的问题）。
+               并排之后整格就是一行，行内居中自然对齐。 #}
+            <div class="d-flex align-items-center gap-2">
+              <div class="progress progress-xs flex-grow-1" style="min-width:56px">
+                <div class="progress-bar bg-{{ 'danger' if r.balance < -0.5 else ('success' if r.settle_pct>=99 else ('warning' if r.settle_pct>0 else 'secondary')) }}" style="width:{{ [r.settle_pct, 100]|min }}%"></div>
+              </div>
+              <span class="small text-muted text-nowrap num">{{ r.settle_pct }}%</span>
+            </div>
+          </td>
+          <td class="small text-muted text-nowrap">{{ r.ref_date or '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9" class="text-center text-muted py-4">暂无合同</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-body small text-muted">
+    <strong>口径说明</strong>
+    <ul class="mb-0 mt-1">
+      <li><strong>近期应付 = 已下单 − 已付</strong>　已下单的钱是承诺出去的，只是还没付，备现金看这个</li>
+      <li><strong>潜在应付 = 合同额 − 已下单</strong>　合同里还没下单的部分，不一定全要花（包干合同可能不分批下单），别当欠款</li>
+      <li><strong>总敞口 = 合同额 − 已付</strong>　与供应商对账的总数 = 近期应付 + 潜在应付</li>
+      <li><strong>已付未开票</strong>　钱付了但没拿到进项发票，影响进项税抵扣，值得单独关注</li>
+      {% if d.over_order_count %}
+      <li><strong>付超下单</strong>　{{ d.over_order_count }} 份合同已付金额超过下单金额（{{ d.over_order_amount|money }}）。通常是先付款后补录采购单，或漏录了采购单——<strong>建议去对应合同补录下单</strong>，否则「已下单」与「已付」对不上</li>
+      {% endif %}
+      <li><strong>参考日期</strong>　取合同里最早的未来节点。现有节点多为「交货期限」而非「付款期限」，<strong>不等于付款截止日</strong>，仅作时间参考</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

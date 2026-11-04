@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>变更签证单 {{ obj.change_no or '#' ~ obj.id }} · {{ project.name if project else '' }}</title>
+<style>
+/* ============================================================================
+   变更签证单 · 纸质多联
+   ----------------------------------------------------------------------------
+   这份页面**不套应用外壳**，是有意的：base.html 会带侧栏、顶栏、按钮、
+   浮动的打印按钮——@media print 虽然把它们隐藏了，但那些 DOM 节点仍会
+   参与布局与分页计算，纸面上经常多出空白页或把签字栏挤到下一页。
+   独立页面连那层 DOM 都不存在，纸面就是这张单子。
+
+   版面按真实签字单设计：
+     · A4 纵向，页边距留够盖骑缝章的位置
+     · 每联一份，联与联之间是虚线裁切线（打印后沿线裁开）
+     · 每联右上角标联次（甲方留存/乙方留存/现场存档）——裁开后看得出
+       手上这张是谁的，省得三张纸混一起
+     · 金额必须有中文大写：小写金额可涂改，事后对账扯皮无从对证
+     · 签字栏在页面底部固定位置，不能被内容挤到下一页
+
+   为什么用「每联独占一页」而不是在一页里塞三联：
+     裁切沿虚线剪开、双方各执一份，是纸质签证单的通行做法；
+     挤在一页上的话，裁切线穿过签字栏就没法签了。
+   ========================================================================= */
+
+@page {
+  size: A4 portrait;
+  /* 底部留 20mm 给签字栏与盖章，顶部 12mm 让页眉编号不上贴边 */
+  margin: 12mm 14mm 18mm 14mm;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  /* 中文印刷体：优先思源/苹方/微软雅黑，避免 PDF 化时字体回退 */
+  font-family: "Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC",
+               "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+  color: #000;
+  background: #f2f3f0;
+  font-size: 12pt;
+  line-height: 1.55;
+}
+
+/* 屏幕上带一点纸感，方便屏幕上预览；打印时去掉背景 */
+.sheet {
+  width: 210mm;
+  min-height: 296mm;                 /* A4 高 297mm 减去上下页边距 */
+  padding: 0 2mm;
+  margin: 10mm auto;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .12);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.copy-tag {
+  position: absolute;
+  top: 0;
+  right: 2mm;
+  font-size: 9pt;
+  color: #666;
+  letter-spacing: .5pt;
+}
+
+.hd {
+  text-align: center;
+  border-bottom: 2.5pt solid #000;
+  padding-bottom: 4mm;
+  margin-bottom: 5mm;
+}
+.hd h1 {
+  margin: 0;
+  font-size: 21pt;
+  letter-spacing: 6pt;              /* 中文标题拉开字距，庄重一些 */
+  font-weight: 700;
+}
+.hd .no {
+  margin-top: 2mm;
+  font-size: 10pt;
+  color: #333;
+}
+.hd .no b { font-size: 12pt; letter-spacing: 1pt; }
+
+/* 表格：竖线全开，纸质单据要便于逐格填写 */
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+table.grid th, table.grid td {
+  border: 0.8pt solid #000;
+  padding: 2.6mm 2.5mm;
+  vertical-align: middle;
+  word-break: break-all;
+}
+table.grid th {
+  background: #f0f0ee;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+table.grid td.k { background: #f7f7f5; text-align: center; font-weight: 600; }
+
+/* 事由栏要给足空间——变更原因往往比金额更需要写清楚 */
+tr.reason td {
+  height: 30mm;
+  vertical-align: top;
+  line-height: 1.8;
+}
+
+/* 金额大写单独一行且加框：这是防涂改的关键行，不能含糊 */
+.cn-amount {
+  font-weight: 700;
+  letter-spacing: 1pt;
+  font-size: 12.5pt;
+}
+
+/* 底部固定：签字盖章栏。用 margin-top:auto 顶到底，
+   再 page-break-inside:avoid 防止单独跑到下一页 */
+.sign {
+  margin-top: auto;
+  padding-top: 8mm;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.sign-row {
+  display: flex;
+  gap: 8mm;
+}
+.sign-box {
+  flex: 1;
+  border: 0.8pt solid #000;
+  padding: 2.6mm 3mm 8mm;
+  min-height: 28mm;
+  position: relative;
+}
+/* 标题与提示都收紧到单行：公司名较长时会换行，把签字位置挤下去 */
+.sign-box .who {
+  font-weight: 600;
+  margin-bottom: 1mm;
+  font-size: 9.5pt;
+  white-space: nowrap;
+}
+.sign-box .hint {
+  font-size: 8pt;
+  color: #555;
+  line-height: 1.7;
+}
+.sign-box .hint .org { display: block; }
+
+/* 骑缝章位置提示：只印淡灰虚线框，实际盖章时压上去 */
+.seal-mark {
+  margin-top: 4mm;
+  border: 0.6pt dashed #999;
+  padding: 2mm;
+  font-size: 8.5pt;
+  color: #666;
+  text-align: center;
+}
+
+.foot {
+  margin-top: 4mm;
+  padding-top: 2mm;
+  border-top: 0.5pt solid #999;
+  font-size: 8pt;
+  color: #666;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* ---------------------------------------------------------------- 屏幕预览 */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  background: #fff;
+  border-bottom: 1px solid #d8dad4;
+  font-size: 14px;
+}
+.toolbar .hint { color: #666; margin-left: auto; font-size: 13px; }
+.cut-line {
+  display: none;
+}
+
+@media print {
+  html, body { background: #fff; }
+  .toolbar { display: none !important; }
+  .sheet {
+    width: auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    page-break-after: always;     /* 每联独占一页 */
+  }
+  .sheet:last-of-type { page-break-after: auto; }   /* 最后一联后面不要空页 */
+  /* 裁切线只在打印时出现：屏幕上画出来只是干扰。
+     它**不能**带 page-break ——分页只由 .sheet 负责。早先让裁切线也
+     page-break-after，每联之间就分两次页，3 联印出 5 页。 */
+  .cut-line {
+    display: block;
+    border-top: 0.5pt dashed #999;
+    margin: 2mm 0;
+  }
+  .cut-line::after {
+    content: "— — — 沿线裁开 — — —";
+    display: block;
+    margin-top: -3.2mm;
+    background: #fff;
+    width: 46mm;
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+    font-size: 7pt;
+    color: #777;
+  }
+}
+</style>
+</head>
+<body>
+
+{# ========== 屏幕上的操作条（打印时隐藏） ========== #}
+<div class="toolbar">
+  <button onclick="window.print()" class="btn-printer">打印 / 另存为 PDF</button>
+  <label style="display:inline-flex;align-items:center;gap:6px;">
+    联数
+    <select id="copies" onchange="location.href='?copies=' + this.value">
+      {% for n in range(1, 7) %}
+      <option value="{{ n }}" {{ 'selected' if n == copies }}>{{ n }} 联</option>
+      {% endfor %}
+    </select>
+  </label>
+  <a href="/changes/{{ obj.id }}/edit" class="btn-back">← 返回编辑</a>
+  <a href="/projects/{{ obj.project_id }}/changes" class="btn-back">返回项目变更列表</a>
+  <span class="hint">打印后在每联之间沿线裁开 · 建议 A4 纵向、100% 缩放、关闭「页眉页脚」</span>
+</div>
+
+{# ========== 联次，逐联渲染 ========== #
+   裁切线放在「每联之后（末联除外）」：.sheet 自带 page-break-after 让每联
+   独占一页，裁切线紧跟在该页末尾，只是视觉上的裁开提示，它自己不再分页。 #}
+{% for idx in range(copies) %}
+{% set label = copy_labels[idx] if idx < copy_labels|length else '留存' %}
+<div class="sheet">
+  <div class="copy-tag">{{ label }} · 第 {{ idx + 1 }} 联 / 共 {{ copies }} 联</div>
+
+  <div class="hd">
+    <h1>变更签证单</h1>
+    <div class="no">签证单号：<b>{{ obj.change_no or ('BS-' + obj.id|string) }}</b></div>
+  </div>
+
+  <table class="grid">
+    <colgroup>
+      <col style="width:16%"><col style="width:34%">
+      <col style="width:16%"><col style="width:34%">
+    </colgroup>
+    <tr>
+      <th>工程名称</th>
+      <td>{{ project.name if project else '—' }}</td>
+      <th>施工单位<br>（乙方）</th>
+      <td>{{ company.name if company else '—' }}</td>
+    </tr>
+    <tr>
+      <th>建设单位<br>（甲方）</th>
+      <td>{{ project.customer.name if project and project.customer else '—' }}</td>
+      <th>工程地点</th>
+      <td>{{ project.address if project else '—' }}</td>
+    </tr>
+    <tr>
+      <th>提出日期</th>
+      <td>{{ obj.raise_date.strftime('%Y 年 %m 月 %d 日') if obj.raise_date else '　' }}</td>
+      <th>确认日期</th>
+      <td>{{ obj.confirm_date.strftime('%Y 年 %m 月 %d 日') if obj.confirm_date else '　' }}</td>
+    </tr>
+    <tr>
+      <th>变更工序</th>
+      <td>{{ obj.category }}</td>
+      <th>变更性质</th>
+      <td>{{ '增项' if obj.amount > 0 else ('减项' if obj.amount < 0 else '无金额变更') }}</td>
+    </tr>
+    <tr>
+      <th>变更事项</th>
+      <td colspan="3" style="min-height:12mm;">{{ obj.title }}</td>
+    </tr>
+    <tr class="reason">
+      <th>变更原因<br>及说明</th>
+      <td colspan="3">{{ obj.reason or obj.note or '' }}</td>
+    </tr>
+    <tr>
+      <th>变更金额<br>（小写）</th>
+      <td colspan="3">
+        {% if obj.amount > 0 %}增加{% elif obj.amount < 0 %}减少{% else %}{% endif %}
+        ￥{{ obj.amount | money }}
+      </td>
+    </tr>
+    <tr>
+      <th>变更金额<br>（大写）</th>
+      <td colspan="3" class="cn-amount">{{ obj.amount | money_cn }}</td>
+    </tr>
+  </table>
+
+  <div class="sign">
+    <div class="sign-row">
+      <div class="sign-box">
+        <div class="who">甲方代表签字</div>
+        <div class="hint"><span class="org">{{ project.customer.name if project and project.customer else '' }}</span>签字：____________　日期：____年__月__日</div>
+      </div>
+      <div class="sign-box">
+        <div class="who">乙方代表签字</div>
+        <div class="hint"><span class="org">{{ company.name if company else '' }}</span>签字：____________　日期：____年__月__日</div>
+      </div>
+      <div class="sign-box">
+        <div class="who">见证 / 监理签字</div>
+        <div class="hint">签字：____________　日期：____年__月__日</div>
+      </div>
+    </div>
+    <div class="seal-mark">
+      骑缝章位置 —— 各联裁开前先盖此章，裁开后每联印章边缘可对齐，用于核对同一次签证
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>本签证单经甲乙双方签字（盖章）后生效，作为原合同不可分割的组成部分。</span>
+    <span>{{ obj.change_no or ('BS-' + obj.id|string) }} · {{ label }}</span>
+  </div>
+</div>
+{% if idx < copies - 1 %}<div class="cut-line"></div>{% endif %}
+{% endfor %}
+
+<style>
+/* 屏幕工具条按钮（不依赖 Bootstrap，这个页面是独立的） */
+.btn-printer, .btn-back {
+  display: inline-block; padding: 7px 14px; border-radius: 6px;
+  border: 1px solid #3d7a63; background: #3d7a63; color: #fff;
+  font-size: 14px; cursor: pointer; text-decoration: none;
+}
+.btn-back { background: #fff; color: #3d7a63; }
+.btn-printer:hover { background: #33645080; }
+.btn-back:hover { background: #eef3f0; }
+</style>
+</body>
+</html>

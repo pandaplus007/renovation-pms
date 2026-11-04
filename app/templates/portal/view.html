@@ -1,0 +1,168 @@
+{# 业主看到的页面。**不继承 base.html** —— 业主没有账号，继承侧栏只会
+   让他看到一堆 403 链接，还暴露了系统的模块结构。所以是独立布局。 #}
+<!DOCTYPE html>
+<html lang="zh-CN" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ v.project_name }} · {{ company_name }}</title>
+  {# 业主可能把链接转发出去。禁掉 referrer 泄露：否则业主从别处点进来时，
+     他的来路 URL 会通过 Referer 头带回我们服务器（日志里能看出他是从哪看到的广告）。 #}
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <link href="/static/bootstrap.min.css" rel="stylesheet">
+  <style>
+    /* 业主端不加载全站 CSS：侧栏/暗色/打印主题都与他无关，
+       少几百 KB，手机上首屏快一截。 */
+    body { background: #f6f7f5; }
+    .p-hero { background: linear-gradient(180deg, #3d7a63 0%, #336b56 100%); color: #fff; }
+    .p-card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.07);
+              padding:1rem; margin-bottom:.85rem; }
+    .p-title { font-size:.82rem; color:#7a8a83; font-weight:600; margin-bottom:.35rem;
+               letter-spacing:.04em; }
+    .p-bar { height:8px; background:#e6ebe8; border-radius:99px; overflow:hidden; }
+    .p-bar > i { display:block; height:100%; background:#3d7a63; border-radius:99px; }
+    .p-photo { width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:8px;
+               background:#eee; }
+    .p-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:.5rem; }
+    .p-grid .k { font-size:.78rem; color:#8b9a93; }
+    .p-grid .v { font-size:1.02rem; font-weight:600; color:#26332e; }
+    .p-phase { display:flex; align-items:center; gap:.6rem; padding:.45rem 0;
+               border-bottom:1px solid #f0f2f1; font-size:.95rem; }
+    .p-phase:last-child { border-bottom:0; }
+    .p-dot { width:22px; height:22px; border-radius:50%; flex:0 0 22px;
+             display:flex; align-items:center; justify-content:center; font-size:.7rem; }
+    .p-dot.done { background:#3d7a63; color:#fff; }
+    .p-dot.doing { background:#fff; border:2px solid #3d7a63; color:#3d7a63; }
+    .p-dot.todo { background:#f0f2f1; color:#a8b3ad; }
+    /* 业主只看手机，不做响应式断点调优；但底栏吸底要在小屏上好用 */
+    @media (min-width: 768px) { .p-wrap { max-width: 720px; margin: 0 auto; } }
+  </style>
+</head>
+<body>
+
+<div class="p-hero py-4 mb-3">
+  <div class="p-wrap px-3">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      {% if company_logo %}
+      <img src="{{ company_logo }}" alt="" style="height:28px;opacity:.95">
+      {% else %}
+      <i class="bi bi-hammer"></i>
+      {% endif %}
+      <span style="font-size:.86rem;opacity:.9">{{ company_name }}</span>
+    </div>
+    <h1 class="h4 mb-1">{{ v.project_name }}</h1>
+    {% if v.address %}<div style="font-size:.86rem;opacity:.85"><i class="bi bi-geo-alt me-1"></i>{{ v.address }}</div>{% endif %}
+  </div>
+</div>
+
+<div class="p-wrap px-3 pb-5">
+
+  {# ---- 施工状态 ---- #}
+  <div class="p-card">
+    <div class="p-title">当前状态</div>
+    <div class="d-flex align-items-baseline gap-2 mb-2">
+      <span class="h5 mb-0">{{ v.status or '—' }}</span>
+      {% if v.phase_pct is not none %}
+      <span class="ms-auto" style="font-size:1.5rem;font-weight:700;color:#3d7a63">{{ v.phase_pct }}%</span>
+      {% endif %}
+    </div>
+    {% if v.phase_pct is not none %}
+    <div class="p-bar"><i style="width:{{ v.phase_pct }}%"></i></div>
+    <div class="mt-2" style="font-size:.82rem;color:#7a8a83">
+      {{ v.phase_done }} / {{ v.phase_total }} 个施工阶段已完成
+    </div>
+    {% else %}
+    {# 没有阶段记录时**不编一个百分比**：写 0% 会让业主以为一直没开工，
+       而实际情况可能只是还没录阶段。 #}
+    <div style="font-size:.85rem;color:#8b9a93">
+      详细施工阶段尚未上传，稍后会在此更新。
+    </div>
+    {% endif %}
+  </div>
+
+  {# ---- 房屋信息 ---- #}
+  <div class="p-card">
+    <div class="p-title">房屋信息</div>
+    <div class="p-grid">
+      <div><div class="k">面积</div><div class="v">{{ v.area or '—' }}{% if v.area and '㎡' not in v.area|string %} ㎡{% endif %}</div></div>
+      <div><div class="k">风格</div><div class="v">{{ v.style or '—' }}</div></div>
+      <div><div class="k">开工</div><div class="v">{{ v.start_date or '待定' }}</div></div>
+      <div><div class="k">预计竣工</div><div class="v">{{ v.end_date or '待定' }}</div></div>
+    </div>
+  </div>
+
+  {# ---- 阶段清单 ---- #}
+  {% if v.phases %}
+  <div class="p-card">
+    <div class="p-title">施工阶段</div>
+    {% for ph in v.phases %}
+    <div class="p-phase">
+      {% if ph.status == '已完成' %}
+        <span class="p-dot done"><i class="bi bi-check"></i></span>
+      {% elif ph.status and ph.status != '待开始' %}
+        <span class="p-dot doing"></span>
+      {% else %}
+        <span class="p-dot todo"></span>
+      {% endif %}
+      <span style="{{ 'font-weight:600' if ph.status == '已完成' else '' }}">{{ ph.name }}</span>
+      <span class="ms-auto" style="font-size:.8rem;color:#8b9a93">{{ ph.status or '待开始' }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ---- 收款进度（可关）---- #}
+  {% if v.payment %}
+  <div class="p-card">
+    <div class="p-title">付款进度</div>
+    <div class="d-flex align-items-baseline gap-2 mb-2">
+      <span class="h5 mb-0">已付 {{ '{:,.0f}'.format(v.payment.paid) }}</span>
+      {% if v.payment.pct is not none %}
+      <span class="ms-auto" style="font-size:1.3rem;font-weight:700;color:#3d7a63">{{ v.payment.pct }}%</span>
+      {% endif %}
+    </div>
+    {% if v.payment.pct is not none %}
+    <div class="p-bar"><i style="width:{{ v.payment.pct }}%"></i></div>
+    {% endif %}
+    <div class="mt-2" style="font-size:.86rem;color:#7a8a83">
+      合同约定总额 {{ '{:,.0f}'.format(v.payment.plan) }}，
+      尚待支付 {{ '{:,.0f}'.format(v.payment.unpaid) }}
+    </div>
+
+    <hr style="border-color:#eef1ef">
+    {% for n in v.payment.nodes %}
+    <div class="d-flex justify-content-between py-1" style="font-size:.92rem">
+      <span>{{ n.name or '款项' }}</span>
+      <span style="color:#7a8a83">
+        {{ '{:,.0f}'.format(n.paid) }} / {{ '{:,.0f}'.format(n.plan) }}
+        {% if n.paid_full %}<i class="bi bi-check-circle text-success ms-1"></i>{% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ---- 现场照片（可关）---- #}
+  {% if v.photos %}
+  <div class="p-card">
+    <div class="p-title">现场照片</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:.5rem">
+      {% for p in v.photos %}
+      <div>
+        <img src="{{ p.url }}" class="p-photo" alt="{{ p.content or '现场照片' }}" loading="lazy">
+        <div style="font-size:.72rem;color:#8b9a93;margin-top:.2rem">{{ p.date or '' }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="text-center" style="font-size:.78rem;color:#9aa8a1;padding:1rem 0">
+    <div>数据更新至 {{ today }}</div>
+    <div class="mt-1">如需了解详情，请联系您的项目经理。</div>
+  </div>
+</div>
+
+</body>
+</html>

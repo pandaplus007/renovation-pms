@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑采购单' if order else '新建采购单' }}{% endblock %}
+{% block page_title %}{{ '编辑采购单' if order else '新建采购单' }}{% endblock %}
+{% block content %}
+
+<div class="card" style="max-width:700px;">
+  <div class="card-body p-4">
+    <form method="post" action="{{ '/purchases/%d/edit' % order.id if order else '/purchases/new' }}">
+      {% if back_url %}<input type="hidden" name="back_url" value="{{ back_url }}">{% endif %}
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">关联采购合同（可选）</label>
+          <select name="contract_id" class="form-select" onchange="autoSetLinked(this)">
+            <option value="0" data-supplier="0" data-project="0">—</option>
+            {% for c in contracts %}
+            <option value="{{ c.id }}" data-supplier="{{ c.supplier_id or 0 }}" data-project="{{ c.project_id or 0 }}" data-supplier-name="{{ c.supplier.name if c.supplier else '' }}" {{ 'selected' if (order and order.contract_id == c.id) or (not order and prefill_contract_id == c.id) else '' }}>{{ c.name }}（{{ c.contract_no or '无编号' }}）</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">选择合同后自动带出乙方供应商与所属项目；提交时也会自动采用。</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">关联项目（可选）</label>
+          <select name="project_id" id="projectSelect" class="form-select">
+            <option value="0">—</option>
+            {% for p in projects %}<option value="{{ p.id }}" {{ 'selected' if (order and order.project_id == p.id) or (not order and prefill_project_id == p.id) else '' }}>{{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">供应商</label>
+          {% set sel_sup_name = '' %}
+          {% for s in suppliers %}{% if (order and order.supplier_id == s.id) or (not order and prefill_supplier_id == s.id) %}{% set sel_sup_name = s.name %}{% endif %}{% endfor %}
+          <input type="text" name="supplier_name" id="supplierInput" class="form-control" list="poSupDatalist" autocomplete="off" placeholder="点击选择供应商…" value="{{ sel_sup_name }}">
+          <datalist id="poSupDatalist">
+            {% for s in suppliers %}<option value="{{ s.name }}">{% endfor %}
+          </datalist>
+          <input type="hidden" name="supplier_id" id="supplierSelect" value="0">
+          <div class="small text-muted mt-1">点击输入框弹出供应商列表，输入名称可搜索</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">采购单号</label>
+          <input type="text" name="order_no" class="form-control" placeholder="如：CG2026-003" value="{{ order.order_no if order else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">下单日期</label>
+          <input type="date" name="order_date" class="form-control" value="{{ order.order_date if order and order.order_date else '' }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label">备注</label>
+          <textarea name="note" class="form-control" rows="2">{{ order.note if order else '' }}</textarea>
+        </div>
+      </div>
+      {% if not order %}
+      <div class="alert alert-info small mt-3 mb-0">创建后进入详情页添加材料明细，再到货入库。</div>
+      {% endif %}
+      {% if order %}
+      <div class="card mt-3">
+        <div class="card-header d-flex justify-content-between">
+          <span>材料明细（可调数量/单价，金额自动重算）</span>
+          <span class="fw-bold">合计 ¥{{ order.total_amount|money }}</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table align-middle mb-0">
+            <thead><tr><th>材料</th><th>规格</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th><th></th></tr></thead>
+            <tbody>
+              {% for it in order.items %}
+              <tr>
+                <td class="fw-semibold">{{ it.material.name }}</td>
+                <td class="small">{{ it.material.spec or '—' }}</td>
+                <td class="small">{{ it.unit or (it.material.unit if it.material else '') }}</td>
+                <td><input type="number" step="any" name="quantity" form="itemform-{{ it.id }}" value="{{ it.quantity }}" style="width:110px;font-size:12px;padding:0.2rem 0.4rem" class="form-control form-control-sm" min="0"></td>
+                <td><input type="number" step="any" name="unit_price" form="itemform-{{ it.id }}" value="{{ it.unit_price }}" style="width:90px" class="form-control form-control-sm"></td>
+                <td class="text-money">¥{{ it.amount|money }}</td>
+                <td class="text-nowrap">
+                  <form method="post" action="/purchases/items/{{ it.id }}/update" id="itemform-{{ it.id }}" class="d-inline">
+                    <input type="hidden" name="back_url" value="{{ back_url }}">
+                    <button class="btn btn-sm btn-outline-primary">存</button>
+                  </form>
+                  <form method="post" action="/purchases/items/{{ it.id }}/delete" class="d-inline" onsubmit="return confirm('移除该明细？');">
+                    <input type="hidden" name="back_url" value="{{ back_url }}">
+                    <button class="btn btn-sm btn-outline-danger">删</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6" class="text-center text-muted py-3">暂无明细，可在详情页添加</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">保存</button>
+        <a href="{{ back_url if back_url else '/procurement?tab=orders' }}" class="btn btn-outline-secondary">取消</a>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+function autoSetLinked(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const supplierId = opt ? (opt.dataset.supplier || '0') : '0';
+  const projectId = opt ? (opt.dataset.project || '0') : '0';
+  const ss = document.getElementById('supplierSelect');
+  if (ss) ss.value = supplierId;
+  const si = document.getElementById('supplierInput');
+  if (si && opt && opt.dataset.supplierName) si.value = opt.dataset.supplierName;
+  const ps = document.getElementById('projectSelect');
+  if (ps) ps.value = projectId;
+}
+document.addEventListener('DOMContentLoaded', function(){
+  const cs = document.querySelector('select[name="contract_id"]');
+  if (cs && cs.value && cs.value !== '0') autoSetLinked(cs);
+});
+</script>
+{% endblock %}

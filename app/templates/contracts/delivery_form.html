@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}新增送货单{% endblock %}
+{% block page_title %}新增送货单{% endblock %}
+{% block content %}
+
+<div class="card" style="max-width:900px;">
+  <div class="card-header"><i class="bi bi-truck me-1"></i>新增送货单</div>
+  <div class="card-body p-4">
+    <form method="post" action="/contracts/delivery-notes/new" enctype="multipart/form-data">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">关联采购合同 *</label>
+          <select name="contract_id" class="form-select" required>
+            <option value="">请选择合同</option>
+            {% for c in contracts %}
+            <option value="{{ c.id }}" data-project="{{ c.project_id or 0 }}" {{ 'selected' if prefill_contract_id == c.id else '' }}>{{ c.name }}（{{ c.contract_no or '无编号' }}）</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">关联项目（自动带出，可改）</label>
+          <select name="project_id" class="form-select">
+            <option value="0">—</option>
+            {% for p in projects %}<option value="{{ p.id }}" {{ 'selected' if prefill_project_id == p.id else '' }}>{{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">关联采购单（可选）</label>
+          <select name="po_id" class="form-select">
+            <option value="0">—</option>
+            {% for po in pos %}<option value="{{ po.id }}">{{ po.order_no or ('采购单#' ~ po.id) }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">关联发票（可选）</label>
+          <select name="invoice_id" class="form-select">
+            <option value="0">—</option>
+            {% for i in invoices %}<option value="{{ i.id }}" data-contract="{{ i.contract_id or 0 }}">{{ i.invoice_no or ('发票#' ~ i.id) }} · ¥{{ i.amount|money }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">关联付款（可选）</label>
+          <select name="payment_id" class="form-select">
+            <option value="0">—</option>
+            {% for p in payments %}<option value="{{ p.id }}" data-contract="{{ p.contract_id or 0 }}">{{ p.pay_date or '' }} · ¥{{ p.amount|money }} · {{ p.supplier.name if p.supplier else '' }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">送货单号</label>
+          <input name="note_no" class="form-control" placeholder="如 DH-2026-001">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">送货日期</label>
+          <input name="delivery_date" type="date" class="form-control">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">数量</label>
+          <input name="quantity" type="number" step="0.5" class="form-control" value="0">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">金额 ¥</label>
+          <input name="amount" type="number" step="any" class="form-control" value="0">
+        </div>
+        <div class="col-12">
+          <label class="form-label">送货单文件（可选）</label>
+          <input type="file" name="file" class="form-control" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
+        </div>
+        <div class="col-12">
+          <label class="form-label">备注</label>
+          <textarea name="note" class="form-control" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+        <a href="javascript:history.back()" class="btn btn-outline-secondary">取消</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function(){
+  var sel = document.querySelector('select[name="contract_id"]');
+  if(!sel) return;
+  var pjSel = document.querySelector('select[name="project_id"]');
+  var invSel = document.querySelector('select[name="invoice_id"]');
+  var paySel = document.querySelector('select[name="payment_id"]');
+  function filterAssoc(){
+    var cid = sel.value;
+    [invSel, paySel].forEach(function(s){
+      if(!s) return;
+      [].forEach.call(s.options, function(o){
+        if(o.value === '0'){ o.hidden = false; return; }
+        o.hidden = (o.getAttribute('data-contract') || '0') !== cid;
+      });
+      if(s.selectedOptions[0] && s.selectedOptions[0].hidden) s.value = '0';
+    });
+  }
+  sel.addEventListener('change', function(){
+    var opt = sel.options[sel.selectedIndex];
+    var pid = opt ? opt.getAttribute('data-project') : '0';
+    if(pjSel && pid) pjSel.value = pid;
+    filterAssoc();
+  });
+  filterAssoc();
+})();
+</script>
+
+{% endblock %}

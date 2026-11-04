@@ -1,0 +1,498 @@
+{% extends "base.html" %}
+{% block title %}材料管理{% endblock %}
+{% block page_title %}材料管理{% endblock %}
+{% block content %}
+<style>
+/* 材料库表：增大显示面积 + 供应商/项目/合同省略号 */
+table[data-col-key="materials"] > thead th{padding:.4rem .45rem;white-space:nowrap}
+table[data-col-key="materials"] > tbody td{padding:.24rem .45rem;vertical-align:middle}
+.cell-nowrap{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0}
+</style>
+
+{% macro sort_link(field, label) -%}
+<a href="?sort={{ field }}&dir={{ 'desc' if sort == field and dir != 'desc' else 'asc' }}&q={{ q }}&low={{ low }}&pid={{ pid }}" class="text-decoration-none text-body" title="点击排序">{{ label }}{% if sort == field %}<i class="bi bi-caret-{{ 'up-fill' if dir == 'desc' else 'down-fill' }} ms-1" style="font-size:12px"></i>{% endif %}</a>
+{%- endmacro %}
+
+{% if msg %}
+<div class="alert alert-info py-2 small">{{ msg }}</div>
+{% endif %}
+
+<ul class="nav nav-tabs mb-3" id="matTabs" role="tablist">
+  <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#library"><i class="bi bi-box-seam me-1"></i>材料库</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#compare"><i class="bi bi-arrow-left-right me-1"></i>预算 vs 采购</a></li>
+</ul>
+
+<div class="tab-content">
+  <!-- ============ Tab 1: 材料库 ============ -->
+  <div class="tab-pane fade show active" id="library">
+    <div class="page-head">
+      <form class="search-row" method="get">
+        <input type="hidden" name="pid" value="{{ pid }}">
+        <input type="text" name="q" value="{{ q }}" class="form-control" style="width:260px" placeholder="搜索材料 / 规格 / 品牌">
+        <div class="form-check form-switch ms-1">
+          <input class="form-check-input" type="checkbox" id="low" name="low" value="1" {{ 'checked' if low == '1' else '' }} onchange="this.form.submit()">
+          <label class="form-check-label" for="low">仅看库存不足</label>
+        </div>
+        <a href="/materials" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> 恢复原样</a>
+      </form>
+      <div class="d-flex gap-2 align-items-center">
+        <span class="badge text-bg-light border" id="selSummary" style="font-size:14px">已选 0 项 · ¥0</span>
+        <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#batchEditModal"><i class="bi bi-pencil-square"></i> 批量修改</button>
+        <button class="btn btn-outline-danger" type="submit" form="batchDelForm"><i class="bi bi-trash"></i> 批量删除</button>
+        <a href="/materials/import" class="btn btn-outline-primary"><i class="bi bi-file-earmark-excel"></i> 导入Excel</a>
+        <a href="/materials/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 新增材料</a>
+      </div>
+    </div>
+
+    <form id="batchDelForm" method="post" action="/materials/batch-delete"
+          onsubmit="return batchDelConfirm();"></form>
+    {# ⚠⚠ 这里原来是一个**跨行的单引号字符串**：
+         return confirm('⚠️ 确定删除所选 ' + n + ' 个材料？
+         将同步删除其库存记录与项目清单引用；被采购单引用的材料会自动跳过。
+         此操作不可恢复！');
+       JavaScript 的字符串字面量**不能跨行**，浏览器直接抛
+       SyntaxError: Invalid or unexpected token，
+       于是**整个 <script> 块都不执行** ——
+       batchDelConfirm 变成 undefined（点批量删除报 "is not defined"），
+       而且这个块里其它逻辑也跟着一起死了。
+       症状极隐蔽：页面完全正常，只有「批量删除」那一下报错，
+       很容易被当成按钮坏了而不是脚本坏了。
+
+       顺带发现：这一页还有 ~10 个筛选下拉（手写的漏斗多选）也住在这类
+       inline <script> 里 —— 之前它们同样是死的，
+       页面只是「看起来能开」因为那是纯 CSS 的 dropdown-menu。 #}
+    <script>
+    function batchDelConfirm(){
+      var n = document.querySelectorAll('.mat-check:checked').length;
+      if(!n){ alert('请先勾选要删除的材料'); return false; }
+      return confirm('确定删除所选 ' + n + ' 个材料？\n'
+        + '将同步删除其库存记录与项目清单引用；被采购单引用的材料会自动跳过。\n'
+        + '此操作不可恢复！');
+    }
+    </script>
+
+    <div class="card">
+      <div class="table-responsive" style="max-height:calc(100vh - 200px);overflow-y:auto;overflow-x:auto;">
+        <table class="table-wide table table-sm table-hover align-middle mb-0 table-card" data-col-resizable data-col-key="materials" data-sortable style="--bs-table-striped-bg:#f7faf8;">
+          <thead class="sticky-top" style="top:0;background:#fff;z-index:5;"><tr>
+            <th style="width:36px"><input type="checkbox" class="form-check-input" id="mat-check-all"></th>
+            <th>{{ sort_link('name', '材料') }}
+              <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" data-bs-toggle="dropdown" title="材料筛选"><i class="bi bi-funnel"></i></button>
+                <div class="dropdown-menu p-2" id="flt-name" style="max-height:280px;overflow:auto;min-width:180px">
+                  <div class="form-check mb-1">
+                    <input class="form-check-input" type="checkbox" id="all-name" checked onchange="toggleAll('name', this)">
+                    <label class="form-check-label" for="all-name">全选</label>
+                  </div>
+                  <div class="flt-list" data-attr="name"></div>
+                </div>
+              </div>
+            </th>
+            <th>{{ sort_link('spec', '规格') }}
+              <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" data-bs-toggle="dropdown" title="规格筛选"><i class="bi bi-funnel"></i></button>
+                <div class="dropdown-menu p-2" id="flt-spec" style="max-height:280px;overflow:auto;min-width:180px">
+                  <div class="form-check mb-1">
+                    <input class="form-check-input" type="checkbox" id="all-spec" checked onchange="toggleAll('spec', this)">
+                    <label class="form-check-label" for="all-spec">全选</label>
+                  </div>
+                  <div class="flt-list" data-attr="spec"></div>
+                </div>
+              </div>
+            </th>
+            <th class="sortable" data-sort="model">型号</th>
+            <th>{{ sort_link('brand', '品牌') }}
+              <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" data-bs-toggle="dropdown" title="品牌筛选"><i class="bi bi-funnel"></i></button>
+                <div class="dropdown-menu p-2" id="flt-brand" style="max-height:280px;overflow:auto;min-width:180px">
+                  <div class="form-check mb-1">
+                    <input class="form-check-input" type="checkbox" id="all-brand" checked onchange="toggleAll('brand', this)">
+                    <label class="form-check-label" for="all-brand">全选</label>
+                  </div>
+                  <div class="flt-list" data-attr="brand"></div>
+                </div>
+              </div>
+            </th>
+            <th>{{ sort_link('unit', '单位') }}
+              <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" data-bs-toggle="dropdown" title="单位筛选"><i class="bi bi-funnel"></i></button>
+                <div class="dropdown-menu p-2" id="flt-unit" style="max-height:280px;overflow:auto;min-width:180px">
+                  <div class="form-check mb-1">
+                    <input class="form-check-input" type="checkbox" id="all-unit" checked onchange="toggleAll('unit', this)">
+                    <label class="form-check-label" for="all-unit">全选</label>
+                  </div>
+                  <div class="flt-list" data-attr="unit"></div>
+                </div>
+              </div>
+            </th>
+            <th>{{ sort_link('price', '含税单价') }}
+              <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" data-bs-toggle="dropdown" title="含税单价筛选"><i class="bi bi-funnel"></i></button>
+                <div class="dropdown-menu p-2" id="flt-price" style="max-height:280px;overflow:auto;min-width:180px">
+                  <div class="form-check mb-1">
+                    <input class="form-check-input" type="checkbox" id="all-price" checked onchange="toggleAll('price', this)">
+                    <label class="form-check-label" for="all-price">全选</label>
+                  </div>
+                  <div class="flt-list" data-attr="price"></div>
+                </div>
+              </div>
+            </th>
+            <th class="text-end sortable" data-sort="net" data-type="number">不含税单价</th>
+            <th class="text-end sortable" data-sort="rate" data-type="number">税率</th>
+            <th>{{ sort_link('stock', '数量') }}
+              <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" data-bs-toggle="dropdown" title="数量筛选"><i class="bi bi-funnel"></i></button>
+                <div class="dropdown-menu p-2" id="flt-stock" style="max-height:280px;overflow:auto;min-width:180px">
+                  <div class="form-check mb-1">
+                    <input class="form-check-input" type="checkbox" id="all-stock" checked onchange="toggleAll('stock', this)">
+                    <label class="form-check-label" for="all-stock">全选</label>
+                  </div>
+                  <div class="flt-list" data-attr="stock"></div>
+                </div>
+              </div>
+            </th>
+            <th class="sortable" data-sort="low" data-type="number">预警线
+              <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" data-bs-toggle="dropdown" title="预警线筛选"><i class="bi bi-funnel"></i></button>
+                <div class="dropdown-menu p-2" id="flt-low" style="max-height:280px;overflow:auto;min-width:180px">
+                  <div class="form-check mb-1">
+                    <input class="form-check-input" type="checkbox" id="all-low" checked onchange="toggleAll('low', this)">
+                    <label class="form-check-label" for="all-low">全选</label>
+                  </div>
+                  <div class="flt-list" data-attr="low"></div>
+                </div>
+              </div>
+            </th>
+            <th style="width:104px" class="sortable" data-sort="supplier">供应商
+              <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" data-bs-toggle="dropdown" title="供应商筛选"><i class="bi bi-funnel"></i></button>
+                <div class="dropdown-menu p-2" style="max-height:280px;overflow:auto;min-width:180px">
+                  <div class="form-check mb-1">
+                    <input class="form-check-input" type="checkbox" id="all-supplier" checked onchange="toggleAll('supplier', this)">
+                    <label class="form-check-label" for="all-supplier">全选</label>
+                  </div>
+                  <div class="flt-list" data-attr="supplier"></div>
+                </div>
+              </div>
+            </th>
+            <th style="width:130px" class="sortable" data-sort="project">所属项目
+              <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" data-bs-toggle="dropdown" title="所属项目筛选"><i class="bi bi-funnel"></i></button>
+                <div class="dropdown-menu p-2" style="max-height:280px;overflow:auto;min-width:180px">
+                  <div class="form-check mb-1">
+                    <input class="form-check-input" type="checkbox" id="all-project" checked onchange="toggleAll('project', this)">
+                    <label class="form-check-label" for="all-project">全选</label>
+                  </div>
+                  <div class="flt-list" data-attr="project"></div>
+                </div>
+              </div>
+            </th>
+            <th style="width:150px">{{ sort_link('contract', '所属合同') }}
+              <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" data-bs-toggle="dropdown" title="所属合同筛选"><i class="bi bi-funnel"></i></button>
+                <div class="dropdown-menu p-2" style="max-height:280px;overflow:auto;min-width:180px">
+                  <div class="form-check mb-1">
+                    <input class="form-check-input" type="checkbox" id="all-contract" checked onchange="toggleAll('contract', this)">
+                    <label class="form-check-label" for="all-contract">全选</label>
+                  </div>
+                  <div class="flt-list" data-attr="contract"></div>
+                </div>
+              </div>
+            </th><th>操作</th>
+          </tr></thead>
+          <tbody>
+            {% for m in materials %}
+            <tr class="{{ 'table-warning' if m.low_stock_flag else '' }}" data-project="{{ m.project.name if m.project else '未分配' }}" data-supplier="{{ m.supplier.name if m.supplier else '未指定' }}"
+             data-name="{{ m.name }}" data-spec="{{ m.spec or '—' }}" data-brand="{{ m.brand or '—' }}" data-unit="{{ m.unit or '—' }}"
+             data-price="{{ m.ref_price }}" data-stock="{{ m.stock }}" data-low="{{ m.low_stock or 0 }}"
+             data-contract="{{ m.contract.name if m.contract else '未关联' }}">
+              <td><input type="checkbox" class="form-check-input mat-check" name="ids" value="{{ m.id }}" form="batchDelForm"></td>
+              <td><a href="/materials/{{ m.id }}" class="fw-semibold">{{ m.name }}</a></td>
+              <td class="small">{{ m.spec or '—' }}</td>
+              <td class="small" data-value="{{ m.model_no or '' }}">{{ m.model_no or '—' }}</td>
+              <td>{{ m.brand or '—' }}</td>
+              <td>{{ m.unit }}</td>
+              <td class="text-money">¥{{ m.ref_price|money }}</td>
+              <td class="text-money" data-value="{{ m.net_price or 0 }}">{% if m.net_price %}{{ m.net_price|money }}{% else %}—{% endif %}</td>
+              <td data-value="{{ m.tax_rate or 0 }}">{% if m.tax_rate %}{{ m.tax_rate }}%{% else %}—{% endif %}</td>
+              <td class="{% if m.low_stock_flag %}text-danger fw-semibold{% endif %}">
+                {{ m.stock }}{% if m.low_stock_flag %}<i class="bi bi-exclamation-triangle-fill text-danger ms-1" title="库存不足"></i>{% endif %}
+              </td>
+              <td class="small text-muted" data-value="{{ m.low_stock or 0 }}">{{ m.low_stock or 0 }}</td>
+              <td class="cell-nowrap" title="{{ m.supplier.name if m.supplier else '' }}" data-value="{{ m.supplier.name if m.supplier else '—' }}">{{ m.supplier.name if m.supplier else '—' }}</td>
+              <td class="cell-nowrap small" title="{{ m.project.name if m.project else '' }}" data-value="{{ m.project.name if m.project else '—' }}">{{ m.project.name if m.project else '—' }}</td>
+              <td class="cell-nowrap small" title="{{ m.contract.name if m.contract else '' }}" data-value="{{ m.contract.name if m.contract else '—' }}">{{ m.contract.name if m.contract else '—' }}</td>
+              <td class="text-nowrap">
+                <div class="d-flex gap-1">
+                <a href="/materials/{{ m.id }}" class="btn btn-sm btn-outline-primary" title="查看"><i class="bi bi-eye"></i></a>
+                <a href="/materials/{{ m.id }}/edit" class="btn btn-sm btn-outline-secondary" title="编辑"><i class="bi bi-pencil"></i></a>
+                <form method="post" action="/materials/{{ m.id }}/delete" class="d-inline" onsubmit="return confirm('确认删除「{{ m.name }}」？将同步删除其库存记录与项目清单引用，被采购单/合同引用的材料无法删除。')">
+                  <button class="btn btn-sm btn-outline-danger" title="删除"><i class="bi bi-trash"></i></button>
+                </form>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="14" class="text-center text-muted py-4">暂无材料，可点击右上角「导入Excel」批量添加</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <script>
+      document.addEventListener('DOMContentLoaded', function(){
+        document.getElementById('batchEditForm')?.addEventListener('submit', function(e){
+          e.preventDefault();
+          var ids = Array.from(document.querySelectorAll('.mat-check:checked')).map(c => c.value);
+          if(!ids.length){ alert('请先勾选要修改的材料'); return; }
+          var f = e.target;
+          f.querySelectorAll('input[name="ids"]').forEach(x => x.remove());
+          ids.forEach(function(v){
+            var h = document.createElement('input');
+            h.type = 'hidden'; h.name = 'ids'; h.value = v;
+            f.appendChild(h);
+          });
+          f.submit();
+        });
+      });
+      document.getElementById('mat-check-all')?.addEventListener('change', function (e) {
+        document.querySelectorAll('.mat-check').forEach(c => {
+          if(c.closest('tr') && c.closest('tr').style.display !== 'none') c.checked = e.target.checked;
+        });
+        updateSelSummary();
+      });
+      function updateSelSummary(){
+        var sum = document.getElementById('selSummary');
+        if(!sum) return;
+        var n = 0, total = 0;
+        document.querySelectorAll('.mat-check:checked').forEach(function(cb){
+          var row = cb.closest('tr');
+          if(!row || row.style.display === 'none') return;  // 筛选隐藏行不计入
+          n++;
+          var price = parseFloat(row.getAttribute('data-price')) || 0;
+          var stock = parseFloat(row.getAttribute('data-stock')) || 0;
+          total += price * stock;
+        });
+        sum.textContent = '已选 ' + n + ' 项 · ¥' + total.toLocaleString('zh-CN', {minimumFractionDigits:2, maximumFractionDigits:2});
+      }
+      document.querySelectorAll('.mat-check').forEach(function(cb){
+        cb.addEventListener('change', updateSelSummary);
+      });
+      updateSelSummary();
+    </script>
+  </div>
+
+  <!-- ============ Tab 2: 预算 vs 采购 ============ -->
+  <div class="tab-pane fade" id="compare">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <form class="search-row" method="get">
+        <select name="pid" class="form-select" style="width:260px" onchange="this.form.submit()">
+          <option value="0">全部项目</option>
+          {% for p in projects %}
+          <option value="{{ p.id }}" {{ 'selected' if pid == p.id else '' }}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      <div class="text-muted small">预算用量来自各项目材料清单（预算），已采购量为到货累计（采购单入库自动累加），缺口中红字为待采购。</div>
+    </div>
+
+    {% set total_plan = compare_rows | sum(attribute='plan_amount') %}
+    {% set total_purchase = compare_rows | sum(attribute='purchase_amount') %}
+    <div class="row g-3 mb-3">
+      <div class="col-md-4">
+        <div class="stat-card grad-pine">
+          <div class="stat-num">¥{{ total_plan|money }}</div>
+          <div class="stat-label">预算材料金额</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="stat-card grad-bean">
+          <div class="stat-num">¥{{ total_purchase|money }}</div>
+          <div class="stat-label">已采购金额</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="stat-card grad-terra">
+          <div class="stat-num">¥{{ (total_plan - total_purchase)|money }}</div>
+          <div class="stat-label">预算缺口</div>
+        </div>
+      </div>
+    </div>
+
+    {% for group in compare_rows | groupby('project_name') %}
+    <div class="card mb-3">
+      <div class="card-header py-2">
+        <i class="bi bi-briefcase me-1"></i>{{ group.grouper }}
+        <span class="badge text-bg-light ms-2">{{ group.list | length }} 项</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0 table-card">
+          <thead><tr>
+            <th>材料</th><th>规格</th><th>单位</th><th>预算用量</th><th>已采购</th><th>缺口</th>
+            <th>单价</th><th>预算金额</th><th>采购金额</th><th>采购进度</th>
+          </tr></thead>
+          <tbody>
+            {% for r in group.list %}
+            <tr>
+              <td class="fw-semibold">{{ r.material.name }}</td>
+              <td class="small">{{ r.material.spec or '—' }}</td>
+              <td>{{ r.material.unit }}</td>
+              <td class="text-money">{{ r.plan_quantity }}</td>
+              <td class="text-money">{{ r.purchased_quantity }}</td>
+              <td class="text-money {% if r.gap > 0 %}text-danger fw-semibold{% else %}text-success{% endif %}">{{ r.gap }}</td>
+              <td class="text-money">¥{{ r.unit_price|money }}</td>
+              <td class="text-money">¥{{ r.plan_amount|money }}</td>
+              <td class="text-money">¥{{ r.purchase_amount|money }}</td>
+              <td style="min-width:120px;">
+                <div class="d-flex align-items-center gap-2">
+                  <div class="progress progress-xs flex-grow-1" style="width:70px;">
+                    <div class="progress-bar {{ 'bg-success' if r.rate >= 100 else 'bg-warning' if r.rate > 0 else '' }}"
+                         style="width: {{ r.rate|int if r.rate <= 100 else 100 }}%"></div>
+                  </div>
+                  <span class="small text-muted">{{ '%.0f'|format(r.rate) }}%</span>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="card-body empty-state">
+        暂无项目材料清单。可在「项目详情 → 项目材料」中添加，或点击
+        <a href="/materials/import" class="alert-link">导入材料清单</a> 从 Excel 批量导入预算明细。
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+(function(){
+  var rows = document.querySelectorAll('tbody tr[data-project]');
+  var ATTRS = ['name','spec','brand','unit','price','stock','low','project','supplier','contract'];
+  var filters = {};  // attr -> {value: checkbox}
+  var rowAttr = { name:'data-name', spec:'data-spec', brand:'data-brand', unit:'data-unit', price:'data-price', stock:'data-stock', low:'data-low', project:'data-project', supplier:'data-supplier', contract:'data-contract' };
+
+  function collect(attr){
+    var ra = rowAttr[attr];
+    var vals = [];
+    rows.forEach(function(r){ var v = r.getAttribute(ra); if(v === null) v = ''; if(vals.indexOf(v) === -1) vals.push(v); });
+    vals.sort(function(a,b){ return String(a).localeCompare(String(b), 'zh'); });
+    return vals;
+  }
+
+  ATTRS.forEach(function(attr){
+    var list = document.querySelector('.flt-list[data-attr="' + attr + '"]');
+    if(!list) return;
+    var checks = {};
+    filters[attr] = checks;
+    collect(attr).forEach(function(v){
+      var d = document.createElement('div');
+      d.className = 'form-check';
+      d.innerHTML = '<input class="form-check-input flt-cb" type="checkbox" data-attr="'+attr+'" checked> <label class="form-check-label small">' + (v || '未指定') + '</label>';
+      list.appendChild(d);
+      checks[v] = d.querySelector('input');
+    });
+  });
+
+  function applyAll(){
+    rows.forEach(function(r){
+      var show = true;
+      for(var attr in filters){
+        var checks = filters[attr];
+        var keys = Object.keys(checks);
+        var any = keys.some(function(k){ return checks[k].checked; });
+        if(!any) continue;
+        var v = r.getAttribute(rowAttr[attr]);
+        if(v === null) v = '';
+        if(!(checks[v] && checks[v].checked)) show = false;
+      }
+      r.style.display = show ? '' : 'none';
+    });
+    if(window.updateSelSummary) updateSelSummary();
+  }
+
+  document.querySelectorAll('.flt-cb').forEach(function(cb){
+    cb.addEventListener('change', applyAll);
+  });
+
+  window.toggleAll = function(attr, el){
+    document.querySelectorAll('.flt-cb[data-attr="' + attr + '"]').forEach(function(cb){ cb.checked = el.checked; });
+    applyAll();
+  };
+})();
+</script>
+
+
+<!-- 批量修改材料属性模态 -->
+<div class="modal fade" id="batchEditModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/materials/batch-update" id="batchEditForm">
+        <div class="modal-header"><h5 class="modal-title">批量修改材料属性</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="alert alert-light small mb-3">仅对已勾选的材料生效；留空表示不修改该项。</div>
+          <div class="mb-3">
+            <label class="form-label small">默认供应商</label>
+            <input type="text" name="supplier_name" class="form-control" list="batchSupList" autocomplete="off" placeholder="留空不修改">
+            <datalist id="batchSupList">
+              {% for s in suppliers %}<option value="{{ s.name }}"></option>{% endfor %}
+            </datalist>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small">参考单价（¥）</label>
+              <input type="number" step="any" name="ref_price" class="form-control" value="-1">
+              <div class="form-text">-1 表示不修改</div>
+            </div>
+            <div class="col-6">
+              <label class="form-label small">库存预警线</label>
+              <input type="number" step="any" name="low_stock" class="form-control" value="-1">
+              <div class="form-text">-1 表示不修改</div>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small">期初库存（数量）</label>
+            <input type="number" step="any" name="opening_stock" class="form-control" value="-1">
+            <div class="form-text">-1 表示不修改；修改后库存=期初+入库-出库</div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small">单位</label>
+              <input type="text" name="unit" class="form-control" placeholder="留空不修改">
+            </div>
+            <div class="col-6">
+              <label class="form-label small">品牌</label>
+              <input type="text" name="brand" class="form-control" placeholder="留空不修改">
+            </div>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small">所属项目</label>
+              <select name="project_id" class="form-select">
+                <option value="0">不修改</option>
+                {% for p in projects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small">所属采购合同</label>
+              <select name="contract_id" class="form-select">
+                <option value="0">不修改</option>
+                {% for c in contracts %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-sm btn-primary">应用修改</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

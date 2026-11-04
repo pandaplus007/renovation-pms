@@ -1,0 +1,47 @@
+# ---------- 运行时数据（绝不入库） ----------
+# SQLite 数据库、备份、上传的合同/发票/照片都含真实客户信息
+data/*
+!data/.gitkeep
+uploads/*
+!uploads/.gitkeep
+
+# ---------- 密钥与环境 ----------
+.env
+.env.*
+!.env.example
+
+# ---------- 构建产物 ----------
+build/
+dist/
+*.spec
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---------- 日志 / 临时 / 备份 ----------
+*.log
+*.bak*
+*.swp
+*.swo
+*~
+cj*.txt
+port-test.log
+
+# ---------- 测试截图（含真实业务数据） ----------
+tests/shots/
+
+# ---------- 个人部署脚本（含内网地址与账号） ----------
+update-to-nas.ps1
+pack_for_nas.py
+autostart.vbs
+*.bat
+
+# ---------- 系统 ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}新增时间节点{% endblock %}
+{% block page_title %}新增时间节点{% endblock %}
+{% block content %}
+
+<div class="card" style="max-width:700px;">
+  <div class="card-header"><i class="bi bi-calendar-event me-1"></i>新增时间节点</div>
+  <div class="card-body p-4">
+    <form method="post" action="/contracts/milestones/new">
+      <div class="mb-3">
+        <label class="form-label">所属合同 *</label>
+        <select name="contract_id" class="form-select" required>
+          <option value="">请选择合同</option>
+          {% for c in contracts %}
+          <option value="{{ c.id }}" {{ 'selected' if prefill_contract_id == c.id else '' }}>{{ c.name }}（{{ c.contract_no or '无编号' }}）</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">节点名称 *</label>
+        <input name="name" class="form-control" placeholder="如：签订合同 / 开工 / 竣工 / 付款节点" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">节点日期</label>
+        <input name="m_date" type="date" class="form-control">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">金额 ¥</label>
+        <input name="amount" type="number" step="any" class="form-control" value="0">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">备注</label>
+        <textarea name="note" class="form-control" rows="2"></textarea>
+      </div>
+      <input type="hidden" name="back_url" value="">
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+        <a href="javascript:history.back()" class="btn btn-outline-secondary">取消</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

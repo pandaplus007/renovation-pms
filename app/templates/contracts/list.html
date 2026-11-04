@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}采购合同
+{% endblock %}
+{% block page_title %}采购合同管理{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <form class="search-row" id="fltForm" method="get">
+    <input type="text" name="q" value="{{ q }}" class="form-control" style="width:220px" placeholder="搜索合同名称 / 编号">
+    {% import "_multiselect.html" as ms %}
+    {{ ms.multiselect('supplier_id', '供应商', suppliers|map(attribute='id')|list, suppliers|map(attribute='name')|list, supplier_id) }}
+    {{ ms.multiselect('project_id', '项目', [-1] + projects|map(attribute='id')|list, ['未分配项目'] + projects|map(attribute='name')|list, project_id) }}
+    {{ ms.multiselect('delivery', '送货', ['delivered','undelivered'], ['已送货','未送货'], delivery) }}
+    <button class="btn btn-outline-primary" onclick="fltSubmit()"><i class="bi bi-funnel"></i> 筛选</button>
+  </form>
+  <div class="d-flex gap-2">
+    <a href="/procurement?tab=contracts" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回合同</a>
+    <a href="/gantt" class="btn btn-outline-primary"><i class="bi bi-bar-chart"></i> 工期规划</a>
+    <a href="/contracts/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 新增合同</a>
+  </div>
+</div>
+
+<div class="card" id="result-box">
+  <div class="table-responsive">
+    <table class="table-wide table table-hover align-middle mb-0 table-card" data-col-resizable data-col-key="contracts" data-sortable>
+      <thead><tr>
+        <th class="sortable" data-sort="name">合同</th><th class="sortable" data-sort="no">编号</th><th class="sortable" data-sort="supplier">供应商</th><th class="text-end sortable" data-sort="amount" data-type="number">金额</th><th class="sortable" data-sort="date" data-type="date">签订日期</th><th class="sortable" data-sort="ms" data-type="number">节点数</th><th>送货</th><th>文件</th><th>操作</th>
+      </tr></thead>
+      <tbody>
+        {% for c in contracts %}
+        <tr>
+          <td><a href="/contracts/{{ c.id }}" class="fw-semibold">{{ c.name }}</a></td>
+          <td class="small">{{ c.contract_no or '—' }}</td>
+          <td data-value="{{ c.supplier.name if c.supplier else '—' }}">{{ c.supplier.name if c.supplier else '—' }}</td>
+          <td class="text-money" data-value="{{ c.amount or 0 }}">¥{{ c.amount|money }}</td>
+          <td class="small" data-value="{{ c.sign_date or '' }}">{{ c.sign_date or '—' }}</td>
+          <td><span class="badge text-bg-light">{{ c.milestones | length }}</span></td>
+          <td>
+            {% if c.no_delivery %}
+            <span class="badge {{ "无需送货" | state_badge }}">无需送货单</span>
+            {% elif c.delivery_notes %}
+            <span class="badge {{ "已送货" | state_badge }}">已送货 {{ c.delivery_notes | length }} 单</span>
+            {% else %}
+            <span class="badge {{ "未送货" | state_badge }}">未送货</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if c.file_path %}
+            <a href="{{ c.file_path }}" download class="text-danger" title="下载合同文件"><i class="bi bi-file-earmark-text"></i></a>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <a href="/contracts/{{ c.id }}" class="btn btn-sm btn-outline-primary">详情</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-muted py-4">暂无合同，点击「新增合同」或上传 PDF/Word 自动识别</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+function fltSubmit(cb){
+  if(!cb) cb = document.querySelector('input.flt-cb');
+  if(!cb) return;
+  var form = cb.form;
+  if(!form) return;
+  var fd = new FormData(form);
+  var qs = new URLSearchParams(fd).toString();
+  var url = location.pathname + (qs ? '?' + qs : '');
+  var boxId = form.getAttribute('data-result') || 'result-box';
+  var box = document.getElementById(boxId);
+  if(!box){ form.submit(); return; }  // 无局部容器则整页提交
+  fetch(url, {headers:{'X-Requested-With':'fetch'}})
+    .then(function(r){ if(!r.ok) throw 0; return r.text(); })
+    .then(function(html){
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var nb = doc.getElementById(boxId);
+      if(nb) box.innerHTML = nb.innerHTML;   // 仅更新表格区，下拉/页面不刷新
+      history.replaceState(null, '', url);
+      syncAllChecks(form);
+      updateFilterBadges(form);
+    })
+    .catch(function(){ form.submit(); });    // 异常时退化为整页
+}
+function syncAllChecks(form){
+  form.querySelectorAll('input[id^="all-"]').forEach(function(all){
+    var g = all.id.replace('all-','');
+    var cbs = form.querySelectorAll('input[data-group="' + g + '"]');
+    var allc = cbs.length > 0 && [].every.call(cbs, function(c){ return c.checked; });
+    all.checked = allc;
+  });
+}
+function updateFilterBadges(form){
+  form.querySelectorAll('.dropdown').forEach(function(dd){
+    var cbs = dd.querySelectorAll('input.flt-cb');
+    if(cbs.length === 0) return;  // 仅处理筛选下拉
+    var n = [].filter.call(cbs, function(c){ return c.checked; }).length;
+    var filtered = n > 0 && n < cbs.length;  // 有勾选但未全选 = 筛选状态
+    var btn = dd.querySelector('.dropdown-toggle');
+    if(!btn) return;
+    var icon = btn.querySelector('.bi');
+    if(filtered){
+      btn.classList.add('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel-fill';
+      var b = btn.querySelector('.flt-badge');
+      if(!b){ b = document.createElement('span'); b.className='flt-badge'; btn.appendChild(b); }
+      b.textContent = n;
+    } else {
+      btn.classList.remove('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel';
+      var ob = btn.querySelector('.flt-badge');
+      if(ob) ob.remove();
+    }
+  });
+}
+function fltToggleAll(g, el){
+  var form = el.form;
+  if(!form) return;
+  var first = form.querySelector('input[data-group="' + g + '"]');
+  if(!first) return;
+  form.querySelectorAll('input[data-group="' + g + '"]').forEach(function(c){ c.checked = el.checked; });
+  if(el.checked){ fltSubmit(first); }  // 勾选全选：提交全部
+  else { updateFilterBadges(form); }  // 取消全选：清空并恢复按钮未筛选样式
+}
+</script>
+
+
+{% endblock %}

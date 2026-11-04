@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}结算前检查 · {{ obj.title }}{% endblock %}
+{% block page_title %}结算前检查{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <a href="/projects/{{ project.id }}/changes" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>返回变更列表
+  </a>
+  <a href="/changes/{{ obj.id }}/edit" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-pencil me-1"></i>去补齐信息
+  </a>
+</div>
+
+{# ---------------- 为什么有这一页 ---------------- #}
+{# 「已确认」是**业主签了字**，不代表**钱已经花掉**。装修行业这两种状态
+   可能差几个月——签了字的单子采购还没下、分包还没付。此时就标「已结算」，
+   结算金额和实际支出对不上，毛利会虚高。
+
+   但也**不能硬拦**：现实中常有「这笔变更不走采购」「分包用现金结算」
+   这类情况，硬拦会把流程卡死。所以这里只负责把缺什么说清楚，
+   是否放行由人决定，并且强制放行会留下记录。 #}
+
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-clipboard-check me-1"></i>{{ obj.title }}</span>
+    <span class="badge {{ obj.status | state_badge }}">{{ obj.status }}</span>
+  </div>
+  <div class="card-body">
+    <div class="row g-2 small text-muted mb-3">
+      <div class="col-auto">变更金额 <strong class="num">¥{{ obj.amount|money }}</strong></div>
+      <div class="col-auto">对应成本 <strong class="num">¥{{ obj.cost|money }}</strong></div>
+      <div class="col-auto">确认日期 {{ obj.confirm_date or '—' }}</div>
+      <div class="col-auto">批准人 {{ obj.approved_by or obj.signer or '—' }}</div>
+    </div>
+
+    {% if missing_text %}
+    <div class="alert alert-warning py-2 small">
+      <i class="bi bi-exclamation-triangle me-1"></i>{{ missing_text }}
+    </div>
+    {% endif %}
+
+    {# ---------------- 逐项检查 ---------------- #}
+    <div class="list-group mb-3">
+      {% for c in checks %}
+      <div class="list-group-item d-flex align-items-start gap-2 py-2">
+        <span class="badge state-badge {{ 'state-done' if c.ok else 'state-watch' }} mt-1"
+              style="flex:0 0 auto;">
+          {{ '已满足' if c.ok else '未满足' }}
+        </span>
+        <div style="flex:1 1 auto; min-width:0;">
+          <div class="fw-semibold">{{ c.label }}</div>
+          <div class="small text-muted">{{ c.detail }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if ready %}
+    <div class="alert alert-success py-2 small mb-3">
+      <i class="bi bi-check-circle me-1"></i>
+      所有检查项都满足，可以标记为已结算。
+    </div>
+    <form method="post" action="/changes/{{ obj.id }}/transition">
+      <input type="hidden" name="to" value="已结算">
+      <button class="btn btn-primary">
+        <i class="bi bi-check-lg me-1"></i>确认标记为已结算
+      </button>
+    </form>
+    {% else %}
+    <div class="alert alert-warning py-2 small mb-3">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      有 {{ checks|selectattr('ok', 'equalto', false)|list|length }} 项未满足。
+      可以先<a href="/changes/{{ obj.id }}/edit">去补齐</a>，也可以直接强制标记——
+      后者会在审计日志里记下当时缺了什么、是谁强转的。
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="/changes/{{ obj.id }}/edit" class="btn btn-outline-primary">
+        <i class="bi bi-pencil me-1"></i>去补齐信息
+      </a>
+      <form method="post" action="/changes/{{ obj.id }}/transition"
+            onsubmit="return confirm('确定要强制标记为「已结算」吗？\n\n未满足的检查项：\n{{ checks|selectattr('ok','equalto',false)|map(attribute='label')|join('\n') }}\n\n这次操作会记入审计日志。');">
+        <input type="hidden" name="to" value="已结算">
+        <input type="hidden" name="force" value="1">
+        <button class="btn btn-outline-warning">
+          <i class="bi bi-exclamation-triangle me-1"></i>强制标记为已结算
+        </button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ---------------- 说明每项检查的口径 ---------------- #}
+<div class="card">
+  <div class="card-header py-2">这些检查在查什么</div>
+  <div class="card-body small text-muted">
+    <p class="mb-2">
+      <strong>关联执行单据</strong>——这笔变更引发的采购单、分包合同、成本项。
+      一笔都没关联的话，无从知道钱花在哪，事后对不上账。
+      在编辑页的「执行关联」里勾选。
+    </p>
+    <p class="mb-2">
+      <strong>对应成本已录入</strong>——成本为 0 时这张单的毛利显示为 0，
+      那是「还没算」不是「毛利为零」，别混为一谈。
+    </p>
+    <p class="mb-2">
+      <strong>采购单/分包合同已付清</strong>——金额口径与采购、分包页一致：
+      付款记录按单据关联求和，与订单金额相比。容差 0.5 元，
+      分位四舍五入的误差不该把状态卡住。
+    </p>
+    <p class="mb-0">
+      <strong>签字扫描件已归档</strong>——纸质签证单是法律凭据，
+      结算和日后扯皮都要出示。没传可以去
+      <a href="/changes/{{ obj.id }}/edit">编辑页</a>补。
+    </p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+{# 链接无效页。**不继承 base.html**（业主没有账号）。
+   关键：页面不区分「不存在 / 已停用 / 已过期」三种原因，也不显示任何项目信息。
+   分开提示等于给拿着旧链接的人一个枚举工具 —— 他能靠提示差异确认
+   「这个 token 曾经有效过」，也顺便确认了「这个项目存在过」。 #}
+<!DOCTYPE html>
+<html lang="zh-CN" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>链接已失效 · {{ company_name or '装修项目管家' }}</title>
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <style>
+    body { background:#f6f7f5; display:flex; align-items:center;
+           justify-content:center; min-height:100vh; margin:0; padding:1.5rem; }
+    .box { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.07);
+           padding:2rem 1.5rem; max-width:380px; text-align:center; }
+    .ic { width:52px; height:52px; border-radius:50%; background:#fdf0ee; color:#b5543f;
+          display:flex; align-items:center; justify-content:center; margin:0 auto .9rem;
+          font-size:1.5rem; }
+  </style>
+</head>
+<body>
+<div class="box">
+  <div class="ic"><i class="bi bi-link-45deg"></i></div>
+  <h1 style="font-size:1.1rem;font-weight:600;color:#26332e;margin-bottom:.5rem">
+    链接已失效
+  </h1>
+  <p style="font-size:.92rem;color:#6d7b75;margin-bottom:1.2rem;line-height:1.6">
+    这个查看链接可能已被关闭、已过期，或地址不完整。<br>
+    请联系您的项目经理重新获取。
+  </p>
+  <p style="font-size:.8rem;color:#a8b3ad;margin:0">
+    {{ company_name or '装修项目管家' }}
+  </p>
+</div>
+</body>
+</html>

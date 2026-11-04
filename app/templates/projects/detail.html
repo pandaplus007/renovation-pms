@@ -1,0 +1,1840 @@
+{% extends "base.html" %}
+{% from "_staff.html" import staff_select, staff_filter %}
+{% block title %}{{ project.name }}{% endblock %}
+{% block page_title %}项目详情{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <a href="/projects" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
+  <div class="d-flex gap-2">
+    {# 业主链接放在这里而不是某个折叠面板里：它的价值是「随时能发给业主」，
+       藏在深处就没人用了。用图标+文字的轻量按钮，不抢「编辑/删除」的视觉权重。 #}
+    <a href="/projects/{{ project.id }}/portal" class="btn btn-sm btn-outline-secondary"
+       title="生成给业主看的只读链接（免登录）">
+      <i class="bi bi-link-45deg"></i> 业主链接
+    </a>
+    <a href="/projects/{{ project.id }}/edit" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> 编辑</a>
+    <form method="post" action="/projects/{{ project.id }}/delete" class="d-inline"
+          onsubmit="return confirm('确定删除该项目吗？将连同合同、收款、成本、材料等数据一起删除。');">
+      <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> 删除</button>
+    </form>
+  </div>
+</div>
+
+<!-- 概览（清新绿设计） -->
+<div class="card mb-3 overflow-hidden">
+  <div class="p-4 proj-hero">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+      <div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          {% set swatch = ['#117AF3','#1DB847','#FF801F','#FA423C','#7A70FF','#EDB300'] %}
+          <span class="proj-swatch" style="--sw:{{ swatch[project.id % 6] }}" aria-hidden="true">{{ project.name[:1] }}</span>
+          <h4 class="mb-0 fw-bold text-pine">{{ project.name }}</h4>
+          <span class="badge badge-status {{ project.status | state_badge }}">{{ project.status }}</span>
+        </div>
+        <div class="small mt-1 text-pine-2">
+          <i class="bi bi-building me-1"></i>客户：<a href="/customers/{{ project.customer_id }}" class="fw-semibold text-pine">{{ project.customer.name }}</a>
+          {% if project.address %} · {{ project.address }}{% endif %}
+          {% if project.style %} · {{ project.style }}{% endif %}
+          · {{ project.area or 0 }}㎡
+        </div>
+        <div class="small mt-1 text-pine-2">
+          <i class="bi bi-people me-1"></i>设计：{{ project.designer or '—' }} | 工长：{{ project.foreman or '—' }} | 监理：{{ project.supervisor or '—' }}
+          | 工期：{{ project.start_date or '—' }} ~ {{ project.end_date or '—' }}
+        </div>
+        {% if project.note %}<div class="small mt-1 text-pine-2"><i class="bi bi-sticky me-1"></i>{{ project.note }}</div>{% endif %}
+      </div>
+      {# 头部并排两个进度：回款（实算，有数据）与施工（阶段推算，可能没数据）。
+         两者在装修项目里经常反向，所以并列而不是合成一个。 #}
+      <div class="text-end">
+        <div class="d-flex gap-4 justify-content-end">
+          <div>
+            <div class="small fw-semibold text-pine">回款</div>
+            <div style="width:170px;">
+              <div class="d-flex align-items-center gap-2">
+                <div class="progress flex-grow-1" style="height:10px;">
+                  {% if project.recv_pct is none %}
+                    <div class="progress-bar bg-secondary" style="width:0%"></div>
+                  {% else %}
+                    <div class="progress-bar {{ 'bg-success' if project.recv_pct >= 100 }}"
+                         style="width: {{ [project.recv_pct, 100]|min }}%"></div>
+                  {% endif %}
+                </div>
+                <strong class="text-pine num">{{ '%.0f'|format(project.recv_pct) if project.recv_pct is not none else '—' }}%</strong>
+              </div>
+              <div class="small text-muted mt-1">
+                已收 ¥{{ project.recv_amount|money }} / 合同 ¥{{ (project.contract.amount if project.contract else 0)|money }}
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="small fw-semibold text-pine">施工</div>
+            <div style="width:170px;">
+              {% if project.phases %}
+                <div class="d-flex align-items-center gap-2">
+                  <div class="progress flex-grow-1" style="height:10px;">
+                    <div class="progress-bar" style="width: {{ [project.progress, 100]|min }}%"></div>
+                  </div>
+                  <strong class="text-pine num">{{ project.progress }}%</strong>
+                </div>
+                <div class="small text-muted mt-1">
+                  {{ project.phases|length }} 个阶段，{{ project.phases|selectattr('status', 'equalto', '已完成')|list|length }} 个已完成
+                </div>
+                {% if project.phase_never_started %}
+                  <div class="mt-2">
+                    <span class="badge state-badge state-watch fw-normal"
+                          title="项目状态是「{{ project.status }}」，但 {{ project.phases|length }} 个阶段全部为「未开始」。要么阶段没打勾，要么项目状态填错了。">阶段未开始，请核实</span>
+                    <div class="small text-muted mt-1">
+                      状态说在施工，阶段表却一步没动。两个数据源必有一个不对。
+                    </div>
+                  </div>
+                {% endif %}
+              {% else %}
+                <div class="text-muted" style="height:10px;"></div>
+                <div class="small text-muted mt-1">未录入施工阶段</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card-body pt-3">
+    <div class="row g-2">
+      <div class="col-6 col-md-3"><div class="stat-card stat-sm grad-pine"><div class="stat-label">合同额</div><div class="stat-num">¥{{ contract_total|money }}</div></div></div>
+      <div class="col-6 col-md-3"><div class="stat-card stat-sm grad-bean"><div class="stat-label">已收款</div><div class="stat-num">¥{{ paid_total|money }}</div></div></div>
+      <div class="col-6 col-md-3"><div class="stat-card stat-sm grad-oat"><div class="stat-label">应收余额</div><div class="stat-num">¥{{ (contract_total - paid_total)|money }}</div></div></div>
+      <div class="col-6 col-md-3"><div class="stat-card stat-sm grad-lotus"><div class="stat-label"><i class="bi bi-cash-stack me-1"></i>结算金额</div><div class="stat-num">¥{{ (contract.settle_amount if contract else 0)|money }}</div></div></div>
+    </div>
+    <div class="row g-2 mt-2">
+      <div class="col-6 col-md-4"><div class="stat-card stat-sm grad-terra"><div class="stat-label">成本合计</div><div class="stat-num">¥{{ cost_total|money }}</div><div class="stat-sub">分包 + 采购 + 费用</div></div></div>
+      <div class="col-6 col-md-4"><div class="stat-card stat-sm grad-sage"><div class="stat-label">收支余额</div><div class="stat-num {% if (paid_total - cost_total) < 0 %}text-danger{% endif %}">¥{{ (paid_total - cost_total)|money }}</div><div class="stat-sub">已收 − 成本</div></div></div>
+      <div class="col-6 col-md-4"><div class="stat-card stat-sm grad-stone"><div class="stat-label">预算成本</div><div class="stat-num">¥{{ budget_total|money }}</div></div></div>
+    </div>
+    <div class="row g-2 mt-2">
+      <div class="col-6 col-md-3"><div class="stat-card stat-sm grad-pine"><div class="stat-label"><i class="bi bi-receipt me-1"></i>已开发票（销项）</div><div class="stat-num">¥{{ invoice_out_total|money }}</div></div></div>
+      <div class="col-6 col-md-3"><div class="stat-card stat-sm grad-sage"><div class="stat-label"><i class="bi bi-receipt-cutoff me-1"></i>已收发票（进项）</div><div class="stat-num">¥{{ invoice_in_total|money }}</div></div></div>
+    </div>
+    <div class="row g-2 mt-2">
+      <div class="col-6 col-md-3"><div class="stat-card stat-sm grad-pine"><div class="stat-label"><i class="bi bi-file-earmark-text me-1"></i>签订合同金额</div><div class="stat-num">¥{{ contract_signed_total|money }}</div><div class="stat-sub">采购合同 + 分包合同</div></div></div>
+      <div class="col-6 col-md-3"><div class="stat-card stat-sm grad-bean"><div class="stat-label"><i class="bi bi-cart-check me-1"></i>已下单总金额</div><div class="stat-num">¥{{ ordered_total|money }}</div><div class="stat-sub">采购单 + 分包采购单</div></div></div>
+      <div class="col-6 col-md-3"><div class="stat-card stat-sm grad-lotus"><div class="stat-label"><i class="bi bi-cash-coin me-1"></i>已付款总金额</div><div class="stat-num">¥{{ supplier_paid_total|money }}</div></div></div>
+      <div class="col-6 col-md-3"><div class="stat-card stat-sm grad-terra"><div class="stat-label"><i class="bi bi-hourglass-split me-1"></i>已下单未付款</div><div class="stat-num {% if ordered_unpaid < 0 %}text-danger{% endif %}">¥{{ ordered_unpaid|money }}</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 施工合同 -->
+<div class="card mb-3" id="contract">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-file-earmark-text me-1"></i>施工合同
+      {% if contract %}<span class="badge {{ "已导入" | state_badge }} ms-2">已导入</span>{% endif %}
+      <span class="text-muted small fw-normal">上传合同自动提取关键信息</span></span>
+    <div class="d-flex gap-2">
+      {% if contract and contract.file_path %}
+      <a href="{{ contract.file_path }}" download class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> 下载合同</a>
+      {% endif %}
+      {% if contract %}
+      <form method="post" action="/projects/{{ project.id }}/contract/delete" class="d-inline"
+            onsubmit="return confirm('删除该施工合同记录？（已上传的合同文件仍保留）');">
+        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> 删除合同</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body">
+    {% if contract %}
+    <div class="info-grid">
+      {# 字段分组。原来 22 个字段平铺成 col-md-4 网格，一屏塞满看不出重点；
+         分组后视线沿右侧竖线扫，且能一眼看出「金额 / 主体 / 工期 / 付款」各是哪些。 #}
+      <div class="info-group">
+        <div class="info-group-title">金额与结算</div>
+        <div class="info-field"><span class="k">合同名称</span><span class="v">{{ contract.name or '—' }}</span></div>
+        <div class="info-field"><span class="k">合同编号</span><span class="v">{{ contract.contract_no or '—' }}</span></div>
+        <div class="info-field"><span class="k">合同金额</span><span class="v num text-danger">¥{{ contract.amount|money }}</span></div>
+        <div class="info-field"><span class="k">结算金额</span><span class="v num">{% if contract.settle_amount %}¥{{ contract.settle_amount|money }}{% endif %}</span></div>
+        <div class="info-field"><span class="k">已确认变更</span><span class="v num">{{ (change_summary.get(project.id, {}) or {}).get('confirmed', 0)|money }}</span></div>
+      </div>
+
+      <div class="info-group">
+        <div class="info-group-title">签约主体</div>
+        <div class="info-field"><span class="k">甲方（客户）</span><span class="v">{{ contract.party_a or '—' }}</span></div>
+        <div class="info-field"><span class="k">乙方（公司）</span><span class="v">{{ contract.party_b or '—' }}</span></div>
+        <div class="info-field"><span class="k">签订日期</span><span class="v">{{ contract.sign_date or '—' }}</span></div>
+        {% if contract.tax_rate %}
+        <div class="info-field"><span class="k">税率</span><span class="v">{{ '%g'|format(contract.tax_rate) }}%</span></div>
+        {% endif %}
+      </div>
+
+      <div class="info-group">
+        <div class="info-group-title">工期</div>
+        <div class="info-field"><span class="k">开工日期</span><span class="v">{{ contract.start_date or '—' }}</span></div>
+        <div class="info-field"><span class="k">竣工日期</span><span class="v">{{ contract.end_date or '—' }}</span></div>
+        {% if contract.duration_days %}
+        <div class="info-field"><span class="k">工期</span><span class="v">{{ contract.duration_days }} 天</span></div>
+        {% endif %}
+      </div>
+
+      <div class="info-group">
+        <div class="info-group-title">付款与质保</div>
+        {% if contract.pay_method %}
+        <div class="info-field"><span class="k">付款方式</span><span class="v">{{ contract.pay_method }}</span></div>
+        {% endif %}
+        {% if contract.prepay_rate %}
+        <div class="info-field"><span class="k">预付款</span><span class="v">{{ '%g'|format(contract.prepay_rate) }}%</span></div>
+        {% endif %}
+        {% if contract.warranty_months %}
+        <div class="info-field"><span class="k">质保期</span><span class="v">{{ contract.warranty_months }} 个月</span></div>
+        {% endif %}
+        {% if contract.warranty_retention_rate %}
+        <div class="info-field"><span class="k">质保金</span><span class="v">{{ '%g'|format(contract.warranty_retention_rate) }}%</span></div>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="text-muted small text-center py-3">尚未导入施工合同：上传 PDF / Word 后自动识别并保存到下方信息区</div>
+    {% endif %}
+
+    {% if contract_msg %}
+    <div class="alert alert-{{ 'success' if contract_msg.kind == 'success' else 'warning' }} py-2 small mb-2">{{ contract_msg.text }}</div>
+    {% endif %}
+
+    {# 合同信息只读展示（上面的分组）；这里只留两个动作：改备注、重新上传合同。 #}
+    <div class="row g-2 align-items-end">
+      <div class="col-md-5">
+        <form method="post" action="/projects/{{ project.id }}/contract/note" class="row g-2 align-items-end">
+          <div class="col-7"><label class="form-label small mb-1">合同备注</label>
+            <input name="note" class="form-control form-control-sm" value="{{ contract.note if contract else '' }}"
+                   {{ 'disabled' if not contract }}></div>
+          <div class="col-5"><button class="btn btn-sm btn-primary w-100" {{ 'disabled' if not contract }}>保存备注</button></div>
+        </form>
+      </div>
+
+      <div class="col-md-7">
+        <form method="post" action="/projects/{{ project.id }}/contract/parse" enctype="multipart/form-data" class="row g-2 align-items-end">
+          <div class="col-7"><label class="form-label small mb-1">上传施工合同（PDF / Word，识别后直接写入合同信息）</label>
+            <input type="file" name="file" class="form-control form-control-sm" accept=".pdf,.docx"></div>
+          <div class="col-5"><button class="btn btn-sm btn-outline-primary w-100"><i class="bi bi-file-earmark-arrow-up"></i> 识别并保存</button></div>
+        </form>
+      </div>
+    </div>
+
+    {# 扫描件识别不出来时的人工补录：默认收起。
+       语义与上传识别一致——留空 = 不修改，所以永远不会把已有合同清空；
+       代价是无法把某个数值字段改成 0。 #}
+    <div class="mt-3">
+      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+              data-bs-target="#ctManual" aria-expanded="false" aria-controls="ctManual">
+        <i class="bi bi-pencil-square"></i> 扫描件识别不出？手动补录合同信息
+      </button>
+      <div class="collapse mt-2" id="ctManual">
+        <form method="post" action="/projects/{{ project.id }}/contract/manual" class="row g-2 align-items-end">
+          <div class="col-12"><div class="form-text">留空 = 不修改。已导入的字段会原样回填，改完只提交你动过的即可。</div></div>
+          <div class="col-md-4"><label class="form-label small mb-1">合同编号</label>
+            <input name="contract_no" class="form-control form-control-sm" value="{{ contract.contract_no if contract else '' }}"></div>
+          <div class="col-md-8"><label class="form-label small mb-1">合同名称</label>
+            <input name="name" class="form-control form-control-sm" value="{{ contract.name if contract else '' }}"></div>
+          <div class="col-md-6"><label class="form-label small mb-1">甲方（客户）</label>
+            <input name="party_a" class="form-control form-control-sm" value="{{ contract.party_a if contract else '' }}"></div>
+          <div class="col-md-6"><label class="form-label small mb-1">乙方（公司）</label>
+            <input name="party_b" class="form-control form-control-sm" value="{{ contract.party_b if contract else '' }}"></div>
+          <div class="col-md-4"><label class="form-label small mb-1">金额 ¥</label>
+            <input name="amount" type="number" step="0.01" class="form-control form-control-sm"
+                   value="{{ contract.amount if contract and contract.amount else '' }}"></div>
+          <div class="col-md-4"><label class="form-label small mb-1">签订日期</label>
+            <input name="sign_date" type="date" class="form-control form-control-sm" value="{{ contract.sign_date if contract else '' }}"></div>
+          <div class="col-md-4"><label class="form-label small mb-1">开工日期</label>
+            <input name="start_date" type="date" class="form-control form-control-sm" value="{{ contract.start_date if contract else '' }}"></div>
+          <div class="col-md-4"><label class="form-label small mb-1">竣工日期</label>
+            <input name="end_date" type="date" class="form-control form-control-sm" value="{{ contract.end_date if contract else '' }}"></div>
+          <div class="col-md-4"><label class="form-label small mb-1">工期（天）</label>
+            <input name="duration_days" type="number" class="form-control form-control-sm"
+                   value="{{ contract.duration_days if contract and contract.duration_days else '' }}"></div>
+          <div class="col-md-4"><label class="form-label small mb-1">付款方式</label>
+            <input name="pay_method" class="form-control form-control-sm" value="{{ contract.pay_method if contract else '' }}"></div>
+          <div class="col-md-4"><label class="form-label small mb-1">预付款比例 %</label>
+            <input name="prepay_rate" type="number" step="any" class="form-control form-control-sm"
+                   value="{{ contract.prepay_rate if contract and contract.prepay_rate else '' }}"></div>
+          <div class="col-md-4"><label class="form-label small mb-1">质保期（月）</label>
+            <input name="warranty_months" type="number" class="form-control form-control-sm"
+                   value="{{ contract.warranty_months if contract and contract.warranty_months else '' }}"></div>
+          <div class="col-md-4"><label class="form-label small mb-1">质保金比例 %</label>
+            <input name="warranty_retention_rate" type="number" step="any" class="form-control form-control-sm"
+                   value="{{ contract.warranty_retention_rate if contract and contract.warranty_retention_rate else '' }}"></div>
+          <div class="col-md-4"><label class="form-label small mb-1">税率 %</label>
+            <input name="tax_rate" type="number" step="any" class="form-control form-control-sm"
+                   value="{{ contract.tax_rate if contract and contract.tax_rate else '' }}"></div>
+          <div class="col-12">
+            <label class="form-label small mb-1">付款节点（款项 / 比例% / 金额万元 / 付款时间 / 付款条件）</label>
+            <div id="ctPtRows">
+              {% for t in contract_pay_terms %}
+              <div class="row g-1 mb-1 align-items-center pt-row">
+                <div class="col-md-2"><input name="pt_name" class="form-control form-control-sm" value="{{ t.name }}"></div>
+                <div class="col-md-1"><input name="pt_rate" type="number" step="any" class="form-control form-control-sm" value="{{ t.rate }}"></div>
+                <div class="col-md-2"><input name="pt_amount" type="number" step="0.01" class="form-control form-control-sm" value="{{ t.amount_wan }}"></div>
+                <div class="col-md-2"><input name="pt_date" class="form-control form-control-sm" value="{{ t.pay_date }}"></div>
+                <div class="col-md-4"><input name="pt_condition" class="form-control form-control-sm" value="{{ t.condition }}"></div>
+                <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger pt-del">×</button></div>
+              </div>
+              {% endfor %}
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-primary mt-1" id="ctPtAdd"><i class="bi bi-plus-lg"></i> 添加付款</button>
+            <div class="form-text">一行都不填 = 保持现有付款节点不变；填了会整份替换，并按它生成收款计划（项目已有收款节点时不动）。</div>
+          </div>
+          <div class="col-12">
+            <button class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> 保存补录</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 阶段 -->
+<div class="card mb-3" id="phaseBlock">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-diagram-3 me-1"></i>施工阶段 <span class="text-muted small fw-normal">（可自定义新增/删除）</span></span>
+    <form method="post" action="/projects/{{ project.id }}/phases/add" class="d-flex gap-1">
+      <input type="text" name="name" class="form-control form-control-sm" placeholder="新增阶段，如：拆除" required style="width:190px">
+      <button class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> 添加</button>
+    </form>
+  </div>
+  <div class="card-body">
+    <div class="row g-2" id="phaseGrid">
+      {% for ph in project.phases %}
+      <div class="col-6 col-md-3 col-xl-auto phase-card" draggable="true" data-id="{{ ph.id }}" title="拖拽调整顺序">
+        <div class="d-flex flex-column gap-1 phase-card-inner">
+          <form method="post" action="/projects/phases/{{ ph.id }}/delete" class="phase-del"
+                onsubmit="return confirm('删除阶段「{{ ph.name }}」？');">
+            <button class="btn btn-sm btn-link text-danger p-0" title="删除"><i class="bi bi-x-lg"></i></button>
+          </form>
+          <span class="small fw-semibold">
+            <i class="bi bi-grip-vertical text-muted me-1"></i>{{ ph.sort_order }}. {{ ph.name }}
+            {% if ph.status == '已完成' %}<i class="bi bi-check-circle-fill text-success"></i>
+            {% elif ph.status == '进行中' %}<i class="bi bi-play-circle-fill text-primary"></i>{% endif %}
+          </span>
+          <form method="post" action="/projects/{{ project.id }}/phases" class="input-group input-group-sm">
+            <input type="hidden" name="phase_id" value="{{ ph.id }}">
+            <select name="status" class="form-select">
+              {% for s in ['未开始', '进行中', '已完成'] %}
+              <option value="{{ s }}" {{ 'selected' if ph.status == s else '' }}>{{ s }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-outline-primary" title="更新"><i class="bi bi-check-lg"></i></button>
+          </form>
+          {% if ph.note %}<span class="small text-muted">{{ ph.note }}</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- 施工笔记 -->
+<div class="card mb-3" id="notes">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-journal-text me-1"></i>施工笔记 <span class="text-muted small fw-normal">记录施工过程中的重要事件与备忘</span></span>
+    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#noteModal"><i class="bi bi-plus-lg"></i> 添加笔记</button>
+  </div>
+  <div class="card-body">
+    {% if project.notes %}
+    <div class="row g-2">
+      {% for n in project.notes %}
+      <div class="col-md-6">
+        <div class="note-item">
+          <div class="d-flex justify-content-between align-items-start gap-2">
+            <span class="badge text-bg-light">{{ n.note_date or n.created_at.strftime('%Y-%m-%d') }}</span>
+            <form method="post" action="/projects/notes/{{ n.id }}/delete" class="d-inline"
+                  onsubmit="return confirm('删除这条笔记？');">
+              <button class="btn btn-link text-danger p-0" style="font-size:12px">删除</button>
+            </form>
+          </div>
+          <div class="note-content mt-1">{{ n.content|safe }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-muted text-center py-3">暂无笔记，点击「添加笔记」记录施工中的重要事项</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 添加笔记模态框 -->
+<div class="modal fade" id="noteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">添加施工笔记</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="post" action="/projects/{{ project.id }}/notes">
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label small">日期</label>
+            <input type="date" name="note_date" class="form-control" value="{{ today }}">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">内容 *（支持富文本 / 图片 / 语音）</label>
+            <div class="note-editor-toolbar d-flex flex-wrap gap-1 mb-1">
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-cmd="bold" title="加粗"><b>B</b></button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-cmd="italic" title="斜体"><i>I</i></button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-cmd="underline" title="下划线"><u>U</u></button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-cmd="insertUnorderedList" title="列表"><i class="bi bi-list-ul"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-cmd="insertOrderedList" title="编号"><i class="bi bi-list-ol"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-cmd="removeFormat" title="清除格式">清除</button>
+              <button type="button" class="btn btn-sm btn-outline-primary" id="noteImgBtn" title="插入图片"><i class="bi bi-image"></i> 图片</button>
+              <button type="button" class="btn btn-sm btn-outline-danger" id="noteVoiceBtn" title="录音"><i class="bi bi-mic"></i> <span id="voiceLabel">语音</span></button>
+              <input type="file" id="noteImgInput" class="d-none" accept="image/*">
+            </div>
+            <div class="note-editor" contenteditable="true" data-placeholder="如：今天泥瓦进场，发现墙面平整度问题，已通知施工队整改…"></div>
+            <input type="hidden" name="content" id="noteContent">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+          <button class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存笔记</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="card tab-card">
+  <ul class="nav nav-tabs card-header" id="projTabs" role="tablist">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#payments">收款计划</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#costs">预算与成本</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tasks">任务清单</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#records">现场记录</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#materials">项目材料</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#documents">文档</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#proj-invoices">发票</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#proj-spayments">供应商付款</a></li>
+    {# 变更签证：项目详情里要能直接看，否则得另开页面来回跳 #}
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#proj-changes">
+      变更签证 <span class="badge text-bg-light">{{ (project.change_orders|length) or '' }}</span>
+    </a></li>
+  </ul>
+
+  <div class="tab-content p-3" id="projTabsContent">
+    <!-- 收款计划 -->
+    <div class="tab-pane fade show active" id="payments">
+      <div class="proj-head">
+        <span><i class="bi bi-cash-stack me-1"></i>收款计划 <span class="small fw-normal opacity-75">可自定义节点、分多笔收款、每笔可开票</span></span>
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#payModal"><i class="bi bi-plus-lg"></i> 新增收款节点</button>
+      </div>
+      <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0" style="min-width:900px">
+              <thead><tr>
+                <th style="width:14%">节点</th>
+                <th class="text-end" style="width:10%">计划金额</th>
+                <th style="width:10%">计划日期</th>
+                <th class="text-end" style="width:11%">已收</th>
+                <th style="width:8%">状态</th>
+                <th style="width:21%">收款明细</th>
+                <th style="width:14%">发票</th>
+                <th style="width:12%">操作</th>
+              </tr></thead>
+              <tbody id="pay-tbody">
+                {% for p in project.payments %}
+                <tr class="pay-row pay-{{ 'done' if p.status == '已收' else 'part' if p.status == '部分已收' else 'unpaid' if p.status == '未收' else 'none' }}" draggable="true" data-id="{{ p.id }}">
+                  <td class="fw-semibold">{{ p.name }}</td>
+                  <td class="text-end text-money">¥{{ p.plan_amount|money }}</td>
+                  <td class="small">{{ p.plan_date or '—' }}</td>
+                  <td class="text-end text-money text-success">¥{{ p.paid_amount|money }}</td>
+                  <td>
+                    {# 未收不再是红色：还没收钱是流程常态，不是异常。
+                       红色留给「已收但超收」这类真问题。 #}
+                    <span class="badge {{ p.status | state_badge }}">{{ p.status }}</span>
+                  </td>
+                  <td class="small">
+                    {% if p.receipts %}
+                      {% for r in p.receipts %}
+                      {# 作废的收款明细仍然列出（转账单是法律凭据，不能销毁），
+                         但压暗 + 标记，且不再计入已收金额。 #}
+                      <div class="d-flex align-items-center gap-1 mb-1 {{ 'row-voided' if r.status == '作废' else '' }}">
+                        <span class="text-muted">{{ r.receipt_date or '—' }}</span>
+                        <strong class="text-success">¥{{ r.amount|money }}</strong>
+                        {% if r.status == '作废' %}
+                        <span class="badge state-badge state-idle">已作废</span>
+                        {% if r.void_reason %}<span class="small text-muted" title="{{ r.void_reason }}">{{ r.void_reason[:12] }}</span>{% endif %}
+                        {% endif %}
+                        {% if r.file_path %}<a href="{{ r.file_path }}" target="_blank" title="查看转账单凭证" class="text-success"><i class="bi bi-bank"></i></a>{% endif %}
+                        {% if r.status == '作废' %}
+                        <form method="post" action="/projects/payments/receipts/{{ r.id }}/restore" class="d-inline" onsubmit="return confirm('恢复该笔收款？将重新计入已收金额与回款比例。');">
+                          <button class="btn btn-link text-secondary p-0" style="font-size:12px" title="已作废，点击恢复">恢复</button>
+                        </form>
+                        {% else %}
+                        <button class="btn btn-link text-primary p-0" style="font-size:12px" data-bs-toggle="modal" data-bs-target="#recvEdit-{{ r.id }}" title="编辑">编</button>
+                        <form method="post" action="/projects/payments/receipts/{{ r.id }}/void" class="d-inline" onsubmit="return confirm('作废该笔收款？\n\n转账单凭证会保留以便对账，但该笔金额不再计入已收与回款比例。误操作可在此恢复。');">
+                          <button class="btn btn-link text-danger p-0" style="font-size:12px" title="作废（保留凭证，不计入已收）">作废</button>
+                        </form>
+                        {% endif %}
+                      </div>
+                      {% endfor %}
+                    {% elif p.paid_amount > 0 %}
+                    <span class="text-muted">历史收款 ¥{{ p.paid_amount|money }}</span>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if p.invoices %}
+                      {% for inv in p.invoices %}
+                      <div class="small mb-1">
+                        <a href="/invoices/{{ inv.id }}" class="text-success" title="查看发票"><i class="bi bi-file-earmark-text me-1"></i>{{ inv.invoice_no or '发票' }}</a>
+                        <span class="text-money">¥{{ inv.amount|money }}</span>
+                      </div>
+                      {% endfor %}
+                    {% else %}
+                    <span class="text-muted small">未开票</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <div class="d-flex gap-1 justify-content-end">
+                      {# 开票只在节点未作废时给：作废节点不该再开出票申请，
+                         否则销项发票会挂在一笔「不作数」的收款上，
+                         已收 vs 已开的对照表立刻失真。 #}
+                      {% if p.void_status == '作废' %}
+                      <span class="badge state-badge state-idle align-self-center" title="该节点已作废，不计入已收与回款比例">已作废</span>
+                      <form method="post" action="/projects/payments/{{ p.id }}/restore" class="d-inline" onsubmit="return confirm('恢复该收款节点？将重新计入已收金额与回款比例。');">
+                        <button class="btn btn-sm btn-outline-secondary" title="已作废，点击恢复"><i class="bi bi-arrow-counterclockwise"></i></button>
+                      </form>
+                      {% else %}
+                      <a href="/invoices/new?project_id={{ project.id }}&payment_id={{ p.id }}&amount={{ p.balance }}&title={{ project.customer.name }}&back_url=/projects/{{ project.id }}%23payments"
+                         class="btn btn-sm btn-outline-success" title="开票"><i class="bi bi-receipt"></i></a>
+                      <button class="btn btn-sm btn-outline-primary" title="编辑节点" data-bs-toggle="modal" data-bs-target="#editPayModal-{{ p.id }}"><i class="bi bi-pencil"></i></button>
+                      {% if p.balance > 0 %}
+                      <button class="btn btn-sm btn-success" title="收款" data-bs-toggle="modal" data-bs-target="#payModal-{{ p.id }}"><i class="bi bi-bank"></i></button>
+                      {% else %}
+                      <span class="badge state-badge state-done align-self-center" title="已结清">结清</span>
+                      {% endif %}
+                      {# 作废而不是删除：receipts 是 cascade="all, delete-orphan"，
+                         删节点会连带销毁它下面所有转账单凭证。 #}
+                      <form method="post" action="/projects/payments/{{ p.id }}/void" class="d-inline" onsubmit="return confirm('作废该收款节点？\n\n节点与它下面的收款凭证、转账单都会保留，不再计入已收与回款比例。');">
+                        <button class="btn btn-sm btn-outline-danger" title="作废节点（保留全部凭证）"><i class="bi bi-x-octagon"></i></button>
+                      </form>
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="text-center text-muted py-3">暂无收款计划</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      <!-- 新增收款节点 模态框 -->
+      <div class="modal fade" id="payModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h6 class="modal-title">新增收款节点</h6>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="/projects/{{ project.id }}/payments">
+              <div class="modal-body">
+                <div class="mb-2">
+                  <label class="form-label small">节点名称（可自定义，留空自动为「收款记录」）</label>
+                  <input type="text" name="name" class="form-control" placeholder="如：签约款 / 中期款 / 增项款 / 设计费">
+                </div>
+                <div class="row g-2">
+                  <div class="col-6">
+                    <label class="form-label small">计划金额（¥）</label>
+                    <input type="number" step="0.01" name="plan_amount" class="form-control" value="0">
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label small">计划日期</label>
+                    <input type="date" name="plan_date" class="form-control">
+                  </div>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary">添加节点</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    <!-- 预算与成本 -->
+    <div class="tab-pane fade" id="costs">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <span class="small text-muted">预算合计 <strong>¥{{ budget_total|money }}</strong> · 成本合计 <strong>¥{{ cost_total|money }}</strong> · 结余 <strong class="{{ 'text-success' if (budget_total - cost_total) >= 0 else 'text-danger' }}">¥{{ (budget_total - cost_total)|money }}</strong></span>
+        <div class="d-flex gap-2">
+          <a href="/projects/budgets/template" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> 下载模板</a>
+          <form method="post" action="/projects/{{ project.id }}/budgets/import" enctype="multipart/form-data">
+            <input type="file" name="file" class="d-none" id="budgetFileInput" accept=".xlsx,.xls,.csv" onchange="this.form.submit()">
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="document.getElementById('budgetFileInput').click()"><i class="bi bi-file-earmark-excel"></i> 导入 Excel</button>
+          </form>
+        </div>
+      </div>
+      <div class="card mb-3">
+        <div class="card-header py-2"><i class="bi bi-arrow-left-right me-1"></i>预算 vs 成本对比 <span class="text-muted small fw-normal ms-2">主材成本=材料采购总额（材料管理）；其它成本=费用管理对应类别</span></div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr>
+              <th>类别</th>
+              <th class="text-end">预算金额</th>
+              <th class="text-end">实际成本</th>
+              <th class="text-end">差额</th>
+              <th class="text-end">完成率</th>
+              <th>成本来源</th>
+            </tr></thead>
+            <tbody>
+              {% for r in budget_compare %}
+              <tr>
+                <td class="fw-semibold">{{ r.cat }}</td>
+                <td class="text-end text-money">¥{{ r.budget|money }}</td>
+                <td class="text-end text-money">{% if r.cost is none %}—{% else %}¥{{ r.cost|money }}{% endif %}</td>
+                <td class="text-end text-money {% if r.diff is not none and r.diff < 0 %}text-danger{% elif r.diff is not none %}text-success{% endif %}">
+                  {% if r.diff is none %}—{% elif r.diff >= 0 %}结余 ¥{{ r.diff|money }}{% else %}超支 ¥{{ (-r.diff)|money }}{% endif %}
+                </td>
+                <td class="text-end">{% if r.rate is none %}—{% else %}{{ r.rate }}%{% endif %}</td>
+                <td class="small text-muted">{{ r.source }}</td>
+              </tr>
+              {% if r.sub_detail and r.sub_detail %}
+              {% for sub_cat, sub_amt in r.sub_detail.items() %}
+              <tr class="table-sub">
+                <td class="ps-4 small text-muted">└ {{ sub_cat }}</td>
+                <td></td>
+                <td class="text-end text-money small">¥{{ sub_amt|money }}</td>
+                <td></td>
+                <td></td>
+                <td class="small text-muted">分包采购单（{{ sub_cat }}）</td>
+              </tr>
+              {% endfor %}
+              {% endif %}
+              {% endfor %}
+              <tr class="table-light">
+                <td class="fw-bold">合计</td>
+                <td class="text-end text-money fw-bold">¥{{ compare_budget_total|money }}</td>
+                <td class="text-end text-money fw-bold">¥{{ compare_cost_total|money }}</td>
+                <td class="text-end fw-bold {{ 'text-danger' if (compare_budget_total - compare_cost_total) < 0 else 'text-success' }}">
+                  {% if (compare_budget_total - compare_cost_total) >= 0 %}结余 ¥{{ (compare_budget_total - compare_cost_total)|money }}{% else %}超支 ¥{{ (compare_cost_total - compare_budget_total)|money }}{% endif %}
+                </td>
+                <td class="text-end fw-bold">{{ (compare_cost_total / compare_budget_total * 100)|round(1) if compare_budget_total else 0 }}%</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header py-2"><i class="bi bi-journal-text me-1"></i>预算科目（{{ project.budget_items | length }}）</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>类别</th><th>科目</th><th class="text-end">预算金额</th><th style="width:200px">调整金额</th><th></th></tr></thead>
+            <tbody>
+              {% for b in project.budget_items %}
+              <tr>
+                <td><span class="badge text-bg-light">{{ b.category }}</span></td>
+                <td>{{ b.item_name }}</td>
+                <td class="text-end text-money">¥{{ b.budget_amount|money }}</td>
+                <td>
+                  <form method="post" action="/projects/budgets/{{ b.id }}/edit" class="d-flex gap-1">
+                    <input type="hidden" name="category" value="{{ b.category }}">
+                    <input type="hidden" name="item_name" value="{{ b.item_name }}">
+                    <input type="number" step="0.01" name="budget_amount" class="form-control form-control-sm" value="{{ b.budget_amount }}" style="width:110px">
+                    <button class="btn btn-sm btn-outline-secondary">保存</button>
+                  </form>
+                </td>
+                <td>
+                  <form method="post" action="/projects/budgets/{{ b.id }}/delete" class="d-inline" onsubmit="return confirm('删除该预算科目？');">
+                    <button class="btn btn-sm btn-link text-danger p-0">删</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="text-center text-muted py-3">暂无预算科目，可导入 Excel 或下方添加</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="card-body py-2">
+          <form method="post" action="/projects/{{ project.id }}/budgets" class="row g-2 align-items-end">
+            <div class="col-md-3">
+              <select name="category" class="form-select form-select-sm">
+                {% for cat in ['主材','辅材','人工','设计','管理','其他'] %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4"><input name="item_name" class="form-control form-control-sm" placeholder="科目名称" required></div>
+            <div class="col-md-2"><input name="budget_amount" type="number" step="0.01" class="form-control form-control-sm" placeholder="金额"></div>
+            <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">添加科目</button></div>
+          </form>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header py-2"><i class="bi bi-receipt-cutoff me-1"></i>成本费用（{{ project.cost_items | length }}）</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>类别</th><th>费用项目</th><th class="text-end">金额</th><th>日期</th><th>备注</th><th>凭证</th><th></th></tr></thead>
+            <tbody>
+              {% for c in project.cost_items %}
+              <tr>
+                <td><span class="badge text-bg-light">{{ c.category }}</span></td>
+                <td>{{ c.item_name }}</td>
+                <td class="text-end text-money text-danger">¥{{ c.amount|money }}</td>
+                <td class="small">{{ c.occurred_date or '—' }}</td>
+                <td class="small text-muted">{{ c.note or '' }}</td>
+                <td>{% if c.file_path %}<a href="{{ c.file_path }}" target="_blank" class="text-success" title="查看凭证"><i class="bi bi-paperclip"></i></a> <a href="{{ c.file_path }}" download class="text-muted" title="下载凭证"><i class="bi bi-download"></i></a>{% else %}—{% endif %}</td>
+                <td>
+                  <form method="post" action="/projects/costs/{{ c.id }}/delete" class="d-inline" onsubmit="return confirm('删除该费用？');">
+                    <button class="btn btn-sm btn-link text-danger p-0">删</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="text-center text-muted py-3">暂无成本费用</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="card-body py-2">
+          <form method="post" action="/projects/{{ project.id }}/costs" class="row g-2 align-items-end" enctype="multipart/form-data">
+            <div class="col-md-2">
+              <select name="category" class="form-select form-select-sm">
+                {% for cat in ['人工','机械','设计','管理','运输','辅材','其他费用'] %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3"><input name="item_name" class="form-control form-control-sm" placeholder="费用项目" required></div>
+            <div class="col-md-2"><input name="amount" type="number" step="0.01" class="form-control form-control-sm" placeholder="金额"></div>
+            <div class="col-md-2"><input name="occurred_date" type="date" class="form-control form-control-sm"></div>
+            <div class="col-md-2"><input name="note" class="form-control form-control-sm" placeholder="备注"></div>
+            <div class="col-md-1"><input type="file" name="file" class="form-control form-control-sm" style="font-size:12px" accept=".pdf,image/*" title="凭证"></div>
+            <div class="col-md-12 mt-1"><button class="btn btn-sm btn-primary">添加费用</button></div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- 项目材料 -->
+    <div class="tab-pane fade" id="materials">
+      <div class="proj-head"><span><i class="bi bi-box-seam me-1"></i>项目材料</span></div>
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <span class="small text-muted">材料清单：预算用量 vs 已采购 vs 缺口（可勾选导出询价单）</span>
+        <div class="d-flex gap-2 flex-wrap">
+          <form method="get" action="/materials/import">
+            <input type="hidden" name="project_id" value="{{ project.id }}">
+            <button class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-excel"></i> 从 Excel 导入</button>
+          </form>
+          <form method="post" action="/projects/{{ project.id }}/inquiry-export" id="inquiryForm" class="d-flex gap-1 align-items-center flex-wrap">
+            <input type="text" name="supplier_name" class="form-control form-control-sm" style="width:160px" list="inqSupList" autocomplete="off" placeholder="不指定供应商 / 点击选择">
+              <datalist id="inqSupList">
+                {% for sup in suppliers %}<option value="{{ sup.name }}">{% endfor %}
+              </datalist>
+              <input type="hidden" name="supplier_id" value="0">
+            <select name="qty_mode" class="form-select form-select-sm" style="width:120px">
+              <option value="plan">按预算用量</option>
+              <option value="gap">按缺口</option>
+            </select>
+            <button class="btn btn-sm btn-outline-success" type="submit"><i class="bi bi-file-earmark-arrow-down"></i> 导出询价单</button>
+          </form>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr>
+            <th style="width:34px"><input type="checkbox" id="pm-check-all" class="form-check-input"></th>
+            <th>材料</th><th>规格</th><th>单位</th>
+            <th class="text-end">预算用量</th><th class="text-end">已采购</th><th class="text-end">缺口</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            {% for pm in project.project_materials %}
+            <tr>
+              <td><input type="checkbox" class="form-check-input pm-check" name="pm_ids" value="{{ pm.id }}" form="inquiryForm"></td>
+              <td><a href="/materials/{{ pm.material_id }}" class="fw-semibold">{{ pm.material.name }}</a></td>
+              <td class="small text-muted">{{ pm.material.spec or '—' }}</td>
+              <td>{{ pm.material.unit }}</td>
+              <td class="text-end text-money">{{ pm.plan_quantity }}</td>
+              <td class="text-end text-money">{{ pm.purchased_quantity }}</td>
+              <td class="text-end text-money {% if pm.gap > 0 %}text-danger fw-semibold{% endif %}">{{ pm.gap if pm.gap > 0 else '—' }}</td>
+              <td class="text-end">
+                <form method="post" action="/projects/project-materials/{{ pm.id }}/delete" class="d-inline" onsubmit="return confirm('从项目材料清单移除该材料？')">
+                  <button class="btn btn-sm btn-link text-danger p-0">移除</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="text-center text-muted py-4">暂无材料清单，可从 Excel 导入或下方添加材料</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <form method="post" action="/projects/{{ project.id }}/materials" class="row g-2 mt-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label small mb-1">材料</label>
+          <select name="material_id" class="form-select">
+            {% for m in materials %}<option value="{{ m.id }}">{{ m.name }}{% if m.spec %}（{{ m.spec }}）{% endif %}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2"><label class="form-label small mb-1">预算用量</label><input name="plan_quantity" type="number" step="0.01" class="form-control" value="0"></div>
+        <div class="col-md-2"><label class="form-label small mb-1">已采购</label><input name="purchased_quantity" type="number" step="0.01" class="form-control" value="0"></div>
+        <div class="col-md-2"><label class="form-label small mb-1">成交单价</label><input name="unit_price" type="number" step="0.01" class="form-control" value="0"></div>
+        <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">添加到清单</button></div>
+      </form>
+<script>
+  // 施工阶段拖拽排序
+  (function () {
+    var grid = document.getElementById('phaseGrid');
+    if (!grid) return;
+    var dragEl = null;
+    function getAfter(y) {
+      var els = Array.prototype.slice.call(grid.querySelectorAll('.phase-card:not(.dragging)'));
+      return els.reduce(function (closest, child) {
+        var box = child.getBoundingClientRect();
+        var offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) return { offset: offset, element: child };
+        return closest;
+      }, { offset: -Infinity }).element;
+    }
+    grid.addEventListener('dragstart', function (e) {
+      dragEl = e.target.closest('.phase-card');
+      if (!dragEl) return;
+      dragEl.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    grid.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      if (!dragEl) return;
+      var after = getAfter(e.clientY);
+      if (after == null) grid.appendChild(dragEl);
+      else grid.insertBefore(dragEl, after);
+    });
+    grid.addEventListener('drop', function (e) { e.preventDefault(); });
+    grid.addEventListener('dragend', function () {
+      if (dragEl) dragEl.classList.remove('dragging');
+      dragEl = null;
+      var ids = Array.prototype.slice.call(grid.querySelectorAll('.phase-card')).map(function (el) {
+        return parseInt(el.getAttribute('data-id'), 10);
+      });
+      fetch('/projects/phases/{{ project.id }}/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ids })
+      }).then(function (r) { return r.json(); }).then(function () {
+        // 后端已保存新顺序，刷新页面渲染正确序号与图标
+        location.reload();
+      });
+    });
+  })();
+</script>
+
+<script>
+// 收款节点：拖拽排序
+(function () {
+  var tbody = document.getElementById('pay-tbody');
+  if (!tbody) return;
+  var dragRow = null;
+  function getAfter(y) {
+    var els = Array.prototype.slice.call(tbody.querySelectorAll('tr.pay-row:not(.dragging)'));
+    return els.reduce(function (closest, child) {
+      var box = child.getBoundingClientRect();
+      var offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) return { offset: offset, element: child };
+      return closest;
+    }, { offset: -Infinity }).element;
+  }
+  tbody.addEventListener('dragstart', function (e) {
+    dragRow = e.target.closest('tr.pay-row');
+    if (!dragRow) return;
+    dragRow.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  tbody.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    if (!dragRow) return;
+    var after = getAfter(e.clientY);
+    if (after == null) tbody.appendChild(dragRow);
+    else tbody.insertBefore(dragRow, after);
+  });
+  tbody.addEventListener('drop', function (e) { e.preventDefault(); });
+  tbody.addEventListener('dragend', function () {
+    if (dragRow) dragRow.classList.remove('dragging');
+    dragRow = null;
+    var ids = Array.prototype.slice.call(tbody.querySelectorAll('tr.pay-row')).map(function (el) {
+      return parseInt(el.getAttribute('data-id'), 10);
+    });
+    fetch('/projects/payments/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: ids })
+    }).then(function (r) { return r.json(); }).then(function () {
+      location.reload();
+    });
+  });
+})();
+</script>
+
+      <script>
+        document.getElementById('pm-check-all')?.addEventListener('change', function (e) {
+          document.querySelectorAll('.pm-check').forEach(c => c.checked = e.target.checked);
+        });
+      </script>
+    </div>
+
+      {% for p in project.payments if p.balance > 0 %}
+      <div class="modal fade" id="payModal-{{ p.id }}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h6 class="modal-title">收款 · {{ p.name }}</h6>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="/projects/payments/{{ p.id }}/pay" enctype="multipart/form-data">
+              <div class="modal-body">
+                <div class="mb-2">
+                  <label class="form-label small">甲方转账单（图片/PDF，选择后自动识别）</label>
+                  <input type="file" name="file" class="form-control" accept=".pdf,image/*" onchange="recognizeReceipt(this, {{ p.id }})">
+                </div>
+                <div class="recv-progress d-none mb-2" id="recv-progress-{{ p.id }}">
+                  <div class="d-flex justify-content-between small mb-1">
+                    <span id="recv-progress-text-{{ p.id }}" class="text-muted">准备中…</span>
+                    <span id="recv-progress-pct-{{ p.id }}" class="text-muted">0%</span>
+                  </div>
+                  <div class="progress" style="height:8px">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" id="recv-progress-bar-{{ p.id }}" style="width:0%"></div>
+                  </div>
+                </div>
+                <div class="mb-2">
+                  <label class="form-label small">收款金额（本节点余额 ¥{{ p.balance|money }}）</label>
+                  <input type="number" step="0.01" name="amount" id="recv-amount-{{ p.id }}" class="form-control" max="{{ p.balance }}" placeholder="请输入金额">
+                </div>
+                <div class="mb-2">
+                  <label class="form-label small">收款日期</label>
+                  <input type="date" name="paid_date" id="recv-date-{{ p.id }}" class="form-control" value="{{ today }}">
+                </div>
+                <div class="row g-2">
+                  <div class="col-6"><label class="form-label small">付款人</label><input type="text" name="payer" id="recv-payer-{{ p.id }}" class="form-control form-control-sm"></div>
+                  <div class="col-6"><label class="form-label small">收款人</label><input type="text" name="payee" id="recv-payee-{{ p.id }}" class="form-control form-control-sm"></div>
+                  <div class="col-6"><label class="form-label small">付款账号</label><input type="text" name="payer_account" id="recv-payer-account-{{ p.id }}" class="form-control form-control-sm"></div>
+                  <div class="col-6"><label class="form-label small">收款账号</label><input type="text" name="payee_account" id="recv-payee-account-{{ p.id }}" class="form-control form-control-sm"></div>
+                  <div class="col-6"><label class="form-label small">付款开户行</label><input type="text" name="payer_bank" id="recv-payer-bank-{{ p.id }}" class="form-control form-control-sm"></div>
+                  <div class="col-6"><label class="form-label small">收款开户行</label><input type="text" name="payee_bank" id="recv-payee-bank-{{ p.id }}" class="form-control form-control-sm"></div>
+                  <div class="col-12"><label class="form-label small">用途 / 摘要</label><input type="text" name="purpose" id="recv-purpose-{{ p.id }}" class="form-control form-control-sm"></div>
+                  <div class="col-12"><label class="form-label small">方式 / 备注</label><input type="text" name="note" class="form-control form-control-sm" placeholder="如：银行转账 / 现金 / 微信"></div>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-success"><i class="bi bi-bank"></i> 确认收款</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+      {% for p in project.payments %}
+      <div class="modal fade" id="editPayModal-{{ p.id }}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog"><div class="modal-content">
+          <div class="modal-header"><h6 class="modal-title">编辑收款节点 · {{ p.name }}</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <form method="post" action="/projects/payments/{{ p.id }}/edit">
+            <div class="modal-body">
+              <div class="row g-2">
+                <div class="col-6"><label class="form-label small">节点名称</label><input type="text" name="name" class="form-control form-control-sm" value="{{ p.name }}"></div>
+                <div class="col-6"><label class="form-label small">计划金额（¥）</label><input type="number" step="0.01" name="plan_amount" class="form-control form-control-sm" value="{{ p.plan_amount }}"></div>
+                <div class="col-6"><label class="form-label small">计划日期</label><input type="date" name="plan_date" class="form-control form-control-sm" value="{{ p.plan_date }}"></div>
+                <div class="col-6"><label class="form-label small">备注</label><input type="text" name="note" class="form-control form-control-sm" value="{{ p.note }}"></div>
+              </div>
+              {% if p.receipts %}
+              {# 笔数只算未作废的，否则会报「5 笔」但实际只有 4 笔在账上，
+                 用户点进去一看对不上，反而以为系统漏了记录。 #}
+              {% set _live = p.receipts|selectattr('status', 'ne', '作废')|list %}
+              <div class="small text-muted mt-2">已收款 ¥{{ p.paid_amount|money }}（{{ _live|length }} 笔）{% if _live|length != p.receipts|length %}，另有 {{ p.receipts|length - _live|length }} 笔已作废{% endif %}，计划金额请保持不小于已收金额。</div>
+              {# 作废节点下可能仍有**未作废**的明细（节点作废 ≠ 明细作废）。
+                 这时不能再让用户「收款」或「开票」——节点作废意味着这笔账
+                 不作数，再往它上面加钱只会把作废口径搅乱。 #}
+              {% if p.void_status == '作废' %}
+              <div class="small text-muted mt-1"><i class="bi bi-info-circle me-1"></i>该节点已作废，下方明细仅作留档。如需继续收款或开票，请先恢复节点。</div>
+              {% endif %}
+              {% endif %}
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+              <button class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+            </div>
+          </form>
+        </div></div>
+      </div>
+      {% endfor %}
+
+      {% for p in project.payments %}{% for r in p.receipts %}
+      <div class="modal fade" id="recvEdit-{{ r.id }}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog"><div class="modal-content">
+          <div class="modal-header"><h6 class="modal-title">编辑收款 · {{ p.name }}</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <form method="post" action="/projects/payments/receipts/{{ r.id }}/edit">
+            <div class="modal-body">
+              <div class="row g-2">
+                <div class="col-6"><label class="form-label small">金额</label><input type="number" step="0.01" name="amount" class="form-control form-control-sm" value="{{ r.amount }}" required></div>
+                <div class="col-6"><label class="form-label small">日期</label><input type="date" name="receipt_date" class="form-control form-control-sm" value="{{ r.receipt_date }}"></div>
+                <div class="col-6"><label class="form-label small">付款人</label><input type="text" name="payer" class="form-control form-control-sm" value="{{ r.payer }}"></div>
+                <div class="col-6"><label class="form-label small">收款人</label><input type="text" name="payee" class="form-control form-control-sm" value="{{ r.payee }}"></div>
+                <div class="col-6"><label class="form-label small">付款账号</label><input type="text" name="payer_account" class="form-control form-control-sm" value="{{ r.payer_account }}"></div>
+                <div class="col-6"><label class="form-label small">收款账号</label><input type="text" name="payee_account" class="form-control form-control-sm" value="{{ r.payee_account }}"></div>
+                <div class="col-6"><label class="form-label small">付款开户行</label><input type="text" name="payer_bank" class="form-control form-control-sm" value="{{ r.payer_bank }}"></div>
+                <div class="col-6"><label class="form-label small">收款开户行</label><input type="text" name="payee_bank" class="form-control form-control-sm" value="{{ r.payee_bank }}"></div>
+                <div class="col-12"><label class="form-label small">用途</label><input type="text" name="purpose" class="form-control form-control-sm" value="{{ r.purpose }}"></div>
+                <div class="col-12"><label class="form-label small">备注</label><input type="text" name="note" class="form-control form-control-sm" value="{{ r.note }}"></div>
+                <div class="col-12">
+                  <label class="form-label small">凭证附件</label>
+                  <div class="d-flex gap-2 align-items-center">
+                    {% if r.file_path %}
+                    <a href="{{ r.file_path }}" target="_blank" class="btn btn-sm btn-outline-success"><i class="bi bi-eye me-1"></i>查看凭证</a>
+                    <a href="{{ r.file_path }}" download class="btn btn-sm btn-outline-secondary"><i class="bi bi-download me-1"></i>下载</a>
+                    {% else %}<span class="text-muted small">未上传</span>{% endif %}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button><button class="btn btn-primary">保存</button></div>
+          </form>
+        </div></div>
+      </div>
+      {% endfor %}{% endfor %}
+
+    <!-- 任务清单 -->
+    <div class="tab-pane fade" id="tasks">
+      {# 子任务的编辑弹窗做成宏：字段与父任务一致（含名册下拉 staff_select）。 #}
+      {% macro sub_task_modal(s) %}
+      <div class="modal fade" id="taskEdit-{{ s.id }}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog"><div class="modal-content">
+          <div class="modal-header"><h6 class="modal-title">编辑子任务</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <form method="post" action="/projects/tasks/{{ s.id }}/edit">
+            <div class="modal-body">
+              <div class="mb-2"><label class="form-label small">子任务内容 *</label>
+                <input type="text" name="title" class="form-control" value="{{ s.title }}" required></div>
+              <div class="mb-2"><label class="form-label small">所属阶段</label>
+                <select name="phase_name" class="form-select">
+                  <option value="">—</option>
+                  {% for ph in project.phases %}<option value="{{ ph.name }}" {{ 'selected' if s.phase_name == ph.name else '' }}>{{ ph.name }}</option>{% endfor %}
+                </select></div>
+              <div class="row g-2 mb-2">
+                <div class="col-6"><label class="form-label small">负责人</label>
+                  {{ staff_select('assignee', staffs, s.assignee, include_inactive=True, classes='form-select', placeholder='负责人') }}</div>
+                <div class="col-6"><label class="form-label small">绑定登录账号（可选）</label>
+                  <select name="assignee_user_id" class="form-select">
+                    <option value="0">— 不绑定账号 —</option>
+                    {% for u in users %}<option value="{{ u.id }}" {{ 'selected' if s.assignee_user_id == u.id else '' }}>{{ u.display_name or u.username }}（{{ u.role }}）</option>{% endfor %}
+                  </select></div>
+              </div>
+              <div class="row g-2 mb-2">
+                <div class="col-6"><label class="form-label small">截止日期</label>
+                  <input type="date" name="due_date" class="form-control" value="{{ s.due_date or '' }}"></div>
+                <div class="col-6"><label class="form-label small">状态</label>
+                  <select name="status" class="form-select">
+                    {% for st in OPTIONS.task_status %}<option value="{{ st }}" {{ 'selected' if s.status == st else '' }}>{{ st }}</option>{% endfor %}
+                  </select></div>
+              </div>
+              <div><label class="form-label small">备注</label>
+                <input type="text" name="note" class="form-control" value="{{ s.note }}"></div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+              <button class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+            </div>
+          </form>
+        </div></div>
+      </div>
+      {% endmacro %}
+
+      {# 共享的「添加子任务」弹窗：点哪一行就由 data-* 把 parent_id / 阶段带进来。 #}
+      <div class="modal fade" id="subtaskAdd" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog"><div class="modal-content">
+          <div class="modal-header"><h6 class="modal-title">添加子任务</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <form method="post" action="/projects/{{ project.id }}/tasks" id="subtaskForm">
+            <div class="modal-body">
+              <div class="small text-muted mb-2">父任务：<span id="subtaskParentTitle" class="fw-semibold"></span></div>
+              <input type="hidden" name="parent_id" id="subtaskParentId">
+              <input type="hidden" name="phase_name" id="subtaskPhase">
+              <div class="mb-2"><label class="form-label small">子任务内容 *</label>
+                <input type="text" name="title" class="form-control" required></div>
+              <div class="row g-2 mb-2">
+                <div class="col-6"><label class="form-label small">负责人</label>
+                  {{ staff_select('assignee', staffs, '', include_inactive=True, classes='form-select', placeholder='负责人') }}</div>
+                <div class="col-6"><label class="form-label small">绑定登录账号（可选）</label>
+                  <select name="assignee_user_id" class="form-select">
+                    <option value="0">— 不绑定账号 —</option>
+                    {% for u in users %}<option value="{{ u.id }}">{{ u.display_name or u.username }}（{{ u.role }}）</option>{% endfor %}
+                  </select></div>
+              </div>
+              <div class="mb-2"><label class="form-label small">截止日期</label>
+                <input type="date" name="due_date" class="form-control"></div>
+              <div><label class="form-label small">备注</label>
+                <input type="text" name="note" class="form-control"></div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+              <button class="btn btn-primary"><i class="bi bi-plus-lg"></i> 添加</button>
+            </div>
+          </form>
+        </div></div>
+      </div>
+      <script>
+      (function () {
+        var m = document.getElementById('subtaskAdd');
+        if (!m) return;
+        m.addEventListener('show.bs.modal', function (ev) {
+          var f = document.getElementById('subtaskForm');
+          if (f) f.reset();
+          var b = ev.relatedTarget;
+          if (!b || !b.dataset) return;
+          document.getElementById('subtaskParentId').value = b.dataset.parent || '';
+          document.getElementById('subtaskParentTitle').textContent = b.dataset.parentTitle || '';
+          document.getElementById('subtaskPhase').value = b.dataset.phase || '';
+        });
+        m.addEventListener('shown.bs.modal', function () {
+          var t = m.querySelector('input[name=title]');
+          if (t) t.focus();
+        });
+      })();
+      </script>
+      {# 表头带「去任务总览」入口：任务页是跨项目视角，这里是单项目视角，
+         两边必须互相可达，否则员工只会在一处操作而漏掉另一处。 #}
+      <div class="proj-head d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-list-check me-1"></i>任务清单</span>
+        <a href="/tasks?assignee=" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-box-arrow-up-right"></i> 去任务总览（跨项目）</a>
+      </div>
+      <div class="row g-3">
+        <div class="col-lg-8">
+          <table class="table align-middle">
+            <thead><tr><th>任务</th><th>阶段</th><th>负责人</th><th>截止</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+              {% for t in project.tasks if not t.parent_id %}
+              {# 逾期行压暗：与任务页判据一致（Task.is_overdue），两处不共用逻辑会
+                 出现「这个项目里看着不急、任务总览里却标逾期」的矛盾。 #}
+              <tr id="task-{{ t.id }}" class="{{ 'table-warning' if t.is_overdue else '' }}">
+                <td class="fw-semibold">{{ t.title }}
+                  {% if t.subtasks %}
+                  {% set done_sub = t.subtasks | selectattr('status', 'equalto', '已完成') | list | length %}
+                  <span class="badge text-bg-light ms-1" title="子任务完成数">{{ done_sub }}/{{ t.subtasks | length }}</span>
+                  {% endif %}
+                  {% if t.is_overdue %}<span class="badge state-badge state-watch ms-1">逾期</span>{% endif %}
+                  {% if t.note %}<div class="small text-muted">{{ t.note }}</div>{% endif %}</td>
+                <td>{{ t.phase_name or '—' }}</td>
+                <td>{{ t.assignee or '—' }}
+                  {% if not t.assignee and t.assignee_user %}<span class="badge text-bg-light ms-1">{{ t.assignee_user.display_name or t.assignee_user.username }}</span>{% endif %}
+                  {% if t.assignee and t.assignee_user_id %}<span class="badge text-bg-light ms-1" title="已绑定系统账号">{{ t.assignee_user.display_name or t.assignee_user.username if t.assignee_user else '' }}</span>{% endif %}
+                </td>
+                <td class="small">{{ t.due_date or '—' }}</td>
+                <td>
+                  <form method="post" action="/projects/tasks/{{ t.id }}/status">
+                    <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                      {% for s in OPTIONS.task_status %}<option value="{{ s }}" {{ 'selected' if t.status == s else '' }}>{{ s }}</option>{% endfor %}
+                    </select>
+                  </form>
+                </td>
+                <td class="text-nowrap">
+                  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#subtaskAdd"
+                          data-parent="{{ t.id }}" data-parent-title="{{ t.title }}" data-phase="{{ t.phase_name }}"
+                          title="在这个任务下面加子任务"><i class="bi bi-plus-lg"></i>子任务</button>
+                  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#taskEdit-{{ t.id }}" title="编辑"><i class="bi bi-pencil"></i></button>
+                  <form method="post" action="/projects/tasks/{{ t.id }}/delete" class="d-inline"
+                        onsubmit="return confirm('{{ '删除该任务？它下面的子任务会一起删除。' if t.subtasks else '删除该任务？' }}');"><button class="btn btn-sm btn-outline-danger">删</button></form>
+                </td>
+              </tr>
+              {# 子任务：缩进 + 箭头，挂在父任务行下面。 #}
+              {% for s in t.subtasks %}
+              <tr id="task-{{ s.id }}" class="task-sub {{ 'table-warning' if s.is_overdue else '' }}">
+                <td class="ps-4">
+                  <i class="bi bi-arrow-return-right text-muted me-1"></i><span class="fw-semibold">{{ s.title }}</span>
+                  {% if s.is_overdue %}<span class="badge state-badge state-watch ms-1">逾期</span>{% endif %}
+                  {% if s.note %}<div class="small text-muted">{{ s.note }}</div>{% endif %}
+                </td>
+                <td>{{ s.phase_name or '—' }}</td>
+                <td>{{ s.assignee or '—' }}</td>
+                <td class="small">{{ s.due_date or '—' }}</td>
+                <td>
+                  <form method="post" action="/projects/tasks/{{ s.id }}/status">
+                    <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                      {% for st in OPTIONS.task_status %}<option value="{{ st }}" {{ 'selected' if s.status == st else '' }}>{{ st }}</option>{% endfor %}
+                    </select>
+                  </form>
+                </td>
+                <td class="text-nowrap">
+                  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#taskEdit-{{ s.id }}" title="编辑子任务"><i class="bi bi-pencil"></i></button>
+                  <form method="post" action="/projects/tasks/{{ s.id }}/delete" class="d-inline" onsubmit="return confirm('删除这个子任务？');"><button class="btn btn-sm btn-outline-danger">删</button></form>
+                </td>
+              </tr>
+              {{ sub_task_modal(s) }}
+              {% endfor %}
+              <!-- 任务编辑模态框 -->
+              <div class="modal fade" id="taskEdit-{{ t.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <div class="modal-header"><h6 class="modal-title">编辑任务</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                    <form method="post" action="/projects/tasks/{{ t.id }}/edit">
+                      <div class="modal-body">
+                        <div class="mb-2"><label class="form-label small">任务内容 *</label><input type="text" name="title" class="form-control" value="{{ t.title }}" required></div>
+                        <div class="row g-2 mb-2">
+                          <div class="col-6">
+                            <label class="form-label small">所属阶段</label>
+                            <select name="phase_name" class="form-select">
+                              <option value="">—</option>
+                              {% for ph in project.phases %}<option value="{{ ph.name }}" {{ 'selected' if t.phase_name == ph.name else '' }}>{{ ph.name }}</option>{% endfor %}
+                            </select>
+                          </div>
+                          <div class="col-6">
+                            {# 负责人：名册下拉 + 可选的账号绑定。
+                               原来这里是「账号下拉 + 自由文本」两个框，问题是
+                               ① 账号下拉里只有 admin/boss 两个老板，工长选不出来；
+                               ② 自由文本让同一个人分裂成多种写法。
+                               现在主选择是名册（谁都能进名册，不需要账号），
+                               账号绑定退化成可选的附加项，只影响「我的任务」筛选。
+                               注意：原来的 col-6 > col-12 嵌套是错的（6+12 必然换行错位），
+                               这里改成并列两个 col-12。 #}
+                            <label class="form-label small">负责人</label>
+                            {{ staff_select('assignee', staffs, t.assignee, include_inactive=True, classes='form-select', placeholder='负责人') }}
+                            <div class="form-text">不在列表里？到 <a href="/staff" target="_blank">公司人员</a> 添加。</div>
+                          </div>
+                          <div class="col-6">
+                            <label class="form-label small">绑定登录账号（可选）</label>
+                            <select name="assignee_user_id" class="form-select">
+                              <option value="0">— 不绑定账号 —</option>
+                              {% for u in users %}
+                              <option value="{{ u.id }}" {{ 'selected' if t.assignee_user_id == u.id else '' }}>
+                                {{ u.display_name or u.username }}（{{ u.role }}）
+                              </option>
+                              {% endfor %}
+                            </select>
+                            <div class="form-text">绑了才进对方的「我的任务」。</div>
+                          </div>
+                          <div class="col-6">
+                            <label class="form-label small">截止日期</label>
+                            <input type="date" name="due_date" class="form-control" value="{{ t.due_date or '' }}">
+                          </div>
+                          <div class="col-6">
+                            <label class="form-label small">状态</label>
+                            <select name="status" class="form-select">
+                              {% for s in OPTIONS.task_status %}<option value="{{ s }}" {{ 'selected' if t.status == s else '' }}>{{ s }}</option>{% endfor %}
+                            </select>
+                          </div>
+                          <div class="col-12">
+                            <label class="form-label small">备注</label>
+                            <input type="text" name="note" class="form-control" value="{{ t.note }}">
+                          </div>
+                        </div>
+                      </div>
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                        <button class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              </div>
+              {% else %}
+              <tr><td colspan="6" class="text-center text-muted py-3">暂无任务</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="col-lg-4">
+          <div class="card" id="task-add">
+            <div class="card-body">
+              <h6 class="card-title">新增任务</h6>
+              <form method="post" action="/projects/{{ project.id }}/tasks">
+                <div class="mb-2"><label class="form-label small">任务内容</label><input type="text" name="title" class="form-control" id="taskAddTitle" required></div>
+                <div class="row g-2 mb-2">
+                  <div class="col-12">
+                    <label class="form-label small">所属阶段</label>
+                    <select name="phase_name" class="form-select">
+                      <option value="">—</option>
+                      {% for ph in project.phases %}<option value="{{ ph.name }}">{{ ph.name }}</option>{% endfor %}
+                    </select>
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label small">负责人</label>
+                    {{ staff_select('assignee', staffs, '', empty_label='— 未指派 —', classes='form-select', placeholder='负责人') }}
+                    <div class="form-text">不在列表里？到 <a href="/staff" target="_blank">公司人员</a> 添加。</div>
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label small">绑定登录账号（可选）</label>
+                    <select name="assignee_user_id" class="form-select">
+                      <option value="0">— 不绑定账号 —</option>
+                      {% for u in users %}
+                      <option value="{{ u.id }}">{{ u.display_name or u.username }}（{{ u.role }}）</option>
+                      {% endfor %}
+                    </select>
+                    <div class="form-text">绑了才进对方的「我的任务」；不绑也能指派。</div>
+                  </div>
+                </div>
+                <div class="mb-2"><label class="form-label small">截止日期</label><input type="date" name="due_date" class="form-control"></div>
+                <div class="mb-2 small text-muted"><i class="bi bi-info-circle me-1"></i>填了截止日期的任务，逾期后会进「待办总览」并每日推送到群里。</div>
+                <div class="mb-2"><label class="form-label small">备注</label><input type="text" name="note" class="form-control"></div>
+                <button class="btn btn-primary btn-sm w-100">添加任务</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 现场记录 -->
+    <div class="tab-pane fade" id="records">
+      <div class="proj-head"><span><i class="bi bi-camera me-1"></i>现场记录</span></div>
+      <div class="row g-3">
+        <div class="col-lg-8">
+          <div class="list-group">
+            {% for r in project.site_records %}
+            <div class="list-group-item d-flex justify-content-between align-items-start">
+              <div style="flex:1">
+                <span class="badge {{ r.record_type | state_badge }} me-2">{{ r.record_type }}</span>
+                <span class="small text-muted me-2">{{ r.record_date or '—' }}</span>
+                {{ r.content }}
+                {% if r.record_type == '问题' %}
+                <div class="mt-1">
+                  {% set st = r.status or '待处理' %}
+                  <span class="badge me-2 {{ st | state_badge }}">{{ st }}</span>
+                  <form method="post" action="/projects/records/{{ r.id }}/status" class="d-inline">
+                    <select name="status" class="form-select form-select-sm d-inline-block" style="width:120px" onchange="this.form.submit()">
+                      <option value="待处理" {{ 'selected' if st=='待处理' else '' }}>待处理</option>
+                      <option value="处理中" {{ 'selected' if st=='处理中' else '' }}>处理中</option>
+                      <option value="已解决" {{ 'selected' if st=='已解决' else '' }}>已解决</option>
+                    </select>
+                  </form>
+                  <button class="btn btn-sm btn-outline-primary ms-1" data-bs-toggle="modal" data-bs-target="#fuModal-{{ r.id }}"><i class="bi bi-plus-lg"></i> 跟进</button>
+                  {% if r.followups %}
+                  <div class="mt-2">
+                    {% for fu in r.followups %}
+                    <div class="d-flex align-items-start gap-2 small">
+                      <i class="bi bi-arrow-return-right text-muted mt-1"></i>
+                      <div class="flex-grow-1">
+                        <span class="text-muted">{{ fu.created_at.strftime('%m-%d %H:%M') if fu.created_at else '' }}</span>
+                        <span class="ms-1">{{ fu.content }}</span>
+                      </div>
+                      <form method="post" action="/projects/records/followups/{{ fu.id }}/delete" class="d-inline"
+                            onsubmit="return confirm('删除该跟进？');">
+                        <button class="btn btn-link text-danger p-0" style="font-size:12px">删</button>
+                      </form>
+                    </div>
+                    {% endfor %}
+                  </div>
+                  {% endif %}
+                </div>
+                {% endif %}
+                {% if r.image_path %}
+                <div class="mt-2">
+                  <img src="{{ r.image_path }}" class="img-fluid rounded border" style="max-height:220px;cursor:zoom-in"
+                       onclick="window.open('{{ r.image_path }}','_blank')" alt="现场照片">
+                </div>
+                {% endif %}
+              </div>
+              <form method="post" action="/projects/records/{{ r.id }}/delete" onsubmit="return confirm('删除该记录？');"><button class="btn btn-sm btn-outline-danger">删</button></form>
+            </div>
+            {% if r.record_type == '问题' %}
+            <div class="modal fade" id="fuModal-{{ r.id }}" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog"><div class="modal-content">
+                <div class="modal-header"><h6 class="modal-title">问题跟进</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <form method="post" action="/projects/records/{{ r.id }}/followups">
+                  <div class="modal-body">
+                    <div class="mb-2"><label class="form-label small">问题</label><div class="small text-muted">{{ r.content }}</div></div>
+                    <div class="mb-2"><label class="form-label small">处理记录 *</label>
+                      <textarea name="content" class="form-control" rows="3" placeholder="如：已通知施工队，预计明天整改…" required></textarea></div>
+                  </div>
+                  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button><button class="btn btn-primary"><i class="bi bi-check-lg"></i> 提交跟进</button></div>
+                </form>
+              </div></div>
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="text-muted text-center py-4">暂无现场记录</div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="col-lg-4">
+          <div class="card">
+            <div class="card-body">
+              <h6 class="card-title">新增记录</h6>
+              <form method="post" action="/projects/{{ project.id }}/records" enctype="multipart/form-data">
+                <div class="mb-2">
+                  <select name="record_type" class="form-select">
+                    {% for t in OPTIONS.record_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="mb-2"><textarea name="content" class="form-control" rows="2" placeholder="记录内容（照片说明 / 问题描述 / 整改要求）"></textarea></div>
+                <div class="mb-2"><label class="form-label small">上传照片（可选，支持 jpg/png/webp 等）</label>
+                  <input type="file" name="image" class="form-control form-control-sm" accept="image/*"></div>
+                <div class="mb-2"><label class="form-label small">日期</label><input type="date" name="record_date" class="form-control" value="{{ today }}"></div>
+                <button class="btn btn-primary btn-sm w-100">添加记录</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 文档 -->
+    <div class="tab-pane fade" id="documents">
+      <div class="proj-head"><span><i class="bi bi-folder2-open me-1"></i>文档</span></div>
+      <div class="row g-3">
+        <div class="col-lg-8">
+          <table class="table align-middle">
+            <thead><tr><th>类型</th><th>标题</th><th>附件</th><th>备注</th><th></th></tr></thead>
+            <tbody>
+              {% for d in project.documents %}
+              <tr>
+                <td><span class="badge text-bg-secondary">{{ d.doc_type }}</span></td>
+                <td class="fw-semibold">{{ d.title }}</td>
+                <td>
+                  {% if d.file_path %}
+                  <a href="{{ d.file_path }}" download class="btn btn-sm btn-outline-primary"><i class="bi bi-download"></i> 下载</a>
+                  {% else %}—{% endif %}
+                </td>
+                <td class="small text-muted">{{ d.note or '' }}</td>
+                <td><form method="post" action="/projects/documents/{{ d.id }}/delete" onsubmit="return confirm('删除该文档记录？');"><button class="btn btn-sm btn-outline-danger">删</button></form></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4" class="text-center text-muted py-3">暂无文档</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="col-lg-4">
+          <div class="card">
+            <div class="card-body">
+              <h6 class="card-title">登记文档</h6>
+              <form method="post" action="/projects/{{ project.id }}/documents" enctype="multipart/form-data">
+                <div class="mb-2">
+                  <select name="doc_type" class="form-select">
+                    {% for t in OPTIONS.doc_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="mb-2"><input type="text" name="title" class="form-control" placeholder="文档标题（不填则用文件名）"></div>
+                <div class="mb-2"><input type="file" name="file" class="form-control form-control-sm"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,image/*"></div>
+                <div class="mb-2"><input type="text" name="note" class="form-control" placeholder="备注"></div>
+                <button class="btn btn-primary btn-sm w-100">上传登记</button>
+              </form>
+              <div class="text-muted small mt-2">支持 PDF / Office / 图片 / 压缩包，单文件不超过 20MB。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 发票 -->
+    <div class="tab-pane fade" id="proj-invoices">
+      <div class="proj-head"><span><i class="bi bi-receipt me-1"></i>发票</span></div>
+      {% set inv_in = invoices | selectattr('direction', 'equalto', '进项') | list %}
+      {% set inv_out = invoices | selectattr('direction', 'equalto', '销项') | list %}
+      <div class="d-flex gap-3 flex-wrap mb-3">
+        <span class="badge {{ 'idle' | tone_badge }}">进项 ¥{{ (inv_in | sum(attribute='amount'))|money }}</span>
+        <span class="badge {{ 'active' | tone_badge }}">销项 ¥{{ (inv_out | sum(attribute='amount'))|money }}</span>
+        <a href="/invoices/new" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg"></i> 登记发票</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>方向</th><th>发票号</th><th>类型</th><th>金额</th><th>税额</th><th>开票日期</th><th>抬头</th><th>状态</th></tr></thead>
+          <tbody>
+            {% for i in invoices %}
+            <tr>
+              <td><span class="badge {{ ('active' if i.direction == '销项' else 'idle') | tone_badge }}">{{ i.direction }}</span></td>
+              <td class="fw-semibold">{{ i.invoice_no or '—' }}</td>
+              <td class="small">{{ i.invoice_type }}</td>
+              <td class="text-money">¥{{ i.amount|money }}</td>
+              <td class="text-money small">{% if i.tax_amount %}¥{{ i.tax_amount|money }}{% else %}—{% endif %}</td>
+              <td class="small">{{ i.invoice_date or '—' }}</td>
+              <td class="small">{{ i.title or '—' }}</td>
+              <td><span class="badge {{ i.status | state_badge }}">{{ i.status }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="text-center text-muted py-3">该项目暂无发票记录</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 供应商付款 -->
+    <div class="tab-pane fade" id="proj-spayments">
+      <div class="proj-head"><span><i class="bi bi-credit-card me-1"></i>供应商付款</span></div>
+      <div class="d-flex gap-3 flex-wrap mb-3">
+        {# 这里是「已付供应商」这个统计金额，不是异常。原先标红，等于把一个
+         正常数字染成警告色——扫页面时会被无谓地打断。中性灰即可。 #}
+        <span class="badge state-badge state-idle">该项目已付供应商 ¥{{ supplier_paid_total|money }}</span>
+        <a href="/supplier-payments/new" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg"></i> 登记付款</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0" id="spay-table">
+          <thead><tr>
+            <th class="sortable" data-sort="date">日期</th>
+            <th class="sortable" data-sort="name">供应商</th>
+            <th class="sortable text-end" data-sort="amount">金额</th>
+            <th class="sortable" data-sort="method">方式</th>
+            <th class="sortable" data-sort="note">备注</th>
+          </tr></thead>
+          <tbody id="spay-tbody">
+            {% for p in supplier_payments %}
+            <tr>
+              <td class="small" data-value="{{ p.pay_date or '' }}">{{ p.pay_date or '—' }}</td>
+              <td class="fw-semibold" data-value="{{ p.supplier.name }}">{{ p.supplier.name }}</td>
+              <td class="text-money text-danger" data-value="{{ p.amount or 0 }}">¥{{ p.amount|money }}</td>
+              <td data-value="{{ p.pay_method }}"><span class="badge text-bg-light">{{ p.pay_method }}</span></td>
+              <td class="small text-muted" data-value="{{ p.note or '' }}">{{ p.note or '' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-3">该项目暂无供应商付款记录</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <script>
+      // 供应商付款表：点击表头排序
+      (function () {
+        var table = document.getElementById('spay-table');
+        var tbody = document.getElementById('spay-tbody');
+        if (!table || !tbody) return;
+        var state = {};
+        table.querySelectorAll('th.sortable').forEach(function (th) {
+          th.style.cursor = 'pointer';
+          th.title = '点击排序';
+          th.addEventListener('click', function () {
+            var key = th.getAttribute('data-sort');
+            var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+            var dir = state[key] === 'asc' ? 'desc' : 'asc';
+            state[key] = dir;
+            table.querySelectorAll('th.sortable .sort-arrow').forEach(function (a) { a.remove(); });
+            var arrow = document.createElement('span');
+            arrow.className = 'sort-arrow';
+            arrow.textContent = dir === 'asc' ? ' ▲' : ' ▼';
+            th.appendChild(arrow);
+            var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+            rows.sort(function (a, b) {
+              var va = a.querySelector('td:nth-child(' + (idx + 1) + ')');
+              var vb = b.querySelector('td:nth-child(' + (idx + 1) + ')');
+              var av = va ? (va.getAttribute('data-value') || va.textContent.trim()) : '';
+              var bv = vb ? (vb.getAttribute('data-value') || vb.textContent.trim()) : '';
+              if (key === 'amount') return (parseFloat(av) || 0) - (parseFloat(bv) || 0);
+              if (key === 'date') return String(av).localeCompare(String(bv));
+              return String(av).localeCompare(String(bv), 'zh');
+            });
+            if (dir === 'desc') rows.reverse();
+            rows.forEach(function (r) { tbody.appendChild(r); });
+          });
+        });
+      })();
+      </script>
+    </div>
+
+    <!-- 变更签证：只放摘要与入口，完整台账在 /projects/{id}/changes -->
+    <div class="tab-pane fade" id="proj-changes">
+      <div class="proj-head">
+        <span><i class="bi bi-clipboard-check me-1"></i>变更签证</span>
+        <div class="d-flex gap-2">
+          <a href="/changes/new?project_id={{ project.id }}" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-lg"></i> 登记变更
+          </a>
+          <a href="/projects/{{ project.id }}/changes" class="btn btn-outline-secondary btn-sm">
+            查看全部
+          </a>
+        </div>
+      </div>
+      {% set _ct = change_summary.get(project.id, {}) %}
+      <div class="row g-2 mb-3">
+        <div class="col-md-3 col-6">
+          <div class="card h-100"><div class="card-body py-2">
+            <div class="text-muted small">增项 / 减项</div>
+            <div class="fs-6 fw-bold">
+              <span class="text-success">{{ _ct.get('add', 0)|money }}</span> /
+              <span class="text-danger">{{ _ct.get('cut', 0)|money }}</span>
+            </div>
+            <div class="small text-muted">共 {{ _ct.get('count', 0) }} 笔</div>
+          </div></div>
+        </div>
+        <div class="col-md-3 col-6">
+          <div class="card h-100"><div class="card-body py-2">
+            <div class="text-muted small">已确认净增</div>
+            <div class="fs-6 fw-bold">{{ _ct.get('confirmed', 0)|money }}</div>
+            <div class="small text-muted">计入结算金额与毛利</div>
+          </div></div>
+        </div>
+        <div class="col-md-3 col-6">
+          <div class="card h-100"><div class="card-body py-2">
+            <div class="text-muted small">变更毛利</div>
+            <div class="fs-6 fw-bold {{ 'text-success' if _ct.get('profit', 0) >= 0 else 'text-danger' }}">
+              {{ _ct.get('profit', 0)|money }}
+            </div>
+            <div class="small text-muted">成本 {{ _ct.get('cost', 0)|money }}</div>
+          </div></div>
+        </div>
+        <div class="col-md-3 col-6">
+          <div class="card h-100"><div class="card-body py-2">
+            <div class="text-muted small">待签</div>
+            <div class="fs-6 fw-bold {{ 'text-warning' if _ct.get('pending_count') else 'text-muted' }}">
+              {{ _ct.get('pending_count', 0) }} 笔
+            </div>
+            <div class="small text-muted">{{ _ct.get('pending_amount', 0)|money }} 未确认</div>
+          </div></div>
+        </div>
+      </div>
+      {% if _ct.get('pending_count') %}
+      <div class="alert alert-warning py-2 small">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        有 {{ _ct.pending_count }} 笔变更还没甲方确认，<strong>未确认的不计入结算金额与毛利</strong>。
+      </div>
+      {% endif %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0 table-card">
+          <thead><tr>
+            <th>签证单号 / 事项</th>
+            <th style="width:80px">类别</th>
+            <th style="width:90px">状态</th>
+            <th style="width:120px" class="text-end">变更金额</th>
+            <th style="width:110px" class="text-end">对应成本</th>
+            <th style="width:100px">确认日期</th>
+          </tr></thead>
+          <tbody>
+          {% for o in project.change_orders[:8] %}
+            <tr>
+              <td>
+                <div class="fw-semibold">{{ o.title }}</div>
+                {% if o.change_no %}<div class="small text-muted">{{ o.change_no }}</div>{% endif %}
+              </td>
+              <td class="small">{{ o.category }}</td>
+              <td><span class="badge {{ o.status | state_badge }}">{{ o.status }}</span></td>
+              <td class="text-end text-money fw-semibold {{ 'text-success' if o.amount > 0 else ('text-danger' if o.amount < 0 else '') }}">{{ o.amount|money }}</td>
+              <td class="text-end text-money text-muted">{{ o.cost|money }}</td>
+              <td class="small text-muted">{{ o.confirm_date or '—' }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="6" class="text-center text-muted py-4">
+              这个项目还没有变更签证<br>
+              <span class="small">业主要改需求、现场条件变化，都登记在这里</span>
+            </td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if project.change_orders|length > 8 %}
+      <div class="text-center mt-2">
+        <a href="/projects/{{ project.id }}/changes" class="small">查看全部 {{ project.change_orders|length }} 笔 →</a>
+      </div>
+      {% endif %}
+    </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleBudgetEdit(btn) {
+  const row = btn.closest('tr');
+  row.querySelectorAll('.budget-view').forEach(el => el.classList.toggle('d-none'));
+  const editTd = row.querySelector('.budget-edit');
+  editTd.classList.toggle('d-none');
+}
+</script>
+<script>
+  (function () {
+    // 工具栏命令
+    document.querySelectorAll('.note-editor-toolbar [data-cmd]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.execCommand(btn.getAttribute('data-cmd'), false, null);
+        document.querySelector('.note-editor')?.focus();
+      });
+    });
+    // 保存时同步 innerHTML
+    var form = document.querySelector('#noteModal form');
+    if (form) form.addEventListener('submit', function () {
+      var ed = document.querySelector('.note-editor');
+      document.getElementById('noteContent').value = ed ? ed.innerHTML : '';
+    });
+    // 图片上传
+    var imgBtn = document.getElementById('noteImgBtn');
+    var imgInput = document.getElementById('noteImgInput');
+    if (imgBtn && imgInput) {
+      imgBtn.addEventListener('click', function () { imgInput.click(); });
+      imgInput.addEventListener('change', function () {
+        var f = imgInput.files[0];
+        if (!f) return;
+        var fd = new FormData();
+        fd.append('file', f);
+        fetch('/projects/notes/upload-image', { method: 'POST', body: fd })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d.url) {
+              var ed = document.querySelector('.note-editor');
+              ed.focus();
+              document.execCommand('insertHTML', false, '<img src="' + d.url + '" style="max-width:100%;border-radius:8px;margin:4px 0;">');
+            }
+          });
+      });
+    }
+    // 语音录音
+    var voiceBtn = document.getElementById('noteVoiceBtn');
+    var recorder = null, chunks = [];
+    if (voiceBtn && navigator.mediaDevices) {
+      voiceBtn.addEventListener('click', function () {
+        if (recorder && recorder.state === 'recording') {
+          recorder.stop();
+          return;
+        }
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+          recorder = new MediaRecorder(stream);
+          chunks = [];
+          recorder.ondataavailable = function (e) { chunks.push(e.data); };
+          recorder.onstop = function () {
+            stream.getTracks().forEach(function (t) { t.stop(); });
+            var blob = new Blob(chunks, { type: 'audio/webm' });
+            var fd = new FormData();
+            fd.append('file', blob, 'voice.webm');
+            fetch('/projects/notes/upload-audio', { method: 'POST', body: fd })
+              .then(function (r) { return r.json(); })
+              .then(function (d) {
+                if (d.url) {
+                  var ed = document.querySelector('.note-editor');
+                  ed.focus();
+                  document.execCommand('insertHTML', false, '<audio controls src="' + d.url + '" style="width:100%;margin:4px 0;"></audio>');
+                }
+              });
+            document.getElementById('voiceLabel').textContent = '语音';
+            voiceBtn.classList.remove('btn-danger');
+            voiceBtn.classList.add('btn-outline-danger');
+          };
+          recorder.start();
+          document.getElementById('voiceLabel').textContent = '停止';
+          voiceBtn.classList.remove('btn-outline-danger');
+          voiceBtn.classList.add('btn-danger');
+        }).catch(function () { alert('无法访问麦克风，请检查浏览器权限'); });
+      });
+    }
+  })();
+</script>
+<script>
+  document.getElementById('ctPtAdd')?.addEventListener('click', function () {
+    var rows = document.getElementById('ctPtRows');
+    var div = document.createElement('div');
+    div.className = 'row g-1 mb-1 align-items-center pt-row';
+    div.innerHTML = '<div class="col-md-2"><input name="pt_name" class="form-control form-control-sm" placeholder="款项"></div>' +
+      '<div class="col-md-1"><input name="pt_rate" type="number" step="any" class="form-control form-control-sm" placeholder="%"></div>' +
+      '<div class="col-md-2"><input name="pt_amount" type="number" step="0.01" class="form-control form-control-sm" placeholder="万元"></div>' +
+      '<div class="col-md-2"><input name="pt_date" class="form-control form-control-sm" placeholder="付款时间"></div>' +
+      '<div class="col-md-4"><input name="pt_condition" class="form-control form-control-sm" placeholder="付款条件"></div>' +
+      '<div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger pt-del">\u00d7</button></div>';
+    rows.appendChild(div);
+  });
+  document.getElementById('ctPtRows')?.addEventListener('click', function (e) {
+    if (e.target.classList.contains('pt-del')) e.target.closest('.pt-row').remove();
+  });
+</script>
+<script>
+(function(){
+  // URL hash 自动激活对应 tab
+  //
+  // ⚠ 必须等 window.load：Bootstrap 的 <script> 在 base.html 里是 content 之后
+  //   才加载的（第 135 行），内容区的内联脚本执行时 window.bootstrap 还不存在。
+  //   上一版在这里直接 new bootstrap.Tab()，判断失败后静默什么都不做——
+  //   表现就是「带 #tasks 打开项目页却停在默认的收款 tab」。
+  function activate() {
+    var hash = window.location.hash;
+    if (!hash || !window.bootstrap) return;
+    var link = document.querySelector('#projTabs a[data-bs-toggle="tab"][href="' + hash + '"]');
+    if (link) { try { new bootstrap.Tab(link).show(); } catch (e) {} }
+  }
+  if (document.readyState === 'complete') activate();
+  else window.addEventListener('load', activate);
+})();
+
+// 新增任务后「原地停留」
+// --------------------
+// 提交表单会整页刷新，默认落在页面顶部——看起来就像被踢回了主界面。
+// 这里在 ?added=1 时把任务 tab 打开、滚到新增卡片并把光标放回标题输入框，
+// 连续录入多条任务不用每次重新找位置。
+// 子任务则带 ?focus=<父任务id>，滚到那条父任务并短暂高亮，方便接着加。
+(function(){
+  var p = new URLSearchParams(location.search);
+  if (p.get('added') !== '1') return;
+
+  function go() {
+    var link = document.querySelector('#projTabs a[data-bs-toggle="tab"][href="#tasks"]');
+    if (link && window.bootstrap) { try { new bootstrap.Tab(link).show(); } catch (e) {} }
+    var focusId = p.get('focus');
+    // 再等一帧：Bootstrap 切 tab 有 fade 过渡，面板 display 变成 block 之后再滚。
+    setTimeout(function(){
+      var el = focusId ? document.getElementById('task-' + focusId) : document.getElementById('task-add');
+      if (el) el.scrollIntoView({ block: 'center' });
+      if (focusId) {
+        if (el) {
+          el.classList.add('table-success');
+          setTimeout(function(){ el.classList.remove('table-success'); }, 1600);
+        }
+      } else {
+        var t = document.getElementById('taskAddTitle');
+        if (t) t.focus({ preventScroll: true });
+      }
+    }, 120);
+    p.delete('added'); p.delete('focus');
+    var qs = p.toString();
+    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + '#tasks');
+  }
+  if (document.readyState === 'complete') go();
+  else window.addEventListener('load', go);
+})();
+
+function recvSetVal(id, v){
+  var el = document.getElementById(id);
+  if(el && v !== undefined && v !== null && v !== '') el.value = v;
+}
+function recognizeReceipt(input, pid){
+  var f = input.files && input.files[0];
+  if(!f) return;
+  var box = document.getElementById('recv-progress-' + pid);
+  var bar = document.getElementById('recv-progress-bar-' + pid);
+  var pct = document.getElementById('recv-progress-pct-' + pid);
+  var txt = document.getElementById('recv-progress-text-' + pid);
+  if(box) box.classList.remove('d-none');
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', '/projects/payments/recognize');
+  xhr.upload.onprogress = function(e){
+    if(e.lengthComputable){
+      var p = Math.round(e.loaded / e.total * 100);
+      if(bar) bar.style.width = p + '%';
+      if(pct) pct.textContent = p + '%';
+      if(txt) txt.textContent = '正在上传转账单…';
+    }
+  };
+  xhr.onload = function(){
+    if(txt) txt.textContent = 'AI 识别中，请稍候…';
+    if(bar) bar.style.width = '100%';
+    var res = null;
+    try { res = JSON.parse(xhr.responseText); } catch(e){}
+    if(res && res.ok){
+      var d = res.data;
+      recvSetVal('recv-amount-' + pid, d.amount);
+      recvSetVal('recv-date-' + pid, d.trade_date);
+      recvSetVal('recv-payer-' + pid, d.payer);
+      recvSetVal('recv-payee-' + pid, d.payee);
+      recvSetVal('recv-payer-account-' + pid, d.payer_account);
+      recvSetVal('recv-payee-account-' + pid, d.payee_account);
+      recvSetVal('recv-payer-bank-' + pid, d.payer_bank);
+      recvSetVal('recv-payee-bank-' + pid, d.payee_bank);
+      recvSetVal('recv-purpose-' + pid, d.summary);
+      if(txt) txt.textContent = '识别完成，已填入字段';
+      if(pct) pct.textContent = '100%';
+      if(bar) bar.classList.remove('progress-bar-striped','progress-bar-animated');
+    } else {
+      alert((res && res.error) || '识别失败，请手动填写');
+      if(txt) txt.textContent = '识别失败';
+      if(bar) bar.classList.remove('progress-bar-striped','progress-bar-animated');
+    }
+    setTimeout(function(){ if(box) box.classList.add('d-none'); }, 1600);
+  };
+  xhr.onerror = function(){
+    alert('识别请求失败，请重试');
+    if(box) box.classList.add('d-none');
+  };
+  var fd = new FormData();
+  fd.append('file', f);
+  xhr.send(fd);
+}
+</script>
+
+{% endblock %}

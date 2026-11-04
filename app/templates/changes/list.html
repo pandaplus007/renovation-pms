@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}变更签证{% endblock %}
+{% block page_title %}变更签证（增项）{% endblock %}
+{% block content %}
+
+{% if flash %}<div class="alert alert-info py-2">{{ flash }}</div>{% endif %}
+
+<div class="page-head no-print">
+  <div class="search-row">
+    <a href="/changes" class="btn btn-sm {{ 'btn-primary' if not status else 'btn-outline-secondary' }}">全部</a>
+    {% for s in change_status %}
+    <a href="/changes?status={{ s }}" class="btn btn-sm {{ 'btn-primary' if status == s else 'btn-outline-secondary' }}">{{ s }}</a>
+    {% endfor %}
+  </div>
+  <div class="d-flex gap-2">
+    {% if projects %}
+    <a href="/changes/new" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> 新增变更</a>
+    {% endif %}
+    <a href="/changes/export" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> 导出</a>
+    <button class="btn btn-sm btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer"></i> 打印</button>
+  </div>
+</div>
+
+{# ---------- 汇总 ---------- #}
+{% if rows %}
+<div class="row g-2 mb-3">
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="text-muted small">增项合计</div>
+      <div class="fs-4 fw-bold text-success">{{ totals.add|money }}</div>
+      <div class="small text-muted">共 {{ totals.count }} 笔变更</div>
+    </div></div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="text-muted small">减项合计</div>
+      <div class="fs-4 fw-bold text-danger">{{ totals.cut|money }}</div>
+      <div class="small text-muted">从合同里扣掉的部分</div>
+    </div></div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="text-muted small">已确认净增</div>
+      <div class="fs-4 fw-bold">{{ totals.confirmed|money }}</div>
+      <div class="small text-muted">成本 {{ totals.cost|money }}　毛利 <strong class="{{ 'text-success' if totals.profit >= 0 else 'text-danger' }}">{{ totals.profit|money }}</strong></div>
+    </div></div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      {# 待签要拆开：已报给业主等签字的钱可以拿去催，
+         还在内部拟稿的钱什么都不是。合成一个数就不知道该催谁。 #}
+      <div class="text-muted small">待签字</div>
+      <div class="fs-4 fw-bold {{ 'text-warning' if totals.pending_count else 'text-muted' }}">{{ totals.pending_amount|money }}</div>
+      <div class="small text-muted">
+        {{ totals.pending_count }} 笔未签字
+        {% if totals.awaiting_sign_count %}
+          · 其中 {{ totals.awaiting_sign_count }} 笔
+          <strong class="text-warning">{{ totals.awaiting_sign_amount|money }}</strong>
+          已报业主
+        {% endif %}
+      </div>
+    </div></div>
+  </div>
+</div>
+{% endif %}
+
+{# ---- 待签字的单独一块：这是唯一需要主动去催的一堆钱 ---- #}
+{# 放在汇总卡下面而不是塞进筛选器里，因为它回答的是一个动作问题
+  （「现在该去催谁」），不是一个统计问题。 #}
+{% if totals.awaiting_sign_count %}
+<div class="alert alert-warning py-2 no-print">
+  <i class="bi bi-hourglass-split me-1"></i>
+  <strong>{{ totals.awaiting_sign_count }} 笔变更</strong>（合计 {{ totals.awaiting_sign_amount|money }}）
+  已定价、已报给业主，等签字。
+  这笔钱<strong>可以拿去催、也可以计提预期收入，但业主签字前仍不进结算金额</strong>——
+  状态列的「已定价待业主审」就是等签字这一档。
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header py-2"><i class="bi bi-clipboard-check me-1"></i>按项目汇总</div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>项目</th>
+        <th style="width:80px" class="text-end">笔数</th>
+        <th style="width:120px" class="text-end">增项</th>
+        <th style="width:120px" class="text-end">减项</th>
+        <th style="width:130px" class="text-end">已确认净额</th>
+        <th style="width:120px" class="text-end">对应成本</th>
+        <th style="width:120px" class="text-end">变更毛利</th>
+        <th style="width:80px" class="text-end">毛利率</th>
+        <th style="width:110px">待签</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td><a href="/projects/{{ r.project.id }}/changes">{{ r.project.name }}</a></td>
+          <td class="text-end text-muted">{{ r.count }}</td>
+          <td class="text-end text-money text-success">{{ r.add|money }}</td>
+          <td class="text-end text-money text-danger">{{ r.cut|money }}</td>
+          <td class="text-end text-money fw-semibold">{{ r.confirmed|money }}</td>
+          <td class="text-end text-money text-muted">{{ r.cost|money }}</td>
+          <td class="text-end text-money fw-semibold {{ 'text-success' if r.profit >= 0 else 'text-danger' }}">
+            {{ r.profit|money }}
+          </td>
+          <td class="text-end {{ 'text-danger' if r.rate < 0 else '' }}">{{ r.rate }}%</td>
+          <td class="small">
+            {% if r.pending_count %}
+            <span class="badge state-badge state-watch">{{ r.pending_count }} 笔</span>
+            <div class="text-muted">{{ r.pending_amount|money }}</div>
+            {# 已报业主的那部分是「要催的」，单独标出来才不会淹没在总数里 #}
+            {% if r.get('awaiting_sign_count') %}
+            <div class="small text-warning">其中 {{ r.awaiting_sign_count }} 笔已报</div>
+            {% endif %}
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9" class="text-center text-muted py-5">
+          还没有变更签证记录<br>
+          <span class="small">施工中业主要改需求、现场条件变化，都记在这里</span>
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mt-3 no-print">
+  <div class="card-body small text-muted">
+    <strong>口径说明</strong>
+    <ul class="mb-0 mt-1">
+      <li><strong>增项/减项</strong>　增项金额为正（业主要多付），减项为负（如取消卫生间，合同做小）</li>
+      <li><strong>已确认净额</strong>只算状态为「已确认」或「已结算」的变更。分界线是<strong>业主有没有签字</strong>，不是流程走到哪一步——「已定价待业主审」在流程上比草稿前进了一步，在账上仍是零</li>
+      <li><strong>待签字</strong>含「草稿」与「已定价待业主审」。后者是已报出去等业主签的，<strong>可以拿去催</strong>，所以单独标出来；前者还在内部拟稿，催也没用</li>
+      <li><strong>变更毛利</strong> = 已确认金额 − 对应成本。没填成本时显示 0 而不是全额——避免把「还没算成本」误看成 100% 毛利</li>
+      <li>已确认的变更会自动并入项目的<strong>结算金额</strong>与<strong>毛利报表的收入</strong>（见 <a href="/reports/profit">项目毛利报表</a>）</li>
+      <li><strong>转「已结算」会先做检查</strong>（关联单据是否付清、成本是否录入、签字扫描件是否归档）。不满足会列出来让你确认，<strong>可以强制放行</strong>但会记审计日志——详见每行的<span class="badge state-badge state-watch">结算前检查</span></li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

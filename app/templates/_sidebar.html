@@ -1,0 +1,81 @@
+{# 侧边栏导航：结构全部来自 app/permissions.py 的 MODULES 注册表，
+   不再在本文件硬编码模块清单（历史上这里、_PATH_MODULES、oa.py:NAV_MODULES 三处各有一份且已不同步）。 #}
+{% set nav_items = [] %}
+{% for m in OPTIONS.nav_modules %}
+{# 优先用 nav_url；没有才退回 prefixes[0]。/reports 就是这么坏掉的：
+   它的 prefixes[0]='/reports' 不是真实页面，跳过去是 404。 #}
+{% set url = m.nav_url or (m.prefixes[0] if m.prefixes[0] != '/dashboard' else '/') %}
+{% set _ = nav_items.append((m.group, m.key, url, m.label, m.key, m.extra_nav)) %}
+{% endfor %}
+{% set allowed = [] %}
+{% for g, k, url, label, lkey, extra in nav_items %}
+{% if can(lkey, 'view') %}
+{% set _ = allowed.append((g, k, url, label, lkey, extra)) %}
+{% endif %}
+{% endfor %}
+<nav class="sidebar-nav">
+  {% for group in OPTIONS.nav_groups %}
+  {% set items = allowed | selectattr('0', 'equalto', group) | list %}
+  {% if items %}
+  {# 每个分组连同它的子项包进一张「组卡」：财务下面的开票申请/发票管理
+     不再散落在侧栏里，而是在一个 1px 淡框内（样式见 linear.css 的 .nav-group）。 #}
+  <div class="nav-group">
+  <div class="sidebar-group-title">{{ group }}</div>
+  {% for g, key, url, label, lkey, extra in items %}
+  <a href="{{ url }}" class="nav-item {{ 'active' if active == lkey else '' }}">
+    <i class="bi {{ OPTIONS.nav_icons.get(lkey, 'bi-circle') }}"></i>{{ OPTIONS.nav_labels.get(lkey, label) }}</a>
+  {# 附加导航项（如「经营大屏」）。刻意复用 .proj-tree / .pt-links 这套
+     已经存在的次级链接样式，不另写 CSS：它本来就是「挂在主项下面的一列
+     缩进小链接」，项目管理下面的项目树用的就是它。
+     可见性跟着宿主模块走——能看见主项就看得见附加项，不需要单独判权限
+     （附加项的 URL 都落在宿主模块的 prefixes 内）。
+     `active` 标记用的是路由传进来的 active_sub，不是 URL 比较：
+     页面上的查询参数（?project_id= 等）会让 URL 比较法误判。 #}
+  {% if extra %}
+  <div class="proj-tree pt-nav-list">
+    <div class="pt-links">
+      {% for ekey, elabel, eurl, eicon in extra %}
+      <a href="{{ eurl }}" class="{{ 'active' if active_sub == ekey else '' }}"><i class="bi {{ eicon }}"></i>{{ elabel }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% if key == 'projects' and can('projects', 'view') %}
+  <!-- 项目管理下面的具体项目（点开查看该项目功能） -->
+  <div class="proj-tree pt-nav-list">
+    {% if projects %}
+    {% for p in projects %}
+    <details class="pt-item" data-pid="{{ p.id }}">
+      <summary title="展开该项目功能"><i class="bi bi-briefcase"></i> {{ p.name }}</summary>
+      <div class="pt-links">
+        <a href="/projects/{{ p.id }}"><i class="bi bi-speedometer2"></i>项目总览</a>
+        {% if can('subcontracts', 'view') %}<a href="/subcontracts?project_id={{ p.id }}"><i class="bi bi-diagram-3"></i>分包合同</a>{% endif %}
+        {% if can('procurement', 'view') %}<a href="/procurement?project_id={{ p.id }}"><i class="bi bi-cart3"></i>采购合同</a>{% endif %}
+        {% if can('materials', 'view') %}<a href="/materials?pid={{ p.id }}"><i class="bi bi-box-seam"></i>材料</a>{% endif %}
+        {% if can('invoices', 'view') %}<a href="/invoices?project_id={{ p.id }}"><i class="bi bi-receipt"></i>发票</a>{% endif %}
+        {% if can('expenses', 'view') %}<a href="/expenses?project_id={{ p.id }}"><i class="bi bi-wallet2"></i>费用管理</a>{% endif %}
+        {% if can('reports', 'view') %}<a href="/reports/ledger?project_id={{ p.id }}"><i class="bi bi-journal-text"></i>项目台账</a>{% endif %}
+        {# 项目下的这一项指向甘特图视图并带上 project_id——矩阵视图是全项目总览，
+           带 project_id 进去反而看不到「只看这一个项目」的效果。
+           改名「工期规划」而不是「工程管理」：它是这个项目的排期，
+           和左侧全局的「工程管理」不是一个粒度。 #}
+        {% if can('gantt', 'view') %}<a href="/gantt?view=gantt&project_id={{ p.id }}"><i class="bi bi-bar-chart"></i>工期规划</a>{% endif %}
+      </div>
+    </details>
+    {% endfor %}
+    {% endif %}
+    <details class="pt-item pt-unassigned" data-pid="-1">
+      <summary title="未关联项目的记录"><i class="bi bi-archive"></i> 未分配项目</summary>
+      <div class="pt-links">
+        {% if can('subcontracts', 'view') %}<a href="/subcontracts?project_id=-1"><i class="bi bi-diagram-3"></i>分包合同</a>{% endif %}
+        {% if can('procurement', 'view') %}<a href="/procurement?project_id=-1"><i class="bi bi-cart3"></i>采购合同</a>{% endif %}
+        {% if can('materials', 'view') %}<a href="/materials?pid=-1"><i class="bi bi-box-seam"></i>材料</a>{% endif %}
+      </div>
+    </details>
+  </div>
+  {% endif %}
+  {% endfor %}
+  </div>
+  {% endif %}
+  {% endfor %}
+</nav>

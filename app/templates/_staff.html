@@ -1,0 +1,68 @@
+{#
+  负责人 / 人员下拉（统一入口）
+
+  为什么要有这个宏：全站有 6 处要选人（甘特图任务、项目任务新建/编辑、
+  任务列表筛选、项目的设计师/工长/监理）。各写一份 <option> 循环，
+  改一处就得改六处，而且很容易漏掉“保留当前值”这类细节。
+
+  ★ 关键设计：当前值不在名册里时，**必须**补一条 option。
+    改版前负责人是自由文本，存量数据里可能写着名册中没有的名字
+    （实测「范围测试」就是早期权限测试留下的）。如果只是过滤名册渲染，
+    老记录一打开编辑框，下拉里没有当前值，浏览器默认选第一个，
+    用户随手保存就把负责人改成了别人——这是数据丢失，不是样式问题。
+
+  参数：
+    name        表单字段名
+    staffs      名册列表（Staff 对象），由路由传入
+    value       当前值（字符串）
+    allow_empty 是否允许“未指派”（筛选框要，新建任务也要）
+    empty_label 空选项的文字
+    classes     额外的 class
+    include_inactive 编辑老记录时传 True：把已停用的人也列出来，
+                否则离职员工的当前值同样会丢
+#}
+{% macro staff_select(name, staffs, value='', allow_empty=True, empty_label='— 未指派 —', classes='form-control form-control-sm', include_inactive=False, placeholder='', el_id='') %}
+{% set cur = (value or '') | trim %}
+{% set ns = namespace(found=false) %}
+<select name="{{ name }}"{% if el_id %} id="{{ el_id }}"{% endif %} class="{{ classes }}"{% if placeholder %} aria-label="{{ placeholder }}"{% endif %}>
+  {% if allow_empty %}
+  <option value="">{{ empty_label }}</option>
+  {% endif %}
+  {% for s in staffs %}
+    {% if s.active or include_inactive %}
+      {% if s.name == cur %}{% set ns.found = true %}{% endif %}
+  <option value="{{ s.name }}" data-inactive="{{ '1' if not s.active else '0' }}" {{ 'selected' if s.name == cur else '' }}>{{ s.name }}{% if s.job %}（{{ s.job }}）{% endif %}{% if not s.active %} · 已停用{% endif %}</option>
+    {% endif %}
+  {% endfor %}
+  {% if cur and not ns.found %}
+  {# 存量值不在名册里——原样保留，不静默丢弃。 #}
+  <option value="{{ cur }}" selected>{{ cur }}（不在名册，建议到「公司人员」补录）</option>
+  {% endif %}
+</select>
+{% endmacro %}
+
+
+{#
+  负责人筛选（GET 查询参数用）
+
+  和上面的区别：筛选框没有“当前记录”的概念，但要能清空，
+  且必须把搜索到的所有名字都列出来（包括名册外的存量名字），
+  否则老数据里的人在筛选里选不到。
+#}
+{% macro staff_filter(name, staffs, value='', extra_names=None, classes='form-control form-control-sm', width='') %}
+{% set cur = (value or '') | trim %}
+{% set ns = namespace(names=[]) %}
+{% for s in staffs %}{% if s.active %}{% set ns.names = ns.names + [s.name] %}{% endif %}{% endfor %}
+{% if extra_names %}
+  {% for n in extra_names %}{% if n not in ns.names %}{% set ns.names = ns.names + [n] %}{% endif %}{% endfor %}
+{% endif %}
+<select name="{{ name }}" class="{{ classes }}"{% if width %} style="width:{{ width }}"{% endif %} aria-label="负责人筛选">
+  <option value="">全部负责人</option>
+  {% for n in ns.names | sort %}
+  <option value="{{ n }}" {{ 'selected' if n == cur else '' }}>{{ n }}</option>
+  {% endfor %}
+  {% if cur and cur not in ns.names %}
+  <option value="{{ cur }}" selected>{{ cur }}</option>
+  {% endif %}
+</select>
+{% endmacro %}

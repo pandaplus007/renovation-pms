@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}开票申请{% endblock %}
+{% block page_title %}销项开票管理{% endblock %}
+{% block content %}
+
+{% if flash %}<div class="alert alert-info py-2">{{ flash }}</div>{% endif %}
+
+<div class="page-head no-print">
+  <div class="search-row">
+    <a href="/sales-invoices" class="btn btn-sm {{ 'btn-primary' if not status else 'btn-outline-secondary' }}">全部</a>
+    {% for s in statuses %}
+    <a href="/sales-invoices?status={{ s }}" class="btn btn-sm {{ 'btn-primary' if status == s else 'btn-outline-secondary' }}">
+      {{ s }}{% if counts.get(s) %} <span class="badge text-bg-secondary">{{ counts[s] }}</span>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  <div class="d-flex gap-2">
+    <a href="/sales-invoices/new" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> 新增申请</a>
+    <a href="/sales-invoices/export" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> 导出</a>
+    <button class="btn btn-sm btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer"></i> 打印</button>
+  </div>
+</div>
+
+{# ---------- 核心对照：已收 vs 已开 vs 待开 ---------- #}
+<div class="card mb-3">
+  <div class="card-header py-2"><i class="bi bi-columns-gap me-1"></i>已收款 vs 已开票</div>
+  <div class="card-body py-2">
+    <div class="row g-3 text-center">
+      <div class="col-md-3 col-6">
+        <div class="text-muted small">已收款</div>
+        <div class="fs-3 fw-bold text-success">{{ vs.total_received|money }}</div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="text-muted small">已开票</div>
+        <div class="fs-3 fw-bold">{{ vs.total_invoiced|money }}</div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="text-muted small">待开票（已申请未开完）</div>
+        <div class="fs-3 fw-bold text-warning">{{ vs.total_pending|money }}</div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="text-muted small">缺口（已收但没开票）</div>
+        <div class="fs-3 fw-bold {{ 'text-danger' if vs.total_gap > 0 else 'text-muted' }}">
+          {{ vs.total_gap|money }}
+        </div>
+        <div class="small text-muted">占已收 {{ vs.gap_rate }}%</div>
+      </div>
+    </div>
+
+    {% if vs.total_gap > 0 %}
+    <div class="alert alert-warning py-2 mt-2 mb-0 small">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      已收 <strong>{{ vs.total_received|money }}</strong>，已开票只有 <strong>{{ vs.total_invoiced|money }}</strong>，
+      差 <strong>{{ vs.total_gap|money }}</strong>。这里头有两种情况：
+      <br>① 已经开了票但没录进系统 —— 补录发票即可；
+      ② 确实还没开 —— 建一条开票申请把计划定下来。
+      <strong>建筑业预收款/进度款的开票有政策要求</strong>（预收款需按预付比例预缴），
+      对外说不清开了多少票是个实际风险。
+    </div>
+    {% endif %}
+
+    {% if vs.orphan_count %}
+    <div class="alert alert-info py-2 mt-2 mb-0 small">
+      <i class="bi bi-info-circle me-1"></i>
+      有 {{ vs.orphan_count }} 条开票申请（{{ vs.orphan_amount|money }}）没关联到项目，
+      编辑补上项目后才能进入上面的按项目统计。
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ---------- 按项目对照 ---------- #}
+{% if vs.rows | selectattr('received') | list %}
+<div class="card mb-3">
+  <div class="card-header py-2"><i class="bi bi-briefcase me-1"></i>按项目</div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>项目</th>
+        <th style="width:130px" class="text-end">已收款</th>
+        <th style="width:130px" class="text-end">已开票</th>
+        <th style="width:130px" class="text-end">待开票</th>
+        <th style="width:130px" class="text-end">缺口</th>
+        <th style="width:80px" class="text-end">缺口率</th>
+        <th style="width:100px" class="no-print">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for r in vs.rows %}
+        <tr>
+          <td><a href="/projects/{{ r.project.id }}">{{ r.project.name }}</a></td>
+          <td class="text-end text-money text-success">{{ r.received|money }}</td>
+          <td class="text-end text-money">{{ r.invoiced|money }}</td>
+          <td class="text-end text-money {{ 'text-warning' if r.pending else 'text-muted' }}">
+            {{ r.pending|money if r.pending else '—' }}
+          </td>
+          <td class="text-end text-money fw-semibold {{ 'text-danger' if r.gap > 0.01 else 'text-muted' }}">
+            {{ r.gap|money if r.gap > 0.01 else '—' }}
+          </td>
+          <td class="text-end {{ 'text-danger' if r.gap_rate > 90 else '' }}">{{ r.gap_rate }}%</td>
+          <td class="no-print">
+            {% if r.gap > 0.01 %}
+            <a href="/sales-invoices/new?project_id={{ r.project.id }}"
+               class="btn btn-sm btn-outline-primary py-0 px-1" title="建开票申请">
+              <i class="bi bi-plus-lg"></i>
+            </a>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ---------- 超开预警 ---------- #}
+{% if warnings %}
+<div class="card mb-3 border-danger">
+  <div class="card-header py-2 text-danger"><i class="bi bi-shield-exclamation me-1"></i>已开票额超过已收款（{{ warnings|length }} 条）</div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>客户</th><th style="width:130px" class="text-end">已开票</th>
+        <th style="width:130px" class="text-end">已收款</th>
+        <th style="width:130px" class="text-end">超出</th>
+        <th style="width:90px">状态</th>
+      </tr></thead>
+      <tbody>
+      {% for w in warnings %}
+        <tr>
+          <td>{{ w.customer_name }}</td>
+          <td class="text-end text-money">{{ w.invoiced|money }}</td>
+          <td class="text-end text-money text-muted">{{ w.received|money }}</td>
+          <td class="text-end text-money fw-semibold text-danger">{{ w.over|money }}</td>
+          <td><span class="badge text-bg-light">{{ w.status }}</span></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-body py-1 small text-muted border-top">
+    「先开票后收款」在预收款场景下是正常的，所以这里只提示不阻断。
+    但如果是录入错误导致金额对不上，应当把申请单作废重开。
+  </div>
+</div>
+{% endif %}
+
+{# ---------- 申请单列表 ---------- #}
+<div class="card">
+  <div class="card-header py-2">
+    <i class="bi bi-list-ul me-1"></i>开票申请单
+    <span class="small text-muted ms-1">共 {{ rows|length }} 条</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>客户 / 项目</th>
+        <th style="width:120px">发票抬头</th>
+        <th style="width:120px" class="text-end">申请金额</th>
+        <th style="width:70px" class="text-end">税率</th>
+        <th style="width:110px" class="text-end">不含税</th>
+        <th style="width:110px" class="text-end">税额</th>
+        <th style="width:120px" class="text-end">已开 / 待开</th>
+        <th style="width:90px">状态</th>
+        <th style="width:100px">申请日期</th>
+        <th style="width:150px" class="no-print">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>
+            <div class="fw-semibold">{{ r.customer_name }}</div>
+            {% if r.project_name %}<div class="small text-muted">{{ r.project_name }}</div>{% endif %}
+            {% if not r.project_name %}<div class="small text-warning">未关联项目</div>{% endif %}
+          </td>
+          <td class="small">{{ r.title or '—' }}{% if r.tax_no %}<div class="small text-muted">{{ r.tax_no }}</div>{% endif %}</td>
+          <td class="text-end text-money fw-semibold">{{ r.amount|money }}</td>
+          <td class="text-end text-muted">{{ r.tax_rate or '—' }}</td>
+          <td class="text-end text-money text-muted">{{ r.tax_excl|money }}</td>
+          <td class="text-end text-money text-muted">{{ r.tax_amount|money }}</td>
+          <td class="text-end text-nowrap">
+            <span class="text-success">{{ r.invoiced|money }}</span>
+            {% if r.remain > 0.01 %}
+            <div class="small text-warning">待开 {{ r.remain|money }}</div>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge {{ r.status | state_badge }}">
+              {{ r.status }}
+            </span>
+          </td>
+          <td class="small text-muted text-nowrap">{{ r.apply_date or '—' }}</td>
+          <td class="no-print">
+            <div class="d-flex gap-1">
+              {% if r.remain > 0.01 and r.status not in ('已作废', '已驳回') %}
+              <button class="btn btn-sm btn-outline-primary py-0 px-1" title="开出这张票"
+                      data-bs-toggle="collapse" data-bs-target="#issue-{{ r.id }}"><i class="bi bi-receipt"></i></button>
+              {% endif %}
+              {% if r.status != '已作废' and r.status != '已驳回' %}
+              <form method="post" action="/sales-invoices/{{ r.id }}/status" class="d-inline">
+                <input type="hidden" name="status" value="已作废">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="作废"><i class="bi bi-x-circle"></i></button>
+              </form>
+              {% endif %}
+              <form method="post" action="/sales-invoices/{{ r.id }}/delete" class="d-inline"
+                    onsubmit="return confirm('删除这条开票申请？')">
+                <button class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+              </form>
+            </div>
+            {% if r.remain > 0.01 and r.status not in ('已作废', '已驳回') %}
+            <div class="collapse mt-2" id="issue-{{ r.id }}">
+              <form method="post" action="/sales-invoices/{{ r.id }}/issue"
+                    class="row g-1 p-2 border rounded bg-light">
+                <div class="col-12"><label class="form-label small mb-0">发票号码</label>
+                  <input type="text" name="invoice_no" class="form-control form-control-sm"></div>
+                <div class="col-6"><label class="form-label small mb-0">开票日期</label>
+                  <input type="date" name="invoice_date" class="form-control form-control-sm" value="{{ r.apply_date or '' }}"></div>
+                <div class="col-6"><label class="form-label small mb-0">本次金额</label>
+                  <input type="number" name="amount" step="0.01" class="form-control form-control-sm"
+                         placeholder="{{ r.remain }}" value="0"></div>
+                <div class="col-12 text-end">
+                  <button class="btn btn-sm btn-primary py-0">确认开票</button>
+                </div>
+                <div class="col-12"><div class="form-text">金额留 0 = 开掉剩余 {{ r.remain|money }} 全部</div></div>
+              </form>
+            </div>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="10" class="text-center text-muted py-5">
+          还没有开票申请<br>
+          <span class="small">向客户开票前先建申请，把「开多少、按什么税率」定下来</span>
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

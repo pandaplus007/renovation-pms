@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}审批流程配置{% endblock %}
+{% block page_title %}审批流程配置{% endblock %}
+{% block content %}
+
+{% if flash %}<div class="alert alert-info py-2">{{ flash }}</div>{% endif %}
+
+<div class="card mb-3">
+  <div class="card-body py-2 small text-muted">
+    <i class="bi bi-info-circle me-1"></i>
+    每类单据单独配置审批岗位链，<strong>按顺序串行</strong>：第 1 关通过后才轮到第 2 关。
+    留空表示不启用审批；未启用的单据不会出现「提交审批」按钮。
+    审批只做留痕，不改变记账。
+  </div>
+</div>
+
+{% for row in flow_rows %}
+<form method="post" action="/approvals/flows" class="card mb-3">
+  <input type="hidden" name="entity_type" value="{{ row.entity_type }}">
+
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-file-earmark-check me-1"></i>{{ row.label }}</span>
+    <span class="d-flex gap-1 align-items-center">
+      {% if row.block_booking %}<span class="badge {{ "未审批不入账" | state_badge }}">未审批不入账</span>{% endif %}
+      {% if row.enabled and row.steps %}
+        <span class="badge {{ "已启用" | state_badge }}">已启用 · {{ row.steps|length }} 关</span>
+      {% else %}
+        <span class="badge {{ "未启用" | state_badge }}">未启用</span>
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="card-body">
+    <label class="form-label small mb-1">审批岗位链（每行一个岗位，按顺序串行，最多 6 关）</label>
+    <textarea name="steps" class="form-control font-monospace" rows="{{ [row.steps|length, 3]|max }}"
+              placeholder="例如：&#10;财务部&#10;老板">{{ row.steps|join('\n') }}</textarea>
+
+    <div class="form-check mt-2 mb-0">
+      <input class="form-check-input" type="checkbox" name="enabled" value="1" id="en-{{ row.entity_type }}"
+             {{ 'checked' if row.enabled else '' }}>
+      <label class="form-check-label small" for="en-{{ row.entity_type }}">启用该单据的审批流程</label>
+    </div>
+
+    {% if row.can_block %}
+    <div class="form-check mt-1 mb-0">
+      <input class="form-check-input" type="checkbox" name="block_booking" value="1" id="bb-{{ row.entity_type }}"
+             {{ 'checked' if row.block_booking else '' }}>
+      <label class="form-check-label small" for="bb-{{ row.entity_type }}">
+        <strong>未审批不入账</strong>　开启后，未获审批通过的{{ row.label }}不计入项目台账与利润报表
+      </label>
+    </div>
+    <div class="small text-muted mt-1 ms-4">
+      <i class="bi bi-info-circle me-1"></i>仅影响此开关打开<strong>之后</strong>提交的单据；
+      从未提交过审批的历史单据视为已通过，不受影响。
+    </div>
+    {% endif %}
+
+    <div class="small text-muted mt-2">
+      可选岗位：{% for r in roles %}<span class="badge text-bg-light me-1">{{ r }}</span>{% endfor %}
+    </div>
+  </div>
+
+  <div class="card-footer py-2 text-end">
+    <button class="btn btn-sm btn-primary"><i class="bi bi-save"></i> 保存</button>
+  </div>
+</form>
+{% endfor %}
+{% endblock %}

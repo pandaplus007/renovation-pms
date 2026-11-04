@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}审批中心{% endblock %}
+{% block page_title %}审批中心{% endblock %}
+{% block content %}
+
+{% if flash %}<div class="alert alert-info py-2">{{ flash }}</div>{% endif %}
+
+{# ---------- 待我审批 ---------- #}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-inbox me-1"></i>待我审批</span>
+    <span class="badge state-badge state-watch">{{ pending|length }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>单据</th><th style="width:110px">类型</th><th style="width:120px" class="text-end">金额</th>
+        <th style="width:120px">提交人</th><th style="width:140px">提交时间</th>
+        <th style="width:150px">进度</th><th style="width:210px">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for r in pending %}
+        <tr>
+          <td><a href="/approvals/{{ r.id }}" class="text-decoration-none">{{ r.title }}</a></td>
+          <td class="small">{{ entity_labels.get(r.entity_type, r.entity_type) }}</td>
+          <td class="text-end">{{ r.amount|money }}</td>
+          <td class="small">{{ (r.submitter.display_name or r.submitter.username) if r.submitter else '—' }}</td>
+          <td class="small text-nowrap">{{ r.submitted_at.strftime('%m-%d %H:%M') if r.submitted_at else '—' }}</td>
+          <td class="small">
+            {% if r.status == '待审批' %}<span class="badge {{ "待启动" | state_badge }}">待启动</span>
+            {% else %}<span class="text-muted">第 {{ r.current_step + 1 }} / {{ r.total_steps }} 关</span>{% endif %}
+          </td>
+          <td>
+            {% if can_approve(r) %}
+            <form method="post" action="/approvals/{{ r.id }}/approve" class="d-flex gap-1">
+              <input type="text" name="comment" class="form-control form-control-sm" placeholder="意见（可选）">
+              <button class="btn btn-sm btn-primary text-nowrap">通过</button>
+            </form>
+            <form method="post" action="/approvals/{{ r.id }}/reject" class="d-flex gap-1 mt-1">
+              <input type="text" name="comment" class="form-control form-control-sm" placeholder="驳回理由">
+              <button class="btn btn-sm btn-outline-danger text-nowrap">驳回</button>
+            </form>
+            {% else %}
+            <span class="text-muted small">等待其他岗位处理</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">没有待你审批的单据</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ---------- 全部在途 ---------- #}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-hourglass-split me-1"></i>在途审批</span>
+    <a href="/approvals/flows" class="btn btn-sm btn-outline-secondary"><i class="bi bi-diagram-3"></i> 流程配置</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>单据</th><th style="width:110px">类型</th><th style="width:120px" class="text-end">金额</th>
+        <th style="width:120px">提交人</th><th style="width:100px">状态</th>
+        <th style="width:150px">进度</th><th style="width:120px">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for r in inflight %}
+        <tr>
+          <td><a href="/approvals/{{ r.id }}" class="text-decoration-none">{{ r.title }}</a></td>
+          <td class="small">{{ entity_labels.get(r.entity_type, r.entity_type) }}</td>
+          <td class="text-end">{{ r.amount|money }}</td>
+          <td class="small">{{ (r.submitter.display_name or r.submitter.username) if r.submitter else '—' }}</td>
+          <td><span class="badge {{ r.status | state_badge }}">{{ r.status }}</span></td>
+          <td class="small text-muted">
+            {% if r.total_steps %}{{ r.current_step + 1 }} / {{ r.total_steps }} 关{% else %}—{% endif %}
+          </td>
+          <td>
+            {% if user.role in ['老板', 'admin'] %}
+              <form method="post" action="/approvals/{{ r.id }}/force-pass" class="d-flex gap-1">
+                <input type="text" name="comment" class="form-control form-control-sm" placeholder="意见">
+                <button class="btn btn-sm btn-warning text-nowrap" title="一次性通过全部剩余关卡">
+                  <i class="bi bi-lightning-charge"></i> 全通过
+                </button>
+              </form>
+            {% elif r.submitted_by == user.id %}
+            <form method="post" action="/approvals/{{ r.id }}/withdraw">
+              <button class="btn btn-sm btn-outline-secondary">撤回</button>
+            </form>
+            {% else %}<a href="/approvals/{{ r.id }}" class="btn btn-sm btn-outline-secondary">详情</a>{% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">当前没有在途审批</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ---------- 归档 ---------- #}
+<div class="card">
+  <div class="card-header"><i class="bi bi-archive me-1"></i>已归档（最近 50 条）</div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>单据</th><th style="width:120px" class="text-end">金额</th>
+        <th style="width:100px">结果</th><th style="width:140px">完成时间</th>
+        <th>意见</th>
+      </tr></thead>
+      <tbody>
+      {% for r in archived %}
+        <tr>
+          <td><a href="/approvals/{{ r.id }}" class="text-decoration-none">{{ r.title }}</a></td>
+          <td class="text-end">{{ r.amount|money }}</td>
+          <td><span class="badge {{ r.status | state_badge }}">{{ r.status }}</span></td>
+          <td class="small text-nowrap">{{ r.finished_at.strftime('%Y-%m-%d %H:%M') if r.finished_at else '—' }}</td>
+          <td class="small text-muted">{{ r.result_note or '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-4">暂无已归档审批</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="text-muted small mt-2">
+  <i class="bi bi-info-circle me-1"></i>
+  审批只做留痕，不改变记账——单据录入时已计入项目台账。审批记录的是「谁批的、何时批的」。
+</div>
+{% endblock %}

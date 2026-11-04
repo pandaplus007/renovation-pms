@@ -1,0 +1,64 @@
+{# ============================================================================
+   进度条复用片段
+   ----------------------------------------------------------------------------
+   为什么建这个文件：进度条原本在 dashboard / projects.list / projects.detail /
+   customers.detail 四处各写一遍 HTML。四份副本意味着改一次样式要动四个文件，
+   漏一处就出现「概览是绿的、列表是蓝的」这种不一致——和状态色收敛前的
+   问题是同一类，只是换了对象。
+
+   两个「进度」必须分清，不要合并：
+     施工进度  project.progress  阶段完成比例，需人工维护阶段表
+     回款比例  project.recv_pct  已收 ÷ 合同额，由收款记录实时算出
+
+   装修行业这两个数经常反向（预付款多的项目回款 90% 而施工才 30%）。
+   任何一处写「进度」却不说是哪个，都是误导。
+   ============================================================================ #}
+
+{# 回款比例条。调用：{{ recv_bar(p, width=80) }}
+   - 无合同时显示「—」而不是 0%：0% 会被读成「一分钱没收到」，
+     而没有合同是「还没到收钱的时候」，两回事。
+   - 超收时进度条 clamp 到 100%，但数字显示真实值（112% 就是 112%）。 #}
+{% macro recv_bar(p, width=80) %}
+  {% set pct = p.recv_pct %}
+  {% if pct is none %}
+    <span class="text-muted small">—</span>
+  {% else %}
+    <div class="d-flex align-items-center gap-2">
+      <div class="progress progress-xs flex-grow-1" style="width:{{ width }}px;">
+        <div class="progress-bar {{ 'bg-success' if pct >= 100 else '' if pct >= 90 }}"
+             style="width: {{ [pct, 100]|min }}%"></div>
+      </div>
+      <span class="small text-muted text-nowrap num">{{ '%.0f'|format(pct) }}%</span>
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{# 施工进度条。调用：{{ build_bar(project) }}
+   没有阶段数据时显示「未建阶段」而不是 0%——0% 会被当成「一点没干」，
+   实际是「没人录阶段」。这是这两种项目最容易混淆的地方。 #}
+{% macro build_bar(p) %}
+  {% if p.phases %}
+    <div class="d-flex align-items-center gap-2">
+      <div class="progress progress-xs flex-grow-1" style="width:{{ width|default(70) }}px;">
+        <div class="progress-bar" style="width: {{ [p.progress, 100]|min }}%"></div>
+      </div>
+      <span class="small text-muted text-nowrap num">{{ p.progress }}%</span>
+    </div>
+  {% else %}
+    <span class="text-muted small" title="未录入施工阶段，无法推算施工进度">未建阶段</span>
+  {% endif %}
+{% endmacro %}
+
+{# 「阶段未开始」矛盾提示。判定逻辑在模型 Project.phase_never_started，
+   判据是「status 说在施工、阶段表却一步没动」——两个数据源打架。
+   不写「阶段未更新」：project_phases 表没有时间字段，多久没更新判不了，
+   编一个时长出来只会误导。这里指出的事情是确实可验证的。
+
+   用 watch（琥珀）不用 alert（红）：红留给金额异常。这个矛盾要做的
+   动作是「去看一眼」，不是紧急处理。 #}
+{% macro phase_flag(p) %}
+  {% if p.phase_never_started %}
+    <span class="badge state-badge state-watch fw-normal"
+          title="项目状态是「{{ p.status }}」，但 {{ p.phases|length }} 个施工阶段全部为「未开始」。要么阶段没打勾，要么项目状态填错了——请核实。">阶段未开始</span>
+  {% endif %}
+{% endmacro %}

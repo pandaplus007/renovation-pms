@@ -1,0 +1,15 @@
+# 统一换行符，避免 Windows 提交后每行都变成「改动」
+* text=auto
+
+*.py   text eol=lf
+*.md   text eol=lf
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.pdf  binary
+*.db   binary

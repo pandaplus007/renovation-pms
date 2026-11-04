@@ -1,0 +1,48 @@
+# 装修项目管家 - docker compose 部署（极空间 Z4 Pro / 任意 Docker 主机）
+# 用法：
+#   1. 将整个 renovation-pms 目录上传到服务器（如极空间共享目录）
+#   2. (可选) 设置外部端口：PORT=9500 docker compose up -d --build   （默认 8018）
+#   3. 浏览器访问 http://服务器IP:$PORT
+#
+# ⚠ 配置只能走本文件的 `environment:` 段，两条路都别想：
+#   - `.dockerignore` 里有 `.env`，所以 `/app/.env` **不在镜像里**；
+#     compose 也没挂载它 → 容器内 `config._load_dotenv()` 读到空、静默跳过。
+#   - `docker compose` 的 `.env` 只用于 `${VAR}` 插值，
+#     **不会**把里面的变量自动注入容器。
+#   所以新加一个环境变量，必须在下面的 `environment:` 里显式声明一行，
+#   否则症状是「配了但没生效」——而且**不报错**，最难查的一类问题。
+services:
+  renovation-pms:
+    build: .
+    image: renovation-pms:latest
+    container_name: renovation-pms
+    ports:
+      - "${PORT:-8018}:${PORT:-8018}"
+    environment:
+      # 会话签名密钥：泄露等于任何人都能伪造登录态，务必换成随机长字符串。
+      # 生成：python -c "import secrets;print(secrets.token_hex(32))"
+      # 写进同目录 .env 里的 SECRET_KEY（.env 不入库），不要把真实值写回本文件。
+      - SECRET_KEY=${SECRET_KEY:-dev-only-change-me}
+      - HOST=0.0.0.0
+      - PORT=${PORT:-8018}
+      # AI 识别密钥：docker compose 自动读取宿主机同目录 .env 中的同名变量并注入容器
+      - PROMACLOUD_API_KEY=${PROMACLOUD_API_KEY:-}
+      # 视觉识别平台（转账单图片 / 扫描件合同）；平台与模型见 app/utils/vision_client.py
+      - VISION_PROVIDER=${VISION_PROVIDER:-}
+      - VISION_API_KEY=${VISION_API_KEY:-}
+      - VISION_BASE_URL=${VISION_BASE_URL:-}
+      - VISION_MODEL=${VISION_MODEL:-}
+      # 业主只读链接的对外地址。**不配的后果不是报错，是静默生成指向内网的链接**
+      # （192.168.1.100:8018），业主在外网打开是「无法访问」，
+      # 而项目侧看到的是一条格式完全正常的 URL，很难联想到是没配。
+      # 填业主实际能访问到的地址：公司域名 / 内网穿透均可，不要带末尾斜杠。
+      - PORTAL_BASE_URL=${PORTAL_BASE_URL:-}
+      # 企业微信群机器人 webhook（每日 08:00 推送 danger/warning 级待办）。
+      # 留空则不推送，功能不报错。
+      - WECOM_WEBHOOK=${WECOM_WEBHOOK:-}
+      - WECOM_BASE_URL=${WECOM_BASE_URL:-}
+    volumes:
+      # 数据持久化：数据库与上传文件必须挂载，否则容器重建会丢数据
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    restart: unless-stopped

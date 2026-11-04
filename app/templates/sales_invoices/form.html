@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}新增开票申请{% endblock %}
+{% block page_title %}新增开票申请{% endblock %}
+{% block content %}
+
+<form method="post" action="/sales-invoices/save">
+  <input type="hidden" name="app_id" value="0">
+  <div class="d-flex justify-content-between align-items-center mb-3 no-print">
+    <a href="/sales-invoices" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回</a>
+    <button class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="bi bi-receipt me-1"></i>开票对象</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small">客户 <span class="text-danger">*</span></label>
+          <select name="customer_id" class="form-select form-select-sm" required>
+            <option value="">— 选择客户 —</option>
+            {% for c in customers %}
+            <option value="{{ c.id }}" {{ 'selected' if pre_customer and pre_customer.id == c.id else '' }}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small">关联项目</label>
+          <select name="project_id" class="form-select form-select-sm">
+            <option value="">— 不关联 —</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}" {{ 'selected' if pre_project and pre_project.id == p.id else '' }}>{{ p.name }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">关联后才会进入「已收款 vs 已开票」的按项目统计</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small">关联收款节点</label>
+          <select name="payment_id" class="form-select form-select-sm">
+            <option value="">— 不关联 —</option>
+            {% if pre_project %}
+              {% for pay in pre_project.payments %}
+              <option value="{{ pay.id }}" {{ 'selected' if pre_payment_id == pay.id else '' }}>
+                {{ pay.name }} · 应收 {{ pay.plan_amount|money }} · 已收 {{ pay.paid_amount|money }}
+              </option>
+              {% endfor %}
+            {% endif %}
+          </select>
+          <div class="form-text">选了项目才有节点可选。关联后可核对「这笔收款开没开票」</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="bi bi-cash me-1"></i>金额与税率</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label small">申请金额（含税） <span class="text-danger">*</span></label>
+          <input type="number" name="amount" step="0.01" class="form-control form-control-sm" required value="0">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">税率（%）</label>
+          <select name="tax_rate" class="form-select form-select-sm">
+            {% for r in ['9', '6', '3', '1', '0'] %}
+            <option value="{{ r }}">{{ r }}%</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">填 0 时不计税，不含税金额等于申请金额</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">申请日期</label>
+          <input type="date" name="apply_date" class="form-control form-control-sm" value="{{ today }}">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="bi bi-building me-1"></i>发票信息</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small">发票抬头</label>
+          <input type="text" name="title" class="form-control form-control-sm"
+                 value="{{ pre_customer.name if pre_customer else '' }}"
+                 placeholder="留空自动取客户名称">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small">客户税号</label>
+          <input type="text" name="tax_no" class="form-control form-control-sm"
+                 value="{{ pre_customer.tax_no if pre_customer else '' }}"
+                 placeholder="留空自动取客户档案里的税号">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small">发票类型</label>
+          <select name="invoice_type" class="form-select form-select-sm">
+            {% for t in invoice_types %}
+            <option value="{{ t }}">{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small">状态</label>
+          <select name="status" class="form-select form-select-sm">
+            {% for s in statuses %}
+            <option value="{{ s }}">{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12">
+          <label class="form-label small">备注</label>
+          <textarea name="note" rows="2" class="form-control form-control-sm"
+                    placeholder="如：预收款按 30% 开具"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="text-end no-print">
+    <button class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+    <div class="form-text mt-2">保存后在列表点 <i class="bi bi-receipt"></i> 填发票号码完成开票</div>
+  </div>
+</form>
+{% endblock %}

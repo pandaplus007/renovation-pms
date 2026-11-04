@@ -1,0 +1,759 @@
+﻿/* ============================================================================
+   经营大屏 · /dashboard/screen
+
+   独立文件，不进 style.css。三个理由：
+     1. style.css 已经 3300 行，且是被 test_css_structure / test_type_scale
+        逐条盯着的文件；大屏是另一个「用途」，混进去会让那两条测试的
+        排查范围变大。
+     2. 大屏**只在**这一页加载，浏览器不会为一个用不到的页面多下载它。
+     3. test_type_scale.py 断言全站字号只有 6 档（12/14/16/20/24/28）。
+        大屏的数字必须远大于 24px（3 米外要能读），所以它**不能**用
+        --fs-* 那套刻度，自己有一套 --scr-fs-*，且只在本文件里用。
+
+   ⚠ 改之前先确认这条：这套字号刻度**只服务于大屏**，
+     不要把 .scr-* 以外的类加进来，也不要在这里写通用的排版规则。
+   ========================================================================= */
+
+.scr {
+  /* ---- 字号刻度：四档，只此一套 ----
+     参照 Carbon 的 expressive type set（营销/展示型），而不是全站
+     用的 productive 那套。差别是 expressive 允许更大的戏剧化尺寸——
+     在 ERP 工作区里那只会分散注意力，但大屏就是为「远距离第一眼」设计的。
+
+     字重仍只用 400/600：500 在中文系统里多数没有对应字形，
+     浏览器会合成或就近落档，等于「以为自己设了中等、实际不是」。 */
+  --scr-fs-cap:   13px;  /* 字段标签、区块标题 */
+  --scr-fs-body:  15px;  /* 正文 */
+  --scr-fs-big:   15px;  /* 大数字（应收柱顶的金额，小屏上仍要读得出） */
+  --scr-lh-cap:   18px;
+  --scr-lh-body:  22px;
+}
+
+.scr {
+  /* 投屏专用画布：固定 16:9，用 vmin 做整体缩放。
+     不用 rem/px 是因为大屏在不同电视上物理尺寸差别很大，
+     按视口比例缩放比按像素写死更省事。 */
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--gray-100);
+  color: var(--text);
+  font-size: var(--scr-fs-body);
+  line-height: var(--scr-lh-body);
+}
+
+.scr a { color: var(--primary-ink); text-decoration: none; }
+
+/* ============================================================================
+   顶栏
+   ========================================================================= */
+/* ⚠ 深色主题的色阶是**反向**的：--gray-900 是最亮的一档（正文色 #E5E7EB），
+   --gray-50 才是最暗的（#121212）。第一版这里写了 `background: var(--gray-900)`，
+   在浅色主题下看着正常（那是深灰），在大屏固定深色下就变成一条**近白亮带**，
+   而顶栏文字用的也是 --gray-900 —— 实测对比度 1.00:1，文字完全消失。
+
+   这正是 AGENTS.md 里「深色主题：漏一处就是看不见」那一类：
+   字面量/令牌在浅色下天衣无缝，换到深色底上才暴露。
+   顶部条要比主体更暗，用 --gray-50；卡片比主体更亮，用 --surface。 */
+.scr-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 1.1vh 2vw;
+  background: var(--gray-50);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.scr-head-l,
+.scr-head-r {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.scr-logo { height: 4vh; max-height: 44px; width: auto; }
+.scr-brand { font-size: 1.9vh; font-weight: var(--fw-strong); color: var(--text); }
+.scr-sep   { color: var(--gray-500); }
+/* 区块标题：字重 600（600 不是 500，见文件头说明） */
+.scr-head-title { font-size: 1.9vh; font-weight: var(--fw-strong); color: var(--primary-ink); }
+
+/* ---------- 返回主界面 ----------
+   大屏刻意不继承 base.html，侧栏与顶栏都没有，所以这里没有任何返回路径；
+   投屏设备通常是常开的 kiosk 浏览器，没有后退键，于是「有去无回」。
+   见 screen.html 里那段注释。
+
+   ⚠ 选择器必须是 `.scr-head .scr-back` 而不是 `.scr-back`：
+     文件上方有 `.scr a { color: var(--primary-ink) }`，那是 (0,1,1)，
+     **高于**单类的 (0,1,0)，写成 `.scr-back` 里的 color 会被它吃掉——
+     不报错，按钮只是变成品牌色，看着像标题而不是一个可点的控件。 */
+.scr-head .scr-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* 1.5vh：与 .scr-scope 同一档，**不给大屏的字号刻度新增一档**。
+     test_screen.py 第 5 节数的是 .scr 下所有叶子文字的字号种数（≤8 档），
+     这里随手写个 1.4vh 就会多出一档并把那条断言顶掉。 */
+  font-size: 1.5vh;
+  line-height: 1.2;
+  /* 内边距给到 ~25px 高：投屏时人是在电脑前点的，
+     太矮的胶囊点不准（实测 19px 高时和普通文字一样高，不像控件）。 */
+  padding: .55vh .9vw;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  /* 次要文字档：它在顶栏底色（--gray-50）上实测 ≈9:1，
+     远高于 test_screen.py 第 6 节的 3:1 门槛。 */
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.scr-head .scr-back:hover { color: var(--text); border-color: var(--gray-500); }
+/* 键盘焦点环与 .scr-picker select 同款：鼠标点看不出差别，
+   但投屏之外还有人用键盘 Tab 进来。 */
+.scr-head .scr-back:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, .35);
+}
+
+/* 数据范围可见化：不是装饰。
+   收紧范围的员工看到的是「我的项目」，老板看到的是「全公司」，
+   两块大屏的数字不一样是正常的，但必须让人知道自己在看哪一块。 */
+.scr-scope {
+  font-size: 1.5vh;
+  padding: .35vh .8vw;
+  border-radius: 999px;
+  color: var(--warning-ink);
+  background: var(--warning-bg);
+  white-space: nowrap;
+}
+.scr-scope-all { color: var(--text-2); background: var(--surface-3); }
+
+.scr-clock {
+  font-size: 1.7vh;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------- 项目切换下拉 ---------- */
+.scr-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+.scr-picker-static { font-weight: var(--fw-strong); font-size: 1.7vh; }
+.scr-picker select {
+  /* 深色下用 --input-bg（比背景更暗），沿用全站输入框的「凹陷」观感。
+     写成 var(--surface) 会比顶栏亮，视觉上像浮起来一块，不像是控件。 */
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  padding: .4vh .6vw;
+  font-size: 1.6vh;
+  max-width: 26vw;
+  cursor: pointer;
+}
+.scr-picker select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, .35);
+}
+
+/* ---------- 单项目视图的阶段进度 ---------- */
+.scr-pct {
+  margin-left: .6em;
+  color: var(--primary-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.scr-phase {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-rows: clamp(22px, 2.6vh, 34px);
+  align-content: start;
+  gap: 4px;
+}
+.scr-phase-li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: var(--scr-fs-cap);
+  line-height: 1.25;
+  overflow: hidden;
+}
+.scr-phase-n { color: var(--text); }
+/* 状态徽章右对齐，且不缩放变形 */
+.scr-phase-li .state-badge { flex: 0 0 auto; padding: 0 .6em; border-radius: 999px; }
+
+/* ============================================================================
+   主体栅格
+   ========================================================================= */
+.scr-body {
+  flex: 1 1 auto;
+  min-height: 0;               /* 关键：没有它，flex 子项不会收缩，
+                                  超出视口的部分会被 overflow:hidden 裁掉
+                                  （底部整块内容消失，且无滚动条可救） */
+  display: flex;
+  flex-direction: column;
+  gap: 1.4vh;
+  padding: 1.6vh 2vw;
+}
+
+/* ---------- 主数字带 ---------- */
+/* auto + minmax(0,1fr) 而不是 1fr：1fr 会强行均分，
+   金额位数少的格子（毛利 7 位 vs 合同额 10 位）被硬拉到同一宽度，
+   宽的那格放不下就被截。auto 让每格按内容定宽，再由 minmax 下限兜住。 */
+.scr-hero {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1vw;
+}
+
+.scr-hero-cell {
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 1.6vh 1.2vw;
+  display: flex;
+  flex-direction: column;
+  gap: .6vh;
+  /* 不写 min-width:0：它允许子元素缩到内容宽度以下，于是数字被
+     overflow:hidden+ellipsis 截断。宁可让格子自己按内容撑开。 */
+}
+
+.scr-hero-label {
+  font-size: var(--scr-fs-cap);
+  line-height: var(--scr-lh-cap);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* 数字：tabular-nums 让刷新时数字不会左右跳。
+   这是大屏上最容易被忽略但最影响观感的一处——没有它，
+   「100,000」变「99,500」时整行文字宽度变化，5 个卡片会一起抖动。 */
+/* ⚠ 字号必须用 min()/clamp()，不能写死 px 或纯 vh。
+   实测两档都坏：
+     · 纯 vh 固定值：1366x768 上 vh 是 0.71 倍，44px 掉到 31px，
+       而 5 个卡片各占 20% 宽 → 「20,597,845」被截成「20,597,…」。
+       被截掉的正是最关键的数，老板在投屏上看到的是半个金额。
+     · 写死 44px：1600x900 就开始截。
+   所以用 `min(44px, 3.4vw)`：跟着视口宽度缩，且有硬上限。
+   3.4vw 是量出来的——「20,597,845 + ¥」在 1920 宽下约占 200px，
+   而每格可用宽约 340px，留出余量后 3.4vw 恰好不溢出。
+   去掉 ellipsis：宁可让数字换行，也不要静默截断金额。 */
+/* 3.1vw 而不是 3.4vw。
+   1366 宽实测 3.4vw 仍会让「10,182,927.5…」与「10,414,917.4」
+   两格溢出右边（金额带两位小数时比整数长约 1.2 个字符宽）。
+   3.1vw 在 1920 下是 59px→被 44px 上限压住，观感不变；
+   在 1366 下是 42px，10 位数 + 千分位 + 两位小数 + ¥ 共约 14 字符，
+   恰好放得进 20% 宽（≈273px）。 */
+.scr-hero-num {
+  font-size: min(44px, 3.1vw);
+  line-height: 1.15;
+  font-weight: var(--fw-strong);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: visible;
+  letter-spacing: -.01em;
+}
+
+.scr-cur {
+  font-size: .55em;
+  font-weight: 400;
+  color: var(--text-2);
+  margin-right: .15em;
+  vertical-align: .18em;
+}
+
+.scr-hero-hint {
+  font-size: var(--scr-fs-cap);
+  line-height: var(--scr-lh-cap);
+  color: var(--text-muted);
+}
+
+/* 毛利为负时用 danger-ink。这是本屏唯一按数值变色的地方：
+   毛利用 success-ink 会在亏损时也显绿，等于把「亏了」说成「好」——
+   和 AGENTS.md 里「成功语义色不转」是同一条纪律。 */
+.scr-hero-profit .scr-hero-num { color: var(--success-ink); }
+.scr-hero-profit.is-negative .scr-hero-num { color: var(--danger-ink); }
+.scr-hero-profit.is-negative { border-color: var(--danger-ink); }
+
+/* ---------- 卡片 ---------- */
+.scr-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 1.4vh 1vw;
+}
+
+.scr-card {
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 1.4vh 1.2vw;
+  display: flex;
+  flex-direction: column;
+  gap: 1vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scr-card-h {
+  margin: 0;
+  font-size: var(--scr-fs-cap);
+  line-height: var(--scr-lh-cap);
+  font-weight: var(--fw-strong);
+  color: var(--text-2);
+  letter-spacing: .04em;
+  flex: 0 0 auto;
+}
+
+/* ============================================================================
+   项目状态分布
+   ========================================================================= */
+.scr-dist {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: .2vh;
+}
+
+.scr-dist-row {
+  display: grid;
+  grid-template-columns: 5.2em 2.4em 1fr 7em;
+  align-items: center;
+  gap: .8vw;
+}
+
+/* 徽章复用全站 state_badge / tone_badge 的类名前缀约定，
+   颜色由 style.css 的 [data-bs-theme=dark] 段给，这里不定义颜色。
+   刻意只写尺寸：状态→颜色的映射唯一来源是 app/state_colors.py，
+   在这里另写一套就会看到「同一状态两个颜色」。 */
+.scr-dist-name {
+  justify-self: start;
+  padding: 0 .5em;
+  font-size: var(--scr-fs-cap);
+  line-height: 1.8em;
+  border-radius: 999px;
+}
+
+.scr-dist-n {
+  font-size: 1.9vh;
+  font-weight: var(--fw-strong);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.scr-bar {
+  height: .9vh;
+  background: var(--surface-3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.scr-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent-bar);
+  border-radius: 999px;
+}
+
+.scr-dist-amt {
+  font-size: var(--scr-fs-cap);
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.scr-sub {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .6vh 1.4vw;
+  padding-top: .8vh;
+  border-top: 1px solid var(--card-border);
+  font-size: var(--scr-fs-cap);
+  line-height: var(--scr-lh-cap);
+  color: var(--text-muted);
+}
+.scr-sub b { color: var(--text); font-weight: var(--fw-strong); font-variant-numeric: tabular-nums; }
+.scr-num-alert { color: var(--warning-ink) !important; }
+
+/* ============================================================================
+   待办灯
+   ========================================================================= */
+.scr-lamps {
+  flex: 0 0 auto;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: .8vw;
+}
+
+.scr-lamp {
+  border-radius: 10px;
+  padding: 1vh .8vw;
+  text-align: center;
+  background: var(--surface-3);
+  border: 1px solid var(--card-border);
+}
+.scr-lamp-n {
+  font-size: 3.4vh;
+  font-weight: var(--fw-strong);
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.scr-lamp-l { font-size: var(--scr-fs-cap); color: var(--text-2); }
+
+/* 三个灯的颜色只用 state-alert / state-watch / idle 三档语义色，
+   不新增色相。 */
+.scr-lamp-danger  { border-color: var(--danger-ink);  }
+.scr-lamp-danger  .scr-lamp-n { color: var(--danger-ink); }
+.scr-lamp-warning { border-color: var(--warning-ink); }
+.scr-lamp-warning .scr-lamp-n { color: var(--warning-ink); }
+.scr-lamp-info    .scr-lamp-n { color: var(--text-2); }
+.scr-lamp-approve { background: var(--brand-light); }
+.scr-lamp-approve .scr-lamp-n { color: var(--primary-ink); }
+
+/* ⚠ 行高必须是**固定轨道**，不能是 auto / minmax(0,1fr)。
+   这两种都让「容器高度 < 内容高度」时行被压缩：
+     · auto            —— 行高由内容算，但容器是 flex 子项（有确定高度），
+                         装不下时轨道被压扁；
+     · minmax(0,1fr)   —— 等分，只有 1 条时那一行占满整卡（空白问题）；
+   两种情况配上 overflow:hidden，每行都被裁掉一截，
+   上下两行的文字于是「糊」在一起（实测截图）。
+   固定轨道（clamp 出的确定值）永远不会被压缩，多出来的部分
+   只会被 overflow:hidden 裁在末尾，然后由 JS 把末尾几行隐藏掉。
+   尺寸用 clamp(22px, 2.6vh, 34px)：小屏不至于挤到读不出，
+   大屏不至于细成一条缝；1080p 上是 28px。
+
+   （历史：最初是「写死 8 条 + overflow:hidden」，空间不够时最后一条
+   露出半行——半行看起来像渲染坏了。之后改成 minmax(0,1fr) 等分，
+   又出现上面这种压扁。两版都因为**行高没定死**而失败。） */
+.scr-todo {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-rows: clamp(22px, 2.6vh, 34px);
+  align-content: start;
+  gap: 4px;
+}
+
+/* 行内三列用 px 而非 em/vw：轨道高度是 px 定的，列宽也用 px，
+   这一行的所有尺寸才是同一套，不会在不同视口下互相错开。 */
+.scr-todo-li {
+  display: grid;
+  grid-template-columns: 96px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--gray-500);
+  font-size: var(--scr-fs-cap);
+  line-height: 1.25;
+  overflow: hidden;
+}
+.scr-todo-li[hidden] { display: none; }
+.scr-tone-danger  { border-left-color: var(--danger-ink); }
+.scr-tone-warning { border-left-color: var(--warning-ink); }
+.scr-tone-info    { border-left-color: var(--gray-500); }
+
+.scr-todo-kind  { color: var(--text-2); white-space: nowrap; }
+.scr-todo-title { color: var(--text); font-weight: var(--fw-strong); overflow: hidden;
+                  text-overflow: ellipsis; white-space: nowrap; }
+.scr-todo-detail { color: var(--text-muted); font-variant-numeric: tabular-nums;
+                   white-space: nowrap; }
+
+.scr-todo-empty {
+  list-style: none;
+  color: var(--text-muted);
+  font-size: var(--scr-fs-body);
+  padding: 1.4vh 0;
+  text-align: center;
+}
+
+/* ============================================================================
+   未来 4 周应收
+   ========================================================================= */
+/* ⚠ 柱子不能直接放在 grid 单元里用 height:%。
+   第一版 `.scr-bucket { height: 100% }` + grid `align-items: end`：
+   单元高 = 容器高，于是 100% 的柱子**向上溢出**，直接盖住卡片标题
+   （实测截图里「未来 4 周应收」被红柱压掉一半）。
+
+   正确做法是把「绘图区」单独隔出来：柱子按**绘图区**的高度归一，
+   标签与数值在绘图区之外，永远不会被柱高影响。 */
+/* 数值在柱**上方**，标签在柱**下方**，绘图区夹在中间。
+   为什么数值不放柱子里：0 值时柱高为 0，文字跟着消失，
+   「这周没有应收」和「这格没渲染出来」就分不出来了。
+   数值放柱子上方则永远可见（截图里 4 个 0 一直都在）。 */
+.scr-buckets {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: .8vw;
+}
+
+.scr-bucket {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .3vh;
+  min-height: 0;
+}
+
+.scr-bucket-v {
+  /* 比其它 cap 大一档：这是每根柱子的金额，投屏时它和柱高是一起看的。
+     用 --scr-fs-cap 的话在 1366 上「517.5万」与下面的「第 1 周」一样大，
+     数字与标签混淆。 */
+  font-size: var(--scr-fs-big);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.scr-bucket-over .scr-bucket-v { color: var(--danger-ink); font-weight: var(--fw-strong); }
+
+.scr-bucket-plot {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-bottom: 1px solid var(--border-strong);   /* 零轴 */
+}
+
+.scr-bucket-bar {
+  width: 62%;
+  min-height: 2px;          /* 0 也留一线，和「没渲染」区分开 */
+  background: var(--accent-bar);
+  border-radius: 3px 3px 0 0;
+  flex: 0 0 auto;
+}
+.scr-bucket-over .scr-bucket-bar { background: var(--danger-ink); }
+
+.scr-bucket-l {
+  font-size: var(--scr-fs-cap);
+  color: var(--text-muted);
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   施工 / 回款 双进度
+   ========================================================================= */
+.scr-legend {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3vh 1.2vw;
+  font-size: var(--scr-fs-cap);
+  color: var(--text-2);
+}
+.scr-legend span { display: inline-flex; align-items: center; gap: .4em; }
+/* 说明排序口径。不是注释能替代的东西：老板看到「施工 0% / 回款 67%」
+   排在第一位，会以为是随机的。 */
+.scr-legend-h { color: var(--text-muted); }
+
+.scr-key {
+  display: inline-block;
+  height: .8vh;
+  min-height: 6px;
+  border-radius: 2px;
+}
+
+/* 两支色必须拉得开：轨道上两条是**并排**的，用的是同一支蓝绿的两个档。
+   第一版选了 --accent-bar(#298e83) 与 --accent-full(#67beb5)，
+   截图里并排看几乎分辨不出——「两条进度」退化成了「一条粗进度」，
+   整个卡片的意义（暴露反向）就没了。
+   改成色相分开的两支：施工用蓝绿本体，回款用 --primary-ink（更深更青）。
+   亮度差 ~1.7 倍，投屏 3 米外仍可辨。 */
+.scr-key-build { background: var(--accent-full); }
+.scr-key-recv  { background: var(--primary-ink); }
+
+/* 同样用固定轨道（理由见 .scr-todo 的注释）。
+   行高比待办大一档：这一行里还要塞得下双进度条轨道（34px）。 */
+.scr-dual {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-rows: clamp(34px, 3.6vh, 46px);
+  align-content: start;
+  gap: 4px;
+}
+
+.scr-dual-li {
+  display: grid;
+  grid-template-columns: 180px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--scr-fs-cap);
+  line-height: 1.25;
+  overflow: hidden;
+}
+.scr-dual-li[hidden] { display: none; }
+
+/* 两条**并排**在同一条轨道里：施工上半、回款下半。
+   并排而不是叠在一起：叠放时两条会完全重合（短的被长的盖住），
+   而这个卡片的意义恰恰是「两者差多少、谁在前面」——
+   重叠的画法等于把这个信息画没了。 */
+.scr-dual-track {
+  position: relative;
+  /* 固定 22px：vh 在 1366x768 上只有 18px，两条各 9px 在投屏距离上
+     根本看不出长短差别。用 px 是刻意的——这一行的高度是固定的，
+     不需要跟着视口缩放。 */
+  height: 22px;
+  background: var(--surface-3);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 1px 0;
+  overflow: hidden;
+}
+.scr-dual-track > i {
+  display: block;
+  height: calc(50% - 1px);
+  border-radius: 1px;
+  /* min-width 保证 0% 也留 2px 痕迹：进度条「完全没动」和
+     「这一格没渲染出来」在投屏距离上是一样的，必须能区分。 */
+  min-width: 2px;
+}
+
+.scr-dual-name { color: var(--text); overflow: hidden;
+                 text-overflow: ellipsis; white-space: nowrap; }
+.scr-dual-n {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   底部异常提示条
+   ========================================================================= */
+/* 用 warning 不用 danger：要做的是「去看一眼」，不是紧急处理。
+   红色在本项目里留给金额异常（见 state_colors 的 4 档语义）。 */
+.scr-warn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: .6em;
+  padding: 1vh 1.2vw;
+  border-radius: 10px;
+  background: var(--warning-bg);
+  color: var(--warning-ink);
+  font-size: var(--scr-fs-cap);
+  line-height: var(--scr-lh-cap);
+}
+.scr-warn b { color: var(--warning-ink); font-weight: var(--fw-strong); }
+
+/* ============================================================================
+   投屏适配
+   ========================================================================= */
+
+/* 窄屏（大屏被投到竖屏手机 / 小窗口预览时）：
+   5 列主数字必然挤成两行半。降级成两列 + 可滚动，
+   而不是硬压字号——压到 20px 就失去了大屏的意义。 */
+@media (max-aspect-ratio: 1/1), (max-width: 900px) {
+  .scr { position: static; overflow: auto; }
+  .scr-hero { grid-template-columns: repeat(2, 1fr); }
+  .scr-grid { grid-template-columns: 1fr; grid-template-rows: none; }
+  .scr-card { min-height: 260px; }
+  .scr-todo, .scr-dual { overflow: visible; }
+  .scr-hero-num { font-size: 1.9rem; }
+}
+
+/* 打印：投屏设备一般不打印，但真有人按 Ctrl+P 时，
+   固定定位 + overflow:hidden 的画布会只印出左上角一块。 */
+@media print {
+  .scr { position: static; overflow: visible; background: #fff; color: #000; }
+}
+
+
+/* ============================================================================
+   经营大屏（screen.css）的 Basecamp 质感对齐
+   ----------------------------------------------------------------------------
+   screen.css 在 base 里挂载于 style.css **之后**，所以本文件的规则优先级
+   高于 style.css 的「Basecamp 视觉质感层」。大屏要单独接一次，
+   否则同一系统会出现两套质感（主界面浮起卡片、大屏还是硬描边）。
+
+   class 名全部取自 templates/screen.html 的实际使用，未凭空猜测。
+   ============================================================================ */
+
+/* ---------- 1. 焦点环：青绿 → 主色 ---------- */
+/* 原值 rgba(20,184,166) 是青绿，在蓝色体系里是残留色 */
+.scr-picker:focus,
+.scr-picker-static:focus,
+.scr-scope select:focus,
+.scr-scope input:focus {
+  box-shadow: 0 0 0 3px rgba(20, 109, 199, .34) !important;
+}
+
+/* ---------- 2. 卡片：接入 6 层柔性阴影 ---------- */
+/* 大屏是纯黑底，原本靠明度差分层；换成柔影后卡片与背景的关系
+   从「贴纸」变成「浮起」，与主界面一致。 */
+.scr-card {
+  border-radius: var(--radius, 12px);
+  box-shadow: var(--bc-shadow, 0 2px 8px rgba(0,0,0,.35));
+  transition: box-shadow .15s ease;
+}
+
+/* ---------- 3. 圆角统一到 token ---------- */
+/* 大屏原本散落着 8px / 10px / 12px 三种，改为跟随 --radius-sm / --radius，
+   以后调一处即全站同步。 */
+.scr-hero-cell,
+.scr-dual-li,
+.scr-dist-row,
+.scr-bucket,
+.scr-phase-li {
+  border-radius: var(--radius-sm, 9px);
+}
+
+.scr-hero,
+.scr-bar,
+.scr-todo-li,
+.scr-warn {
+  border-radius: var(--radius-sm, 9px);
+}
+
+/* ---------- 4. 悬停抬升 ---------- */
+.scr-card:hover {
+  box-shadow: var(--bc-shadow-lifted, 0 6px 16px rgba(0,0,0,.45));
+}
+
+/* ---------- 5. 过渡统一 0.15s（Basecamp 的节奏） ---------- */
+.scr-card, .scr-hero-cell, .scr-dual-li, .scr-dist-row,
+.scr-bucket, .scr-phase-li, .scr-bar, .scr-todo-li,
+.scr-picker, .scr-scope-all, .scr-back {
+  transition-duration: .15s;
+  transition-timing-function: ease;
+}

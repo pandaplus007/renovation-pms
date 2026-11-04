@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑合同' if contract else '新增合同' }}{% endblock %}
+{% block page_title %}{{ '编辑合同' if contract else '新增合同' }}{% endblock %}
+{% block content %}
+
+<!-- 文件识别 -->
+<div class="card mb-3" style="max-width:900px;">
+  <div class="card-header"><i class="bi bi-file-earmark-text me-1 text-danger"></i>合同文件识别</div>
+  <div class="card-body">
+    <form method="post" action="/contracts/parse" enctype="multipart/form-data" id="contractParseForm"
+          class="d-flex gap-2 align-items-end flex-wrap">
+      <div class="flex-grow-1" style="min-width:280px">
+        <input type="file" name="file" class="form-control" accept=".pdf,.doc,.docx" id="contractParseFile">
+      </div>
+      <button type="submit" class="btn btn-outline-danger" id="contractParseBtn"><i class="bi bi-magic"></i> 识别并预填</button>
+    </form>
+    <div id="contractParseProgress" class="mt-2 d-none">
+      <div class="d-flex justify-content-between small mb-1">
+        <span><i class="bi bi-hourglass-split me-1"></i>正在识别合同，请稍候…</span><span id="contractParsePct">0%</span>
+      </div>
+      <div class="progress" style="height:8px">
+        <div id="contractParseBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" style="width:0%"></div>
+      </div>
+    </div>
+    <div class="small text-muted mt-2">
+      上传合同 PDF / Word，自动识别合同编号、甲乙双方、金额、签订日期和<strong>时间节点</strong>；文件自动存档。
+      {% if file_path %}<span class="badge {{ "已上传存档" | state_badge }} ms-1">已上传存档</span>{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{% if parsed %}
+<div class="alert alert-info py-2 small">
+  <i class="bi bi-info-circle me-1"></i>
+  识别结果：编号 <strong>{{ parsed.contract_no or '—' }}</strong>
+  | 甲方 {{ parsed.party_a or '—' }}（税号 {{ parsed.a_tax_no or '—' }}，{{ parsed.a_bank or '' }}{{ parsed.a_account or '' }}）
+  | 乙方 {{ parsed.party_b or '—' }}（税号 {{ parsed.b_tax_no or '—' }}，{{ parsed.b_bank or '' }}{{ parsed.b_account or '' }}）
+  | 金额 <strong>¥{{ parsed.amount|money }}</strong> | 签订 {{ parsed.sign_date or '—' }}
+  | 时间节点 <strong>{{ parsed.milestones | length }}</strong> 个
+</div>
+{% endif %}
+
+<div class="card" style="max-width:900px;">
+  <div class="card-body p-4">
+    <form method="post" action="{{ '/contracts/%d/edit' % contract.id if contract else '/contracts/new' }}">
+      <input type="hidden" name="file_path" value="{{ contract.file_path if contract else file_path }}">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">合同名称 *</label>
+          <input type="text" name="name" class="form-control" required
+                 value="{{ contract.name if contract else (parsed.name if parsed else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">分类（可自定义）</label>
+          <input type="text" name="category" list="catList" class="form-control"
+                 value="{{ contract.category if contract else (parsed.category if parsed and parsed.category else '') }}" placeholder="如：主材 / 辅材 / 安装，可输入新分类">
+          <datalist id="catList">
+            {% for cat in categories %}<option value="{{ cat }}">{% endfor %}
+          </datalist>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">合同编号</label>
+          <input type="text" name="contract_no" class="form-control"
+                 value="{{ contract.contract_no if contract else (parsed.contract_no if parsed else (default_contract_no if default_contract_no else '')) }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">供应商（乙方）</label>
+          {% set sel_sup = contract.supplier_id if contract else (match.supplier.id if match and match.supplier else 0) %}
+          {% set sel_sup_name = '' %}
+          {% for s in suppliers %}{% if s.id == sel_sup %}{% set sel_sup_name = s.name %}{% endif %}{% endfor %}
+          <input type="text" name="supplier_name" class="form-control" list="supDatalist" autocomplete="off" placeholder="点击选择供应商…" value="{{ sel_sup_name }}">
+          <datalist id="supDatalist">
+            {% for s in suppliers %}<option value="{{ s.name }}">{% endfor %}
+          </datalist>
+          <input type="hidden" name="supplier_id" value="0">
+          <div class="small text-muted mt-1">点击输入框弹出供应商列表，输入名称可搜索</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">所属项目（可选）</label>
+          <select name="project_id" class="form-select">
+            <option value="0">—</option>
+            {% set sel_proj = contract.project_id if contract else 0 %}
+            {% for p in projects %}<option value="{{ p.id }}" {{ 'selected' if sel_proj == p.id else '' }}>{{ p.name }}</option>{% endfor %}
+          </select>
+          <div class="form-text">设置后清单材料默认带出该项目，新建采购单选此合同也会自动带出项目。</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">合同金额（¥）</label>
+          <input type="number" step="0.01" name="amount" class="form-control"
+                 value="{{ contract.amount if contract else (parsed.amount if parsed else 0) }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">甲方</label>
+          <input type="text" name="party_a" class="form-control"
+                 value="{{ contract.party_a if contract else (parsed.party_a if parsed else OPTIONS.company_name) }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">乙方</label>
+          <input type="text" name="party_b" class="form-control"
+                 value="{{ contract.party_b if contract else (parsed.party_b if parsed else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">甲方税号</label>
+          <input type="text" name="a_tax_no" class="form-control" value="{{ contract.a_tax_no if contract else (parsed.a_tax_no if parsed else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">甲方开户行</label>
+          <input type="text" name="a_bank" class="form-control" value="{{ contract.a_bank if contract else (parsed.a_bank if parsed else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">甲方账号</label>
+          <input type="text" name="a_account" class="form-control" value="{{ contract.a_account if contract else (parsed.a_account if parsed else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">乙方税号（可自动带出）</label>
+          {% set b_supplier = contract.supplier if contract else (match.supplier if match else None) %}
+          <input type="text" name="b_tax_no" class="form-control" value="{{ contract.b_tax_no if contract else (parsed.b_tax_no if parsed else (b_supplier.tax_no if b_supplier and b_supplier.tax_no else '')) }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">乙方开户行</label>
+          <input type="text" name="b_bank" class="form-control" value="{{ contract.b_bank if contract else (parsed.b_bank if parsed else (b_supplier.bank_accounts[0].bank_name if b_supplier and b_supplier.bank_accounts else '')) }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">乙方账号</label>
+          <input type="text" name="b_account" class="form-control" value="{{ contract.b_account if contract else (parsed.b_account if parsed else (b_supplier.bank_accounts[0].account_no if b_supplier and b_supplier.bank_accounts else '')) }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">甲方地址</label>
+          <input type="text" name="a_address" class="form-control" value="{{ contract.a_address if contract else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">甲方联系人 / 电话</label>
+          <input type="text" name="a_contact" class="form-control" value="{{ contract.a_contact if contract else '' }}" placeholder="如：张总 13800000000">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">签订日期</label>
+          <input type="date" name="sign_date" class="form-control"
+                 value="{{ contract.sign_date if contract and contract.sign_date else (parsed.sign_date if parsed and parsed.sign_date else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">备注</label>
+          <input type="text" name="note" class="form-control" value="{{ contract.note if contract else '' }}">
+        </div>
+      </div>
+
+      {% if not contract %}
+      <hr>
+      <h6 class="mb-2"><i class="bi bi-clock-history me-1"></i>时间节点（识别结果 + 手动填写）</h6>
+      {% if parsed and parsed.milestones %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-2" style="max-width:640px">
+          <thead><tr><th>节点</th><th>日期</th><th>金额</th></tr></thead>
+          <tbody>
+            {% for ms in parsed.milestones %}
+            <tr>
+              <td>{{ ms.name }}
+                <input type="hidden" name="ms_name" value="{{ ms.name }}">
+                <input type="hidden" name="ms_date" value="{{ ms.m_date }}">
+                <input type="hidden" name="ms_amount" value="{{ ms.amount }}">
+              </td>
+              <td>{{ ms.m_date }}</td>
+              <td class="text-money">¥{{ ms.amount|money }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-muted small">暂无识别节点，可下方手动添加。</div>
+      {% endif %}
+
+      <div class="mt-2 mb-2">
+        <label class="form-label small">手动添加时间节点（名称 + 日期 + 金额，可多个）</label>
+        <div id="msRows">
+          <div class="row g-1 mb-1 align-items-center ms-row">
+            <div class="col-md-4"><input name="ms_name" class="form-control form-control-sm" placeholder="节点名称，如：预付款 / 交货"></div>
+            <div class="col-md-4"><input type="date" name="ms_date" class="form-control form-control-sm"></div>
+            <div class="col-md-3"><input name="ms_amount" type="number" step="0.01" class="form-control form-control-sm" placeholder="金额（可选）"></div>
+            <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger ms-del">×</button></div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-primary mt-1" id="msAdd"><i class="bi bi-plus-lg"></i> 添加节点</button>
+      </div>
+
+      <hr>
+      <h6 class="mb-2"><i class="bi bi-box-seam me-1"></i>采购清单（识别结果，保存后入库，可在采购单中批量选择）</h6>
+      {% if parsed and parsed.materials %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-2" style="max-width:760px">
+          <thead><tr><th>材料名称</th><th>规格</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead>
+          <tbody>
+            {% for m in parsed.materials %}
+            <tr>
+              <td>{{ m.name }}
+                <input type="hidden" name="cm_name" value="{{ m.name }}">
+                <input type="hidden" name="cm_spec" value="{{ m.spec }}">
+                <input type="hidden" name="cm_unit" value="{{ m.unit }}">
+                <input type="hidden" name="cm_quantity" value="{{ m.quantity }}">
+                <input type="hidden" name="cm_unit_price" value="{{ m.unit_price }}">
+                <input type="hidden" name="cm_amount" value="{{ m.amount }}">
+              </td>
+              <td class="small">{{ m.spec }}</td>
+              <td>{{ m.unit }}</td>
+              <td class="text-money">{{ m.quantity }}</td>
+              <td class="text-money">¥{{ m.unit_price|money }}</td>
+              <td class="text-money">¥{{ m.amount|money }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-muted small">未识别到采购清单，保存后可手动在详情页维护。</div>
+      {% endif %}
+      {% endif %}
+
+      <div class="form-check mb-2">
+        <input type="checkbox" class="form-check-input" id="noDelivery" name="no_delivery" value="1" {{ 'checked' if contract and contract.no_delivery else '' }}>
+        <label class="form-check-label" for="noDelivery">该合同无需送货单（如服务/设计类合同，不参与送货跟踪）</label>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">保存</button>
+        <a href="/procurement?tab=contracts" class="btn btn-outline-secondary">取消</a>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  // 手动添加时间节点
+  document.getElementById('msAdd')?.addEventListener('click', function () {
+    var rows = document.getElementById('msRows');
+    var div = document.createElement('div');
+    div.className = 'row g-1 mb-1 align-items-center ms-row';
+    div.innerHTML = '<div class="col-md-4"><input name="ms_name" class="form-control form-control-sm" placeholder="节点名称，如：预付款 / 交货"></div>' +
+      '<div class="col-md-4"><input type="date" name="ms_date" class="form-control form-control-sm"></div>' +
+      '<div class="col-md-3"><input name="ms_amount" type="number" step="0.01" class="form-control form-control-sm" placeholder="金额（可选）"></div>' +
+      '<div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger ms-del">×</button></div>';
+    rows.appendChild(div);
+  });
+  document.getElementById('msRows')?.addEventListener('click', function (e) {
+    if (e.target.classList.contains('ms-del')) e.target.closest('.ms-row').remove();
+  });
+</script>
+
+
+<script>
+(function(){
+  var form = document.getElementById('contractParseForm');
+  var btn = document.getElementById('contractParseBtn');
+  if(!form || !btn) return;
+  form.addEventListener('submit', function(){
+    var file = document.getElementById('contractParseFile');
+    if(!file || !file.files || !file.files.length) return;
+    var box = document.getElementById('contractParseProgress');
+    var bar = document.getElementById('contractParseBar');
+    var pct = document.getElementById('contractParsePct');
+    if(!box) return;
+    box.classList.remove('d-none');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 识别中…';
+    var p = 0;
+    var timer = setInterval(function(){
+      p = Math.min(p + 3 + Math.random() * 8, 92);
+      bar.style.width = p + '%';
+      pct.textContent = Math.round(p) + '%';
+    }, 200);
+    window._ctProgTimer = timer;
+    setTimeout(function(){ if(window._ctProgTimer){ clearInterval(window._ctProgTimer); } }, 60000);
+  });
+})();
+</script>
+
+
+<script>
+(function(){
+  var pb = document.querySelector('input[name="party_b"]');
+  var sup = document.querySelector('input[name="supplier_name"]');
+  if(!pb || !sup) return;
+  function sync(){
+    var v = (pb.value||'').trim();
+    if(v && !sup.value){ sup.value = v; }
+  }
+  pb.addEventListener('input', sync);
+  pb.addEventListener('change', sync);
+  if(pb.value && !sup.value){ sync(); }
+})();
+</script>
+
+{% include "_approval_bar.html" %}
+{% endblock %}

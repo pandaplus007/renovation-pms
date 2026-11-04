@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name if project else '变更签证' }} · 变更签证{% endblock %}
+
+{% block page_title %}{{ project.name if project else '项目不存在' }} · 变更签证{% endblock %}
+{% block content %}
+
+{% if not project %}
+<div class="card"><div class="card-body text-center text-muted py-5">项目不存在</div></div>
+{% else %}
+
+<div class="page-head no-print">
+  <div class="d-flex gap-2 align-items-center">
+    <a href="/changes" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 全部变更</a>
+    <a href="/projects/{{ project.id }}" class="btn btn-sm btn-outline-secondary">项目详情</a>
+  </div>
+  <a href="/changes/new?project_id={{ project.id }}" class="btn btn-sm btn-primary">
+    <i class="bi bi-plus-lg"></i> 新增变更
+  </a>
+</div>
+
+{# ---------- 汇总卡 ---------- #}
+<div class="row g-2 mb-3">
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="text-muted small">增项 / 减项</div>
+      <div class="fs-5 fw-bold">
+        <span class="text-success">{{ (summary.get('add', 0))|money }}</span>
+        <span class="text-muted">/</span>
+        <span class="text-danger">{{ (summary.get('cut', 0))|money }}</span>
+      </div>
+      <div class="small text-muted">共 {{ summary.get('count', 0) }} 笔</div>
+    </div></div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="text-muted small">已确认净增</div>
+      <div class="fs-5 fw-bold">{{ summary.get('confirmed', 0)|money }}</div>
+      <div class="small text-muted">已确认 {{ summary.get('confirmed_count', 0) }} 笔</div>
+    </div></div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="text-muted small">变更毛利</div>
+      <div class="fs-5 fw-bold {{ 'text-success' if summary.get('profit', 0) >= 0 else 'text-danger' }}">
+        {{ summary.get('profit', 0)|money }}
+      </div>
+      <div class="small text-muted">成本 {{ summary.get('cost', 0)|money }}</div>
+    </div></div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="text-muted small">结算金额</div>
+      <div class="fs-5 fw-bold">{{ settle|money }}</div>
+      <div class="small text-muted">
+        合同 {{ (project.contract.amount if project.contract else 0)|money }} + 已确认变更
+      </div>
+    </div></div>
+  </div>
+</div>
+
+{% if summary.get('pending_count') %}
+{# 待签要拆成两段说：「已报给业主等签字」的钱是能拿去催的，
+   「还在内部拟稿」的钱什么都不是。混在一起报一个总数，
+   拿到手不知道该催谁。 #}
+<div class="alert alert-warning py-2 no-print">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  有 <strong>{{ summary.pending_count }}</strong> 笔变更（合计 {{ summary.pending_amount|money }}）还没确认。
+  {% if summary.get('awaiting_sign_count') %}
+    <div class="mt-1">其中 <strong>{{ summary.awaiting_sign_count }}</strong> 笔（{{ summary.awaiting_sign_amount|money }}）
+      <strong>已报给业主、等签字</strong>——这笔钱可以去催了（但还没进账，业主签了字才算收入）。</div>
+  {% endif %}
+  <strong>未确认的变更不计入结算金额与毛利</strong>——业主签字后到列表点流转。
+</div>
+{% endif %}
+
+{# ---------- 按类别 ---------- #}
+{% if cat_summary %}
+<div class="card mb-3">
+  <div class="card-header py-2"><i class="bi bi-pie-chart me-1"></i>按工序看增项分布</div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>工序类别</th><th style="width:70px" class="text-end">笔数</th>
+        <th style="width:130px" class="text-end">变更金额</th>
+        <th style="width:130px" class="text-end">对应成本</th>
+        <th style="width:130px" class="text-end">变更毛利</th>
+        <th style="width:90px" class="text-end">毛利率</th>
+      </tr></thead>
+      <tbody>
+      {% for c in cat_summary %}
+        <tr>
+          <td class="fw-semibold">{{ c.category }}</td>
+          <td class="text-end text-muted">{{ c.count }}</td>
+          <td class="text-end text-money {{ 'text-success' if c.amount > 0 else ('text-danger' if c.amount < 0 else 'text-muted') }}">
+            {{ c.amount|money }}
+          </td>
+          <td class="text-end text-money text-muted">{{ c.cost|money }}</td>
+          <td class="text-end text-money {{ 'text-success' if c.profit >= 0 else 'text-danger' }}">{{ c.profit|money }}</td>
+          <td class="text-end {{ 'text-danger' if c.rate < 0 else '' }}">{{ c.rate }}%</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ---------- 明细 ---------- #}
+<div class="card">
+  <div class="card-header py-2"><i class="bi bi-list-ul me-1"></i>变更明细</div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>签证单号 / 事项</th>
+        <th style="width:80px">类别</th>
+        <th style="width:90px">状态</th>
+        <th style="width:120px" class="text-end">变更金额</th>
+        <th style="width:110px" class="text-end">成本</th>
+        <th style="width:110px" class="text-end">变更毛利</th>
+        <th style="width:100px">提出</th>
+        <th style="width:100px">确认</th>
+        <th style="width:80px">签字人</th>
+        <th style="width:96px">扫描件</th>
+        <th style="width:120px" class="no-print">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for o in rows %}
+        <tr>
+          <td>
+            <div class="fw-semibold">{{ o.title }}</div>
+            {% if o.change_no %}<div class="small text-muted">{{ o.change_no }}</div>{% endif %}
+            {% if o.reason %}<div class="small text-muted">{{ o.reason[:40] }}</div>{% endif %}
+          </td>
+          <td class="small">{{ o.category }}</td>
+          <td>
+            <span class="badge {{ o.status | state_badge }}">
+              {{ o.status }}
+            </span>
+            {# 驳回理由是「已驳回」的正式结论，不是一句备注：单列成字段就是为了
+               事后能查到为什么否。现在直接挂在状态下面，省得点进编辑页才看得到。 #}
+            {% if o.status == '已驳回' and o.reject_reason %}
+            <div class="small text-muted mt-1" title="{{ o.reject_reason }}">
+              <i class="bi bi-x-circle me-1"></i>{{ o.reject_reason[:22] }}{% if o.reject_reason|length > 22 %}…{% endif %}
+            </div>
+            {% elif o.status == '已定价待业主审' %}
+            <div class="small text-muted mt-1" title="已报给业主等签字，可以催">
+              <i class="bi bi-hourglass-split me-1"></i>可催签
+            </div>
+            {% endif %}
+          </td>
+          <td class="text-end text-money fw-semibold {{ 'text-success' if o.amount > 0 else ('text-danger' if o.amount < 0 else '') }}">
+            {{ o.amount|money }}
+          </td>
+          <td class="text-end text-money text-muted">{{ o.cost|money }}</td>
+          <td class="text-end text-money {{ 'text-success' if o.profit > 0 else ('text-danger' if o.profit < 0 else 'text-muted') }}">
+            {% if o.cost %}{{ o.profit|money }}{% else %}<span class="text-muted small">未算成本</span>{% endif %}
+          </td>
+          <td class="small text-muted">{{ o.raise_date or '—' }}</td>
+          <td class="small text-muted">{{ o.confirm_date or '—' }}</td>
+          <td class="small">{{ o.signer or '—' }}</td>
+          <td class="small">
+            {% if o.has_scan %}
+              <a href="{{ o.file_path }}" target="_blank" rel="noopener"
+                 class="text-decoration-none" title="{{ o.file_name }}{% if o.file_uploaded_by %} · {{ o.file_uploaded_at.strftime('%Y-%m-%d') }} 由 {{ o.file_uploaded_by }} 上传{% endif %}">
+                <i class="bi bi-paperclip"></i> 已传
+              </a>
+            {% elif o.status in ('已确认', '已结算') %}
+              {# 已确认却没扫描件 = 缺凭据，要显眼但不必用红（红留给金额异常） #}
+              <span class="badge state-badge state-watch" title="已确认但没有签字扫描件，日后结算/扯皮会缺凭据">缺扫描件</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="no-print">
+            <div class="d-flex gap-1">
+              {# 流转按钮由后端给的 next_status 决定（来自 models.CHANGE_TRANSITIONS），
+                 UI 不自己判断——前后端两套规则迟早对不上，而状态机是这套东西里
+                 最不该有两份真相的地方。终态「已结算」没有下一步，这格会是空的。
+
+                 驳回按钮**不能**直接用 form 包：它需要先问「为什么驳回」，
+                 而 HTML 不允许 form 嵌套（浏览器会直接把内层 form 连内容一起
+                 丢弃，表现为「点了没反应」）。所以用 data-* 交给脚本提交。 #}
+              {% for ns in (next_status.get(o.id) or []) %}
+                {% if ns == '已结算' %}
+                <a class="btn btn-sm btn-outline-primary py-0 px-1"
+                   href="/changes/{{ o.id }}/settle-check"
+                   title="标记为已结算（会先做结算前检查）">
+                  <i class="bi bi-clipboard-check"></i>
+                </a>
+                {% elif ns == '已驳回' %}
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 js-reject"
+                        data-cid="{{ o.id }}" title="驳回（需填理由）">
+                  <i class="bi bi-x-lg"></i>
+                </button>
+                {% else %}
+                <form method="post" action="/changes/{{ o.id }}/transition" class="d-inline">
+                  <input type="hidden" name="to" value="{{ ns }}">
+                  <button class="btn btn-sm btn-outline-success py-0 px-1"
+                          title="流转到「{{ ns }}」{% if ns == '已确认' %}（计入结算金额与毛利）{% endif %}">
+                    <i class="bi bi-check-lg"></i>
+                  </button>
+                </form>
+                {% endif %}
+              {% endfor %}
+              <a href="/changes/{{ o.id }}/edit" class="btn btn-sm btn-outline-secondary py-0 px-1"><i class="bi bi-pencil"></i></a>
+              <form method="post" action="/changes/{{ o.id }}/delete" class="d-inline"
+                    onsubmit="return confirm('确定删除这笔变更？')">
+                <button class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="10" class="text-center text-muted py-5">
+          这个项目还没有变更签证<br>
+          <span class="small">施工过程中的增减项都记在这里，签字确认后自动计入结算金额与毛利</span>
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ---------- 扫描件汇总：项目档案的统一入口 ----------
+   用户要的「项目档案也能统一管理」在这一块：项目下所有签证单的扫描件
+   集中列出，按签字状态分组——没传的排在前面，因为那才是要补的东西。
+   这只是**视图**，文件本身只存在 change_orders.file_path 一处，
+   不在 documents 表里另存一份（否则两个真相来源会对不上）。 #}
+{% set scanned = rows | selectattr('has_scan') | list %}
+{% set missing_signed = rows | rejectattr('has_scan')
+   | selectattr('status', 'in', ('已确认', '已结算')) | list %}
+{% if rows %}
+<div class="card mt-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-folder2-open me-1"></i>签字扫描件</span>
+    <span class="small text-muted">
+      已上传 <strong>{{ scanned|length }}</strong> / {{ rows|length }} 份
+      {% if missing_signed %}
+        · <span class="text-warning">{{ missing_signed|length }} 份已确认但缺扫描件</span>
+      {% endif %}
+    </span>
+  </div>
+  <div class="card-body">
+    {% if missing_signed %}
+    <div class="alert alert-warning py-2 small mb-3">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      有 <strong>{{ missing_signed|length }}</strong> 份已确认的变更签证没有扫描件：
+      {% for m in missing_signed[:4] %}{{ m.change_no or m.title }}{% if not loop.last %}、{% endif %}{% endfor %}{% if missing_signed|length > 4 %} 等{% endif %}。
+      结算与日后扯皮都要靠签字件，别只留在纸上。
+    </div>
+    {% endif %}
+
+    {% if scanned %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 table-card">
+        <thead><tr>
+          <th>签证单号 / 事项</th>
+          <th style="width:90px">状态</th>
+          <th style="width:130px" class="text-end">变更金额</th>
+          <th style="width:90px">签字人</th>
+          <th>扫描件</th>
+          <th style="width:170px">上传留痕</th>
+          <th style="width:90px" class="no-print">打印</th>
+        </tr></thead>
+        <tbody>
+        {% for o in scanned | sort(attribute='file_uploaded_at', reverse=true) %}
+          <tr>
+            <td>
+              <div class="fw-semibold">{{ o.title }}</div>
+              {% if o.change_no %}<div class="small text-muted num">{{ o.change_no }}</div>{% endif %}
+            </td>
+            <td><span class="badge {{ o.status | state_badge }}">{{ o.status }}</span></td>
+            <td class="text-end text-money">{{ o.amount|money }}</td>
+            <td class="small">{{ o.signer or '—' }}</td>
+            <td class="small">
+              <a href="{{ o.file_path }}" target="_blank" rel="noopener">
+                <i class="bi bi-file-earmark-pdf me-1"></i>{{ o.file_name or '查看' }}
+              </a>
+            </td>
+            <td class="small text-muted">
+              {% if o.file_uploaded_at %}
+                {{ o.file_uploaded_at.strftime('%Y-%m-%d %H:%M') }}<br>
+                <span class="text-muted">{{ o.file_uploaded_by or '（未记录）' }}</span>
+              {% else %}
+                <span class="text-warning">早于功能上线，无上传记录</span>
+              {% endif %}
+            </td>
+            <td class="no-print">
+              <a class="btn btn-sm btn-outline-secondary py-0 px-1"
+                 href="/changes/{{ o.id }}/print?copies=1" target="_blank" rel="noopener"
+                 title="再打一份纸质签字单">
+                <i class="bi bi-printer"></i>
+              </a>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <div class="text-muted small">
+        这个项目还没有上传任何签字扫描件。到
+        <a href="/changes/new?project_id={{ project.id }}">变更签证</a>
+        建单、打印签字单，签完再把扫描件传回来。
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{# ---------- 驳回：先问理由，再提交 ---------- #}
+{# 用 prompt 收集理由而不是直接发请求：驳回必须有理由（后端也会校验），
+   而这个理由是「为什么否掉」的正式结论，需要用户认真写一句，
+   不该在一个默认填空里顺手点过去。 #}
+<form id="rejectForm" method="post" action="" class="d-none">
+  <input type="hidden" name="to" value="已驳回">
+  <input type="hidden" name="reject_reason" id="rejectReason">
+</form>
+<script>
+(function () {
+  document.querySelectorAll('.js-reject').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var reason = window.prompt(
+        '驳回理由（必填）\n\n业主/监理否掉这笔变更的原因，例如「业主不同意增加此项费用」。\n' +
+        '理由会单独存档，过三个月没人记得为什么否。');
+      if (reason === null) return;                 // 点了取消，不提交
+      reason = reason.trim();
+      if (!reason) {
+        window.alert('驳回必须填理由。');
+        return;
+      }
+      var f = document.getElementById('rejectForm');
+      f.action = '/changes/' + btn.dataset.cid + '/transition';
+      document.getElementById('rejectReason').value = reason;
+      f.submit();
+    });
+  });
+})();
+</script>
+{% endblock %}

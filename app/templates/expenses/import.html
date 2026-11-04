@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}导入费用{% endblock %}
+{% block page_title %}导入费用{% endblock %}
+{% block content %}
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-upload me-1"></i>从 Excel 导入费用</div>
+      <div class="card-body">
+        {% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
+        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        <form method="post" action="/expenses/import" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label">选择文件（Excel）</label>
+            <input type="file" name="file" class="form-control" accept=".xlsx,.xlsm,.xls" required>
+            <div class="form-text">支持 .xlsx / .xls，按项目名称自动匹配项目，匹配不到的行会跳过</div>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-primary"><i class="bi bi-upload"></i> 开始导入</button>
+            <a href="/expenses/template" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel"></i> 下载导入模板</a>
+            <a href="/expenses" class="btn btn-outline-secondary">返回费用管理</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-info-circle me-1"></i>格式说明</div>
+      <div class="card-body small">
+        <p class="mb-2">表格需包含表头，系统自动识别常见列名：</p>
+        <ul class="mb-2">
+          <li><strong>项目名称</strong>（项目，必填，按名称匹配）</li>
+          <li><strong>费用类别</strong>（类别 / 分类，可选；常用：人工 / 机械 / 设计 / 管理 / 运输 / 辅材 / 其他费用）</li>
+          <li><strong>费用项目</strong>（内容 / 明细，必填）</li>
+          <li><strong>金额</strong>（必填，元）</li>
+          <li><strong>日期</strong>（可选，如 2024-01-15）</li>
+          <li><strong>备注</strong>（说明，可选）</li>
+        </ul>
+        <ul class="mb-2 text-muted">
+          <li>项目名称不存在时会跳过该行并在结果中标注</li>
+          <li>金额支持千分位（如 12,800）</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if result_rows %}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-table me-1"></i>导入结果（{{ result_rows | length }} 行）</span>
+    <a href="/expenses" class="btn btn-sm btn-outline-primary"><i class="bi bi-list"></i> 去费用管理查看</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead><tr><th>项目名称</th><th>类别</th><th>费用项目</th><th>金额</th><th>日期</th><th>备注</th><th>状态</th></tr></thead>
+      <tbody>
+        {% for r in result_rows %}
+        <tr>
+          <td class="small">{{ r.project or '—' }}</td>
+          <td>{{ r.category }}</td>
+          <td class="fw-semibold">{{ r.item_name }}</td>
+          <td class="text-money">¥{{ r.amount|money }}</td>
+          <td class="small">{{ r.date or '—' }}</td>
+          <td class="small text-muted">{{ r.note or '—' }}</td>
+          <td><span class="badge {{ r.status | state_badge }}">{{ r.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

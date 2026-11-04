@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑报价单' if obj else '新增报价单' }}{% endblock %}
+{% block page_title %}{{ '编辑报价单' if obj else '新增报价单' }}{% endblock %}
+{% block content %}
+
+{% set q = obj if obj else draft %}
+<form method="post" action="/quotes/save">
+  <input type="hidden" name="qid" value="{{ obj.id if obj else 0 }}">
+  <div class="d-flex justify-content-between align-items-center mb-3 no-print">
+    <a href="{{ '/quotes/%d' % obj.id if obj else '/quotes' }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left"></i> 返回
+    </a>
+    <button class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="bi bi-person me-1"></i>客户与项目</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small">客户 <span class="text-danger">*</span></label>
+          <select name="customer_id" class="form-select form-select-sm" required>
+            <option value="">— 选择客户 —</option>
+            {% for c in customers %}
+            <option value="{{ c.id }}" {{ 'selected' if q and q.customer_id == c.id else '' }}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">
+            没有客户？先到 <a href="/customers/new">客户管理</a> 建一个
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small">成交后关联项目</label>
+          <select name="project_id" class="form-select form-select-sm">
+            <option value="">— 暂不关联 —</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}" {{ 'selected' if q and q.project_id == p.id else '' }}>{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="bi bi-house me-1"></i>房屋与需求</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-12">
+          <label class="form-label small">报价单名称</label>
+          <input type="text" name="title" class="form-control form-control-sm"
+                 value="{{ q.title if q and q.title else '' }}" placeholder="如：领航大厦 1201 精装方案">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">报价单号</label>
+          <input type="text" name="quote_no" class="form-control form-control-sm"
+                 value="{{ q.quote_no if q else '' }}" placeholder="如 BJ-2026-001">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">小区 / 楼盘</label>
+          <input type="text" name="community" class="form-control form-control-sm"
+                 value="{{ q.community if q else '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">面积（㎡）</label>
+          <input type="number" name="area" step="0.01" class="form-control form-control-sm"
+                 value="{{ q.area if q else '0' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">需求类型</label>
+          <select name="requirement_type" class="form-select form-select-sm">
+            {% for t in ['整装', '半包', '全包', '局部改造', '设计'] %}
+            <option value="{{ t }}" {{ 'selected' if q and q.requirement_type == t else '' }}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">综合单价（元/㎡）</label>
+          <input type="number" name="unit_price" step="0.01" class="form-control form-control-sm"
+                 value="{{ q.unit_price if q else '0' }}">
+          <div class="form-text">用于同类报价横向比价</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">折扣（%）</label>
+          <input type="number" name="discount" step="0.1" class="form-control form-control-sm"
+                 value="{{ q.discount if q else '100' }}">
+          <div class="form-text">100 = 不打折；85 表示 85 折</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="bi bi-flag me-1"></i>状态与日期</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label small">状态</label>
+          <select name="status" class="form-select form-select-sm">
+            {% for s in statuses %}
+            <option value="{{ s }}" {{ 'selected' if q and q.status == s else '' }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">报价日期</label>
+          <input type="date" name="quote_date" class="form-control form-control-sm"
+                 value="{{ q.quote_date if q and q.quote_date else today }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">有效期至</label>
+          <input type="date" name="valid_until" class="form-control form-control-sm"
+                 value="{{ q.valid_until if q and q.valid_until else '' }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label small">流失原因</label>
+          <input type="text" name="lost_reason" class="form-control form-control-sm"
+                 value="{{ q.lost_reason if q else '' }}"
+                 placeholder="如：价格超预算 / 选了别家 / 装修计划搁置">
+          <div class="form-text">只在状态为「已流失」时有意义，会汇总到漏斗的流失原因分布</div>
+        </div>
+        <div class="col-12">
+          <label class="form-label small">备注</label>
+          <textarea name="note" rows="2" class="form-control form-control-sm">{{ q.note if q else '' }}</textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="text-end no-print">
+    <button class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+    {% if not obj %}
+    <div class="form-text mt-2">
+      先保存基本信息，再到详情页逐条添加报价明细
+    </div>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,22 @@
+# 待办预警每日推送（企业微信群机器人）
+#
+# 安装（需要 sudo，因为要写 /etc/cron.d）：
+#   sudo cp deploy/push-crontab.txt /etc/cron.d/pms-push
+#   sudo chmod 644 /etc/cron.d/pms-cron        # cron.d 文件权限必须是 644，否则被忽略
+#   sudo chown root:root /etc/cron.d/pms-push
+#
+# 验证：sudo cat /etc/cron.d/pms-push 能看到内容；等第二天 08:00 看群里有没有消息。
+# 手动跑一次：sudo -u root /opt/renovation-pms/venv/bin/python .../scripts/push_alerts.py --dry
+#
+# ⚠ 未配置 WECOM_WEBHOOK 时脚本会安静退出（exit 0），cron 日志里不会有报错。
+#   确认是否真的在推：查群消息，或看 /data_s007/renovation-pms/data/notify.log
+#
+# ⚠ 选 08:00 而不是 09:00：装修公司早上开工前看昨天积下的欠款与超付，
+#   当天就能打电话催。9 点多发，多数人已经在现场了。
+#
+# 用容器里的 python 而非宿主机：依赖都装在镜像里，宿主机没有 fastapi/sqlalchemy。
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+CRON_TZ=Asia/Shanghai
+0 8 * * * root cd /data_s007/renovation-pms && docker exec renovation-pms python scripts/push_alerts.py >> data/push.log 2>&1

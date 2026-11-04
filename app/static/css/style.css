@@ -1,0 +1,3922 @@
+/* ============================================================
+   装修项目管家 · 清新自然全局样式
+   设计语言：低饱和绿色表面 + 清晰层级 + 稳定的业务工作区
+   ============================================================ */
+
+/* ============ 可搜索下拉（.ss） ============
+   组件本体在 static/js/searchable-select.js，这里是它的外观。
+   结构（JS 生成，勿手改 DOM）：
+     .ss > select.ss-native   原生下拉，**留在 form 里**当唯一数据源，
+                             视觉上移到屏幕外但仍可提交
+     .ss > button.ss-toggle   可见的触发按钮，显示当前选中项文本
+     .ss > .ss-panel          面板：.ss-search（输入框）+ .ss-list（选项）
+   面板用 position:fixed（JS 算坐标），所以**不能**写成
+   `.ss-panel{right:0}` 那种靠父元素定位的写法 —— 筛选栏常在
+   .table-responsive(overflow:auto) 里，absolute 会被容器裁掉，
+   症状是「能打开但列表只剩一半」。
+
+   ⚠ 这一整块**必须放在 @media print 之前**。
+     打印规则在文件开头，同特异度下靠后的规则赢 ——
+     块写后面的话 .ss-toggle 的边框/底色会盖掉打印的「控件不打印」规则。
+   ------------------------------------------- */
+
+/* 原生下拉移出视线但保留在表单里。
+   不能用 display:none —— 那样它不参与提交，表单会静默少一个字段。 */
+.ss-native {
+  position: absolute !important;
+  left: -9999px !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  margin: 0 !important;
+}
+
+.ss { position: relative; display: block; }
+
+/* 禁用的可搜索下拉：跟随 .form-control:disabled 的视觉（灰底灰字）。
+   必须显式写 —— <button> 默认的禁用样式是浏览器自己的，
+   和页面里其它 disabled 输入框长得不一样，一眼看过去像两种控件。 */
+.ss-toggle:disabled,
+.ss-toggle:disabled:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-3);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.ss-toggle:disabled .ss-caret { opacity: .5; }
+
+.ss-toggle {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; min-height: 38px;
+  padding: 6px 30px 6px 12px;
+  text-align: left;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--fs-0);
+  /* ⚠ <button> 不继承 body 的字距，Bootstrap 的 .btn 才补了。
+     漏掉这一行的后果很隐蔽：触发按钮里的中文是 13px 而字距为 0，
+     tests/test_type_scale.py 报「12/14px 文字有 N 个字距为 0」，
+     而报告里点名的类名是 .ss-label —— 没人会想到是 button 元素的问题。 */
+  letter-spacing: var(--ls-1);
+  line-height: 1.45;
+  cursor: pointer;
+  position: relative;
+  transition: border-color .15s, box-shadow .15s;
+}
+.ss-toggle:hover { border-color: var(--accent-bar); }
+/* 焦点环用 box-shadow 而不是 outline：outline 在 overflow 容器里会被裁掉 */
+.ss-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(20, 109, 199, .25);
+  border-color: var(--accent-bar);
+}
+.ss-label {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 未选（占位项）用次文本色，与「已选」区分开 ——
+   否则「请选择客户」和真选中的客户长得一样，容易把没填当成填了。 */
+.ss.is-placeholder .ss-label { color: var(--text-3); }
+.ss-caret {
+  position: absolute; right: 10px;
+  font-size: 11px; color: var(--text-3);
+  pointer-events: none;
+  transition: transform .15s;
+}
+.ss-toggle[aria-expanded="true"] .ss-caret { transform: rotate(180deg); }
+
+.ss-panel {
+  position: fixed;
+  z-index: 1080;              /* 高于 Bootstrap dropdown 的 1000 */
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .28);
+  padding: 6px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.ss-search {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--fs-0);
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+}
+.ss-search::placeholder { color: var(--text-3); }
+.ss-search:focus {
+  outline: none;
+  border-color: var(--accent-bar);
+  box-shadow: 0 0 0 3px rgba(20, 109, 199, .22);
+}
+.ss-list {
+  max-height: 268px;
+  overflow-y: auto;
+  overscroll-behavior: contain;   /* 滚到列表底部不要连带滚整页 */
+}
+.ss-opt {
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: var(--fs-0);
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ss-opt:hover { background: var(--surface-2); }
+/* 高亮项与 hover 用**不同**的底：键盘 ↓ 与鼠标划过要能区分开，
+   否则用户不知道自己按回车会选中哪个。 */
+.ss-opt.is-active {
+  background: var(--brand-light);
+  color: var(--primary-text);
+  box-shadow: inset 2px 0 0 var(--accent-bar);
+}
+.ss-opt.is-selected { font-weight: var(--fw-strong); }
+.ss-opt.is-selected::after {
+  content: "\F26E";              /* bi-check2 */
+  font-family: bootstrap-icons;
+  float: right;
+  color: var(--accent-bar);
+  font-size: 12px;
+}
+.ss-opt.is-disabled { opacity: .45; cursor: not-allowed; }
+.ss-empty {
+  padding: 12px 10px;
+  text-align: center;
+  font-size: var(--fs-1);
+  color: var(--text-3);
+}
+
+/* ---- 筛选下拉（漏斗多选）里的搜索框 ----
+   结构由 static/js/flt-search.js 插入，选项少于 4 个时不插入。
+   宽度/高度原来写在模板的 inline style 上（min-width:170px;max-height:280px），
+   收到这里之后才能按「有没有搜索框」分两档。 */
+.ms-menu {
+  min-width: 190px;
+  max-width: 360px;
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+/* 有搜索框时必须更宽：170px 那一档会把选项文字切掉半个字。
+   「切掉半个字」比「窄一点」更糟 —— 看得出这里本该有内容，
+   用户会以为列表渲染坏了。 */
+.ms-menu.ms-searchable { min-width: 250px; }
+
+/* ⚠⚠ display 只能挂在 `.show` 上，**绝不能**直接写
+   `.ms-searchable { display: flex }`。
+   Bootstrap 的收起态是 `.dropdown-menu { display: none }`，特异度 (0,1,0)；
+   `.ms-menu.ms-searchable` 是 (0,2,0) —— 写成 flex 就把「收起」覆盖掉了，
+   于是**所有带搜索框的筛选菜单一直摊在页面上**、互相叠在一起。
+   症状是「一进页面就看到三四个下拉框糊在内容上面」，
+   看起来像 z-index 或 overflow 的问题，根本不会联想到 display 规则。
+   → tests/test_searchable_select.py 里有「筛选菜单默认必须收起」这一条。 */
+.dropdown-menu.ms-menu.show { display: flex; flex-direction: column; }
+.ms-search-box { position: relative; flex: 0 0 auto; margin: 0 0 4px; }
+.ms-search-box .bi-search {
+  position: absolute; left: 10px; top: 50%;
+  transform: translateY(-50%);
+  /* 用 --text-2 而不是 --text-3：这是「可点」的提示图标，
+     灰到 3.6:1 在深色菜单里几乎看不见，等于没有这个图标。 */
+  font-size: 13px; color: var(--text-2);
+  pointer-events: none;
+}
+/* 30px 而不是 26px：图标 13px + 左边距 10px = 占到 23px，
+   26px 只留 3px 缝，输入第一个字时看着像贴在图标上。
+
+   ⚠ 选择器必须带上 `.ms-search-box`（(0,2,0)）：只写 `.ms-search` 是
+   (0,1,0)，而下面 1856 行的 `.form-control, .form-select { padding: .5rem .8rem }`
+   是**简写**，同特异度且写在后面 —— 它会把长写的 padding-left 直接覆盖掉。
+   实际测出来文字从 12.8px 开始、图标占到 23px，重叠 11px，
+   放大镜整个压在「输」字上。简写覆盖长写是纯顺序问题，
+   调 specificity 比去改那条 padding 的顺序稳（那条一动，全站输入框内边距都跟着变）。 */
+.ms-search-box .ms-search { padding-left: 30px; }
+/* min-width:0 是 flex 子项能收缩的前提，少了它下面的省略号不生效 */
+.ms-menu .form-check { flex: 0 0 auto; min-width: 0; }
+.ms-menu .form-check-label {
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ms-search-empty { padding: 10px 4px; text-align: center; }
+
+/* ============ 打印 ============
+   装修行业天天要打东西：供应商对账单、付款申请单、结算确认书、
+   报价单、收据。默认浏览器打印会把侧边栏、顶栏、按钮一起打出来，
+   一张 A4 纸上只有三行数据。所以做全局打印样式：
+
+   隐去：侧边栏、顶栏、移动端导航、所有表单控件与按钮（.no-print / 表单）
+   保留：标题、数据表格、口径说明
+   表格处理：去掉斑马纹与边框底色，去掉固定 min-width（.table-wide 强制 1040px，
+            打印会被裁掉右半边），重复表头（长表格跨页时每页都有列名），
+            行内不断页（一条记录被劈成两半在纸上看不出是什么）
+   */
+@page {
+  size: A4 portrait;
+  margin: 12mm 10mm 14mm;
+}
+/* 宽表专用纸张：横向出纸。
+   项目毛利报表有 15 列、供应商清单有 20 多列，竖向 A4 印出来右侧会被裁掉
+   一大半——「毛利下限」这类最该看的列恰好在最后。CSS 不能给表格本身换纸，
+   只能给包含它的页面换，所以用具名页 + body 的 page 属性。
+   .print-landscape 是显式声明；:has(.table-wide) 兜住已有宽表的页面。 */
+@page wide {
+  size: A4 landscape;
+  margin: 10mm 10mm 12mm;
+}
+
+@media print {
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 10.5pt;
+    line-height: 1.45;
+  }
+
+  /* 具名页切换。:has() 在 Chrome/Edge/Safari 15.4+ 均可用；
+     不支持的老浏览器会退回竖向，右侧仍可能被裁，但不会错乱。 */
+  body:has(.table-wide),
+  body:has(.print-wide),
+  body.print-landscape {
+    page: wide;
+  }
+
+  /* --- 隐去外壳与操作件 --- */
+  .sidebar,
+  .mobile-topbar,
+  .topbar,
+  .offcanvas,
+  .sidebar-footer,
+  .no-print,
+  .page-head .search-row,
+  .col-resizer,
+  .sort-arrow,
+  /* 所有交互控件：按钮、表单、下拉。打印出来点了没反应，纯占地方 */
+  .btn,
+  .btn-sm,
+  .btn-group,
+  .form-control,
+  .form-select,
+  .form-check,
+  input,
+  select,
+  textarea,
+  .modal,
+  .offcanvas-backdrop,
+  .toast,
+  .alert-dismissible .btn-close,
+  .pagination,
+  .nav-tabs,
+  .proj-tree,
+  .progress,
+  /* 可搜索下拉：面板（打开时才存在，但保险）与触发按钮都算交互控件。
+     漏掉 .ss-toggle 的后果是「打印表单时多出一个带边框的空框」——
+     不报错、不少内容，只是多一块没用的东西，最容易漏检。 */
+  .ss-panel,
+  .ss-toggle,
+  .ss-caret,
+  .ms-search-box,
+  .ms-search-empty {
+    display: none !important;
+  }
+
+  /* tab 页面：Bootstrap 只让 .show 的那个可见，打印时会只有第一个 tab 的内容。
+     这里把 tab-content 里的所有 .tab-pane 都显示出来，否则打印「预算与成本」
+     页拿到的永远是「收款计划」的内容。 */
+  .tab-pane,
+  .tab-pane.fade,
+  .tab-pane.active {
+    display: block !important;
+    opacity: 1 !important;
+    page-break-inside: auto;
+  }
+
+  /* --- 栅格列宽：必须显式写死 ---
+     Chromium 分页时用纸盒宽度而不是视口宽度去解析媒体查询，md/lg 断点
+     经常不命中，于是 .col-md-4 全部退化成整行：毛利对照的三张卡会印成
+     三段竖排，白白吃掉大半张纸。这里把桌面端的列宽比例直接补上。
+     顺序有讲究：col-6（窄屏语义）写在前面，col-md-*（桌面语义）写在后面，
+     因为 `class="col-md-3 col-6"` 这种组合两者都有，同优先级下后写的赢，
+     打印时我们要的是宽屏语义。 */
+  .row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+  }
+  .row > [class*="col-"] { padding-left: 6px; padding-right: 6px; }
+  .row > .col-6      { flex: 0 0 50%;      max-width: 50%; }
+  .row > .col-12     { flex: 0 0 100%;     max-width: 100%; }
+  .row > .col-md-2, .row > .col-lg-2 { flex: 0 0 16.667%; max-width: 16.667%; }
+  .row > .col-md-3, .row > .col-lg-3 { flex: 0 0 25%;     max-width: 25%; }
+  .row > .col-md-4, .row > .col-lg-4 { flex: 0 0 33.333%; max-width: 33.333%; }
+  .row > .col-md-5, .row > .col-lg-5 { flex: 0 0 41.667%; max-width: 41.667%; }
+  .row > .col-md-6, .row > .col-lg-6 { flex: 0 0 50%;     max-width: 50%; }
+  .row > .col-md-7, .row > .col-lg-7 { flex: 0 0 58.333%; max-width: 58.333%; }
+  .row > .col-md-8, .row > .col-lg-8 { flex: 0 0 66.667%; max-width: 66.667%; }
+  .row > .col-md-9, .row > .col-lg-9 { flex: 0 0 75%;     max-width: 75%; }
+
+  /* 表单标签在纸面上是悬空的文字（对应的输入框已被隐藏），去掉 */
+  .form-label { display: none !important; }
+  .input-group { display: none !important; }
+
+  /* --- 布局还原成纸面 --- */
+  .main {
+    margin-left: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+  .content {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .page-title { display: none !important; }
+
+  .card {
+    border: 1px solid #bbb !important;
+    box-shadow: none !important;
+    margin-bottom: 6mm;
+  }
+  /* 小卡片（统计卡、口径说明、提示条）不许被分页劈开；
+     含表格的卡片必须允许断开——供应商列表 144 行比整页高得多，
+     给它 break-inside:avoid 会让浏览器把整张卡推到下一页，
+     前面留下一整页空白（实测：15 页里有 1 页全白）。 */
+  .card:not(:has(table)) { break-inside: avoid; }
+  .card-header {
+    background: #eee !important;
+    border-bottom: 1px solid #bbb !important;
+    font-weight: var(--fw-strong);
+    padding: 3mm 4mm !important;
+  }
+  .card-body { padding: 3mm 4mm !important; }
+
+  /* 折叠 / 收起类控件：纯屏幕控件，印出来是「筛选」「展开 5 列」这种
+     看不懂的死文字，还占纸面。 */
+  .filter-toggle,
+  .flt-active-dot,
+  .filter-hint,
+  .colpick,
+  .col-hidden-note {
+    display: none !important;
+  }
+
+  /* 次要列在屏幕上收起（display:none），但**纸上必须全部显示**——
+     对账单、报价单打印出来是要给人签字的，少一列就是漏项。
+     .col-minor-hidden 是脚本加在 <table> 上的类，必须在这里覆盖，
+     否则打印出来只有 4 列，而表头也是 4 列，看不出少了什么。 */
+  .table.col-minor-hidden th.col-minor,
+  .table.col-minor-hidden td.col-minor {
+    display: table-cell !important;
+  }
+  .table.col-minor-hidden.table-wide { min-width: 0 !important; }
+
+  /* --- 表格：这是打印的主体，要保证完整可读 --- */
+  .table-responsive {
+    overflow: visible !important;     /* 纸面不需要横向滚动 */
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  .table,
+  .table-wide,
+  .table-sm {
+    /* 关键：清掉窄屏/桌面端加的 min-width。.table-wide 有 min-width:1040px，
+       A4 可用宽度只有约 180mm，不清掉就会把右侧列裁到纸外。 */
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 8.5pt;
+    table-layout: auto;
+    border-collapse: collapse;
+  }
+  .table thead {
+    display: table-header-group !important;   /* 跨页重复表头 */
+  }
+  /* 合计行保持普通行组（table-row-group），不要用 table-footer-group。
+     两个原因：
+       1) 合计是全局数字，每页重复一遍反而误导（半张表的合计？）
+       2) Chromium 对「短表 + table-footer-group」有个怪癖：页脚组会被推到
+          下一页顶部——实测 2 行数据的毛利表印成 2 页，第 2 页只有一行合计。
+     行组靠下面的 break-inside:avoid 保证不会被劈开。 */
+  .table tfoot {
+    display: table-row-group !important;
+  }
+  .table tfoot tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .table th, .table td {
+    border: 1px solid #999 !important;
+    padding: 1.5mm 2mm !important;
+    background: #fff !important;
+    /* 关键：金额不能在列内折行。「15,107,703.20」被断成两行，
+       打印出来变成「15,107,703.」+「20」，读数直接读错。
+       窄屏卡片化时靠 width 放开，打印时必须锁死不折。 */
+    white-space: nowrap;
+    word-break: keep-all;
+    overflow-wrap: normal;
+  }
+  /* 说明性文字列允许折行（备注、原因、说明），否则一行会长到把纸撑爆 */
+  .table td.wrap,
+  .table th.wrap { white-space: normal; }
+  /* 单元格里的长文本（项目名、事由）限宽折行 */
+  .table td { max-width: 62mm; overflow-wrap: anywhere; }
+  .table .text-money,
+  .table .text-end { max-width: none; }
+  .table thead th {
+    background: #eee !important;
+    font-weight: var(--fw-strong);
+  }
+  /* 条纹底色在打印时会形成脏兮兮的灰带，去掉 */
+  .table-striped > tbody > tr:nth-of-type(odd),
+  .table-hover > tbody > tr:hover,
+  tbody tr.text-bg-light {
+    background: #fff !important;
+  }
+  .table-danger,
+  .table-warning {
+    background: #fff !important;
+  }
+  /* 窄屏的卡片化样式会让表格结构塌掉，打印时必须还原成表格 */
+  .table-card,
+  .table-card tbody,
+  .table-card tbody tr,
+  .table-card tbody td {
+    display: revert !important;
+    background: #fff !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* --- 文字颜色：彩打成本高且多数打印机是黑白，语义靠符号不靠颜色 --- */
+  .text-success, .text-danger, .text-warning, .text-info,
+  .text-muted, .text-secondary, .text-body, .text-body-secondary {
+    color: #000 !important;
+  }
+  .badge {
+    border: 1px solid #666 !important;
+    background: #fff !important;
+    color: #000 !important;
+    font-weight: var(--fw-strong);
+  }
+  .alert {
+    border: 1px solid #999 !important;
+    background: #fff !important;
+    padding: 2mm 3mm !important;
+    break-inside: avoid;
+  }
+  a { color: #000 !important; text-decoration: none !important; }
+  /* 打印后想点链接也没用了，去掉下划线噪音 */
+  a[href]::after { content: none !important; }
+
+  /* 分页控制 */
+  h1, h2, h3, h4, h5, h6 {
+    break-after: avoid;
+    page-break-after: avoid;
+    break-inside: avoid;
+  }
+  .row { break-inside: auto; }
+  .col { break-inside: avoid; }
+
+  /* ---- 深色主题下打印，必须强制切回浅色变量 ----
+     不切的话 Ctrl+P 会印出一整页深色底：浪费碳粉，而且表格线、
+     淡色文字全部印不出来（打印机按 CMYK 还原深底更糟）。
+     打印永远是纸上白底黑字，与屏幕看什么主题无关。 */
+  [data-bs-theme="dark"] {
+    --gray-50:#F5F9FF;  --gray-100:#F5F9FF; --gray-200:#deeae6;
+    --gray-300:#c5d7d0; --gray-400:#9AA1A7; --gray-500:#646D72;
+    --gray-600:#646D72; --gray-700:#29353C; --gray-800:#1B2930;
+    --gray-900:#1B2930;
+    --surface: #ffffff; --surface-2: #edf5f2;
+    --bg: #f7fbfa;      --text: #1c3028;  --text-2: #29353C;
+    --border: #e0ebe7;  --border-strong: #cddcd6;
+    --primary-ink: #146DC7;
+
+    /* 深色主题独有的变量必须在这里一并复位，否则打印时会漏出来。
+       漏掉的表现是「打印的进度条是金色的」——屏幕上根本看不出来，
+       但 .btn-primary / .progress-bar 印出来是一块深金色块，
+       而这个块里的 `a{color:#000!important}` 管不到它们。
+       金色按 CMYK 还原是一块脏灰，比黑色难看得多。
+
+       这也是「别只在深色块里定义新变量」的另一个理由：
+       每加一个变量，这段就得多一行，忘了没人提醒你。
+       tests/test_print_theme.py 里有对应的回归检查。 */
+    --primary-grad: linear-gradient(135deg, #0F5AA5 0%, #146DC7 100%);
+    --primary-grad-hover: linear-gradient(135deg, #0F5AA5 0%, #146DC7 100%);
+    /* 侧栏拍平成实色。渐变在打印时多半直接被浏览器丢掉，
+       结果是「屏幕上好看、纸上随机」——打印必须靠实色确定。
+       取原渐变的中段 #dff5ed：分组标题 #437060 压在它上面是 4.95:1，
+       比原来「压最亮档」的 4.74:1 还高一点（那段渐变的最差档就在亮端）。 */
+    --sidebar-bg: #F5F9FF;
+    --sidebar-active: linear-gradient(90deg, #0F5AA5, #146DC7);
+    --proj-hero-bg: linear-gradient(135deg, #F7FBFF 0%, #F5F9FF 60%, #EEF4FE 100%);
+    --accent-deep: #146DC7;  --accent-bar: #146DC7;
+    /* --accent-full 是 v3 新增（满格强调底，只被 flatpickr 的选中日用到）。
+       打印时 :root 没有它，不复位的话会漏出深色块的 #5DA1F8 ——
+       一块青绿色块印在纸上，颜色还不随主题变。
+       打印块是浅色路线，所以给浅绿，且文字仍是白字（6.34:1）。 */
+    --accent-full: #117AF3;
+    --on-accent: #ffffff;    --on-accent-bright: #ffffff;
+    /* v2 新增的三个。漏掉它们的话：
+       --surface-3  → 打印时下拉框和卡片同底，看不出是弹出层
+       --card-border → 卡片描边仍是白 8%，纸上是一条灰线
+       --input-bg / --input-border → 输入框底不对
+       tests/test_print_theme.py 就是为了盯住这类漏项。 */
+    --surface-3: #ffffff;
+    --card-border: #deeae6;
+    --input-bg: #ffffff;
+    --input-border: var(--border-strong);
+    /* v2 新增的标签配色。漏掉的话：从深色主题打印出来，
+       表格里的项目名标签仍是**深底金字**（屏幕上没问题，纸上不对）。 */
+    --tag-bg: rgba(17,122,243,.10);  --tag-bg-hover: rgba(17,122,243,.16);  --tag-fg: #0B5FBF;
+    --tag-border: rgba(17,122,243,.22);
+    --tag2-bg: #ece0e6; --tag2-bg-hover: #e2d2db; --tag2-fg: #6a4a5c;
+    --tag2-fg-hover: #523a49;  --tag2-border: #dbc9d4;
+    /* 打印时 tab 选中的渐变是浅绿那一套，白字 7.68:1。 */
+    --on-active-grad: #ffffff;
+  }
+}
+
+:root {
+  --sidebar-width: 228px;
+  --topbar-height: 60px;
+
+  /* ---------- 中性色（与主色同族） ----------
+     为什么不用 Bootstrap 默认灰：
+     默认的 #f8f9fa / #dee2e6 / #6c757d 是纯冷灰（色相 210°），而主色是
+     低饱和绿（色相 157°）。两种色相并存时界面会显脏——绿色卡片旁一块
+     冷灰表头，看起来像两套系统拼的。
+     这里把中性色统一到同一色相族，饱和度压到 16~24%：肉眼看仍是灰，
+     但和主色同族。这是 Linear / Vercel 这类工具界面的共同做法。
+
+     整套色阶由 tools/build_palette.py **按对比度目标反解**得出，不是手填的：
+     给定「这一档要达到几比一」，二分搜索出刚好达标的明度。原因是绿光在
+     WCAG 公式里的亮度权重最高（0.7152），**同样的明度绿色看起来比蓝色亮得多**
+     ——曾经把主色短暂换成蓝色，拿同一套明度参数生成绿色相时，
+     gray-700 / 600 / 500 三档同时击穿（6.41 / 4.33 / 2.82）。
+     改回绿色必须重新求解，这也是不能靠「把颜色转回去」了事的原因。
+
+     对比度（对 --gray-50 底实测，非估算）：
+       gray-900  #1B2930  12.65:1  AAA  正文
+       gray-700  #29353C   7.41:1  AAA  表头 / 强文字
+       gray-600  #646D72   4.82:1  AA   次要文字（text-muted）
+       gray-500  #646D72   3.09:1  仅占位/装饰，不承载信息
+       gray-300  #c5d7d0   1.44:1  输入框描边
+       gray-200  #deeae6   1.18:1  表格分隔线等纯装饰
+     边框的对比度不按 WCAG 1.4.11 的 3:1 要求：那条管的是「传达状态的
+     UI 组件」，表格线属于装饰。旧值实测 1.16/1.30，新色阶不低于它。
+  */
+  --gray-50:#F5F9FF;
+  --gray-100:#F5F9FF;
+  --gray-200:#deeae6;
+  --gray-300:#c5d7d0;
+  --gray-400:#9AA1A7;
+  --gray-500:#646D72;
+  --gray-600:#646D72;
+  --gray-700:#29353C;
+  --gray-800:#1B2930;
+  --gray-900:#1B2930;
+
+  /* ---------- 字号刻度（Carbon productive type set） ----------
+     这是全套排版的**唯一**字号来源。改造前的实测数据：全站渲染出了
+     **26 种**不同字号，源头是 Bootstrap 的 `.small { font-size: .875em }`
+     ——它是相对父级的，父级 15px 它就变 13.125px，父级 14px 就变
+     12.25px，级联出一串零碎尺寸（13.125 出现 43 次、13.5 出现 26 次）。
+
+     所以规则是：**只允许用这 6 档**，且全部写成 px（绝不写 em/%）。
+     需要更小/更大时，从刻度里挑，不要临时造值。
+
+       --fs-0  12px  label-01        字段标签、说明、表格辅助信息
+       --fs-1  14px  body-01         正文基准（这是 body 的字号）
+       --fs-2  16px  heading-02      页面标题、强调正文
+       --fs-3  20px  heading-03      区块标题
+       --fs-4  24px  heading-04      大数字
+       --fs-5  28px  heading-05      登录页 / 空状态大标题
+
+     行高与字距一并定死，不要各写各的：
+       12px / 16px 行高 / +0.32px 字距   —— Carbon label-01
+       14px / 20px 行高 / +0.16px 字距   —— Carbon body-01
+     字距为 0 是改造前 255 个样本里 218 个的状态：中文小字号不加字距
+     会让笔画糊成一片，拉开 0.16~0.32px 才清楚。 */
+  --fs-0: 12px;
+  --fs-1: 14px;
+  --fs-2: 16px;
+  --fs-3: 20px;
+  --fs-4: 24px;
+  --fs-5: 28px;
+  --lh-0: 16px;      /* 配 12px */
+  --lh-1: 20px;      /* 配 14px */
+  --lh-2: 24px;      /* 配 16px */
+  --lh-3: 28px;      /* 配 20px */
+  --ls-0: .2px;      /* 12px 专用字距 */
+  --ls-1: .06px;     /* 14px 及以上 */
+  /* 字重只用两档。改造前 500 用了 46 次、700 用了 43 次，
+     中等字重在 14px 以下没有对应的字形文件，多数浏览器会合成或
+     就近落到 400/600，等于「以为自己设了中等，实际不是」。
+
+     由 600 改为 700：中文字体只内置 300/400/700 三档真实字形
+     （雅黑、等线皆如此），600 无对应文件，浏览器只能**合成伪粗体** ——
+     笔画会粘连发毛，在 12~14px 中文上尤其明显。
+     700 是真实 Bold，无合成问题。
+     代价是强调元素比原先「更有分量」，但形态干净。 */
+  --fw-normal: 400;
+  --fw-strong: 700;
+
+  /* ---------- Bootstrap 变量重绑定 ----------
+     这是本次改动收益最大的地方：text-muted 全站用了 508 次、
+     btn-outline-secondary 163 次，全部经由 --bs-secondary-color 等变量取值。
+     改这十几个变量 = 一次改动全站生效，不用逐个模板替换类名。
+
+     注意加载顺序：style.css 在 base.html 里排在 bootstrap.min.css 之后，
+     所以这里的声明能覆盖 Bootstrap 的 :root 定义。 */
+  --bs-body-bg: var(--gray-50);
+  --bs-body-color: var(--gray-900);
+  --bs-emphasis-color: var(--gray-900);
+  --bs-emphasis-color-rgb: 32, 52, 45;          /* = --gray-900 原来是 29,37,47（阴影墨色） */
+  --bs-secondary-color: var(--gray-600);   /* text-muted / 关闭按钮 */
+  --bs-secondary-color-rgb: 79, 119, 104;      /* = --gray-600 原来是 85,103,127（Bootstrap 的 gray-600） */
+  --bs-secondary-bg: var(--gray-200);
+  --bs-secondary-bg-rgb: 222, 234, 230;        /* = --gray-200 原来是 224,229,235 */
+  --bs-tertiary-color: var(--gray-500);    /* text-black-50 等 */
+  --bs-tertiary-color-rgb: 110, 152, 136;      /* = --gray-500 原来是 119,136,159 */
+
+  /* ⚠ --bs-secondary-rgb 是**另一个变量**，之前从没设过——
+     所以上面那行 --bs-secondary-color 对 .text-secondary 是**死的**。
+     Bootstrap 的 .text-secondary / .text-body-secondary 写的是
+         color: RGBA(var(--bs-secondary-rgb))
+     而不是 --bs-secondary-color。缺了它，.text-secondary 就一直用
+     Bootstrap 默认的 108,117,125（#6c757d），实测对浅底只有 4.49:1、
+     对深底 4.22:1，两个主题都不达标，而上面所有的重绑定看起来都对。
+     这是「改了颜色没生效」最难查的一种形态，这里补上。 */
+  --bs-secondary-rgb: 79, 119, 104;
+  --bs-tertiary-bg: var(--gray-100);
+  --bs-heading-color: var(--gray-900);
+  --bs-border-color: var(--gray-200);
+  --bs-border-color-translucent: rgba(var(--bs-emphasis-color-rgb), .14);
+  --bs-border-color-translucent-rgb: var(--bs-emphasis-color-rgb);
+  --bs-link-color: var(--primary);
+  --bs-link-hover-color: #0F5AA5;
+  /* rgb 三元组 = --primary #146DC7。改主色时这两个数要同步，
+     它们不跟 var() 走，写错了链接色会停在旧值上。 */
+  --bs-link-color-rgb20, 109, 199
+  --bs-link-hover-color-rgb: 6, 95, 70;
+
+  /* 表格：斑马纹与 hover 底色由 emphasis-color 推导，改上面的 rgb 即自动跟随 */
+  --bs-table-border-color: var(--gray-200);
+  --bs-table-striped-bg: rgba(var(--bs-emphasis-color-rgb), .025);
+  --bs-table-striped-color: var(--gray-800);
+  --bs-table-hover-bg: rgba(20, 109, 199, .06);
+  --bs-table-hover-color: var(--gray-900);
+
+  /* 徽章与状态底的 subtle 档 */
+  --bs-light-bg-subtle: var(--gray-100);
+  --bs-light-border-subtle: var(--gray-200);
+  --bs-light-text-emphasis: var(--gray-700);
+  --bs-dark-bg-subtle: var(--gray-300);
+  --bs-dark-border-subtle: var(--gray-400);
+  --bs-dark-text-emphasis: var(--gray-700);
+  --bs-secondary-bg-subtle: var(--gray-100);
+  --bs-secondary-border-subtle: var(--gray-200);
+
+  /* 表单控件（408 处 form-control 依赖） */
+  --bs-form-control-bg: var(--surface);
+  --bs-form-control-border-color: var(--gray-300);
+  --bs-form-control-hover-border-color: var(--gray-400);
+  --bs-form-control-focus-border-color: var(--primary-2);
+  --bs-form-control-focus-box-shadow: 0 0 0 .2rem rgba(20, 109, 199, .16);
+  --bs-form-control-disabled-bg: var(--gray-100);
+  --bs-form-control-placeholder-color: var(--gray-500);
+
+  /* ---------- 主色（翡翠绿） ----------
+     #146DC7 对白底文字 5.48:1（按钮用，达 AA）。色阶由
+     tools/build_palette.py 按此色相推出整套中性色。
+
+     为什么不是「翡翠绿」常见的那档 #059669：那个值对白底文字只有
+     **3.77:1**，达不到 AA 的 4.5:1，而它最显眼的用法恰好就是
+     「实心底 + 白字」的主按钮（实测值，见下方对照）。
+     #146DC7 是同一色相（162.9°，与 #059669 的 161.4° 视觉上分不出）
+     压深一档的结果，白字 5.48:1，色相仍在项目绿族内。 */
+  --primary: #146DC7;
+  /* --primary-2 是「描边专用」的浅一档（输入框聚焦框、hover 边框）。
+     WCAG 1.4.11 要求传达状态的 UI 组件达到 **3:1**，
+     原值 #6aa88c 对白底只有 2.63:1 —— 聚焦框看不清等于没有聚焦框。
+     现值 #3E9AF6 是 3.45:1。它只用在 border-color 上，别挪去做背景。
+     ⚠ 必须比 --primary 浅：test_type_scale.py 会逐档比对 RGB 分量和，
+     「primary-2 更浅」是它对两者关系的硬断言。 */
+  --primary-2: #3E9AF6;
+  /* 品牌浅底：选中菜单项、按钮 hover 底、「已激活」标签用。
+     比 --gray-100 绿一档，能读出「这是品牌色的一部分」，
+     但浅到不影响上面压深色文字（--primary-text 压它 8.5:1）。 */
+  --brand-light: #F5F9FF;
+  /* ⚠ 这一条改的是**全站最显眼的按钮底色**，原因是可访问性：
+     两端都要能压白字（AA 要 4.5:1），绿的相对亮度必须
+     ≤ 0.1833（1.05/4.5 − 0.05），否则只能整体压深。
+
+     当前两端 #0F5AA5 / #146DC7 实测白字 7.68:1 与 5.48:1，都过，
+     且保留可见的渐变落差（不然就成了一块死绿）。
+     这条渐变被 5 处复用：主按钮、.nav-link.active（tab）、
+     .progress-bar（**全站每一条进度条**）、卡片头、甘特条——
+     所以它一改，进度条在浅色主题下也跟着变深，这是预期的。 */
+  --primary-grad: linear-gradient(135deg, #0F5AA5 0%, #146DC7 100%);
+  /* hover 态也必须走变量。原来这里写死 #045c40→#0a8a64 的浅绿，
+     深色主题下主按钮是金色，鼠标一移上去就**变成绿色**——
+     而 hover 态对比度测试是测不到的（没有 :hover 就采不到样），
+     只能靠把值收进变量来保证它跟着主题走。 */
+  --primary-grad-hover: linear-gradient(135deg, #045c40 0%, #0a8a64 100%);
+  --accent: #2B87E0;
+  --success: #0D9A3C;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+
+  /* ---------- 语义按钮的「描边 + hover 底」档 ----------
+     Bootstrap 的 .btn-outline-success / -danger 默认用 #0B7D31 / #dc3545，
+     实测对浅底只有 4.07~4.44:1（AA 要 4.5），深色下 4.07~4.37:1。
+     而且它们的 hover 底色（--success #0D9A3C / --danger #ef4444）配白字
+     只有 3.76:1 —— 鼠标一移上去文字就糊了，比常态更糟。
+
+     单独开一组变量而不是改 --success/--danger 本体：后者还用在
+     .progress-bar.bg-success 与 .btn-filter-active 的计数芯片上，
+     那些地方要的是饱和亮色，不是可读的深色。
+     深色主题的值在深色块里覆盖（亮绿/亮红 + 近黑文字）。 */
+  --success-btn: #0B7D31;      /* 对浅底 5.57:1 */
+  --on-success-btn: #ffffff;  /* 白字压 #0B7D31 = 5.57:1 */
+  --danger-btn: #b02a37;       /* 对浅底 6.22:1 */
+  --on-danger-btn: #ffffff;   /* 白字压 #b02a37 = 6.22:1 */
+  /* --primary-ink 原来在本块声明了两次（此处 + 行 648），
+     值相同所以一直没出事。同块重复声明是本项目最阴的静默失效：
+     两次值一旦不一致，靠后的那句会静默盖掉靠前那句，
+     而语法正确、变量检查也过，只有把 computed 值和字面值对一下才看得见。
+     现在只保留行 648 那一处。 */
+
+  /* ---------- 语义色的「文字档」 ----------
+     关键区分：--danger / --warning 这些是**底色**用的（badge 圆点、进度条、
+     .bg-danger 块），配白字才有对比。而 .text-danger / .text-warning 是拿
+     Bootstrap 的同一个变量当**文字色**用——Bootstrap 的 #dc3545 在白底上
+     只有 4.27:1（小于 AA 的 4.5），#ffc107 更只有 1.63:1，几乎读不出来。
+
+     同一个颜色不可能同时满足「当底色配白字」和「当文字色压深灰底」，
+     所以拆成两组：--xxx 保持底色语义，下面 --xxx-ink 专供文字。
+
+     全部按「对 --gray-50 底 ≥4.5:1」选定：
+       danger-ink  #a83a30  5.3:1
+       warning-ink #8a5a06  5.6:1
+       success-ink #1d6b52  5.5:1
+       info-ink    #0f5f7a  5.4:1 */
+  --danger-ink: #a83a30;
+  --warning-ink: #8a5a06;
+  --success-ink: #0D7A2C;
+  --info-ink: #0D7A2C;
+  /* 徽章底色用的浅/深档（保持 Bootstrap 的观感） */
+  --danger-bg: #fdeceb;
+  --warning-bg: #fdf4e3;
+  --success-bg: #F1FAF2;
+  --info-bg: #F5F9FF;
+
+  /* Bootstrap 组件按钮（163 处 btn-outline-secondary 依赖） */
+  --bs-btn-color: var(--gray-700);
+  --bs-btn-border-color: var(--gray-300);
+  --bs-btn-hover-bg: var(--gray-100);
+  --bs-btn-hover-border-color: var(--gray-400);
+  --bs-btn-hover-color: var(--gray-900);
+  --bs-btn-active-bg: var(--gray-200);
+  --bs-btn-active-border-color: var(--gray-400);
+  --bs-btn-active-color: var(--gray-900);
+  --bs-btn-disabled-color: var(--gray-500);
+  --bs-btn-disabled-bg: transparent;
+  --bs-btn-disabled-border-color: var(--gray-300);
+
+  /* 背景与表面 */
+  --bg: var(--gray-50);
+  --surface: #ffffff;
+  --surface-2: var(--gray-100);
+  --border: var(--gray-200);
+  --border-strong: var(--gray-300);
+
+  /* 文字 */
+  --text: var(--gray-900);
+  --text-2: var(--gray-600);
+  --text-3: var(--gray-500);        /* 占位/装饰专用（3.6:1，不承载信息） */
+  --text-muted: var(--gray-600);    /* 元数据/说明文字（5.6:1，达 WCAG AA） */
+
+  /* ---------- 字体栈 ----------
+     中文界面的字重选择比拉丁字体重要得多：把中文排在系统 UI 字体之后，
+     保证 macOS 走 PingFang、Windows 走微软雅黑（而不是难看的宋体回退）。
+     "Microsoft YaHei UI" 是雅黑的 UI 变体，Windows 8.1+ 内置，
+     字形比 "Microsoft YaHei" 更适合小字号（后者点阵化痕迹更重）。
+
+     ---------- 为什么回到雅黑而不是等线 ----------
+     中途试过等线（DengXian）：字腔更开阔，小字号理论上更通透。
+     实测下来**方向反了** —— 等线字面率约 88%，雅黑约 96%，
+     而这套 Carbon productive 刻度本身偏紧凑（--fs-0 只有 12px，
+     每页有 47~79 个 12px 元素）。笔画细 + 字号小叠加，
+     12px 等线的横竖笔画只剩 1px 不到，投影到屏幕上会「断开」；
+     同尺寸雅黑笔画饱满一档，反而在小字号下更清楚。
+     实测对比见 tools/ 下的说明：12px 与 11px 处雅黑明显更易读，
+     14px 正文两者接近。
+
+     拉丁与数字交给 Segoe UI —— 它有完整的 300/400/600/700 字重，
+     且是唯一在 Windows 上保证 `tabular-nums` 生效的西文系统字体
+     （财务金额右对齐必需，见下方 --font-num 注释）。
+     中文放在其后，各平台回退链完整：
+       Windows  → 雅黑 UI → 雅黑 → 思源
+       macOS    → 没有雅黑 → 苹方
+       Linux    → 思源 / 文泉驿
+
+     ⚠ 字重体系：雅黑内置 300/400/700。--fw-strong 用 600 时浏览器
+     会合成伪粗体，笔画粘连发毛，因此该变量取 700（等线时代遗留的
+     结论，雅黑同样适用且更明显）。 */
+  --font-sans:
+    "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
+    "PingFang SC", "HarmonyOS Sans SC",
+    "Source Han Sans SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    Arial, sans-serif;
+  /* 数字与单位：财务场景的关键。表格里 15,107,703.20 与 3,304,132.45
+     若用比例数字，字宽不一，右对齐后小数点上下跳动，逐行对账极慢。
+     tabular-nums 让所有数字占等宽格，视觉上对齐成竖线。 */
+  --font-num:
+    "SF Mono", "Cascadia Mono", "Consolas", "Roboto Mono",
+    "DejaVu Sans Mono", ui-monospace, monospace;
+
+  /* 莫兰迪强调色（低饱和，用于统计卡与标签） */
+  --m-oat: #cbb392;         /* 燕麦 */
+  --m-lotus: #b98ea3;       /* 藕粉 */
+  --m-terra: #c07c6a;       /* 陶土橙红 */
+  --m-bean: #7d9b7a;        /* 豆沙绿 */
+  --m-moss: #146DC7;        /* 清新绿（= 主色） */
+  --m-sage: #8aa79a;        /* 灰绿 */
+  --m-stone: #9aa39c;       /* 石灰 */
+
+  /* 侧边栏：极浅的绿灰底。
+     原值是三段浅绿渐变，一屏 24 个导航项全压在上面，
+   整条侧栏是界面里最大的一块彩色区域 —— 规范要的是
+     「大面积中性色 + 小面积品牌色」，这里是反过来的。
+     改成单色浅底后，选中项的白卡 + 主色竖线才有对比可言。 */
+  --sidebar-bg: #F5F9FF;
+  --sidebar-text: #29353C;
+  /* 侧栏渐变亮端与文字色是一对约束，改任何一个都要回头验另一个。
+     两端都要能压白字，现值 #0F5AA5/#146DC7 实测 7.68:1 与 5.48:1。 */
+  --sidebar-active: linear-gradient(90deg, #0F5AA5, #146DC7);
+  /* 分组标题与「未分配项目」这类**侧栏内**强调文字：侧栏在浅色主题是
+     浅绿底、在深色主题是近黑底，同一个色值不可能两边都达标
+     （浅底要够深、深底要够亮），所以必须是变量而非字面值。 */
+  --sidebar-group-fg: #646D72;   /* 浅底 4.74:1 */
+  --unassigned-fg: #8a5f14;      /* 浅底 4.69:1 */
+  /* 压在 --sidebar-active 上的文字色。**两个主题都必须定义**：
+     .sidebar-nav .nav-item.active 是共用规则，若只在深色块里声明，
+     浅色模式下 var(--on-accent) 解析不到值 → 整条 color 声明失效 →
+     继承父级的 --sidebar-text（#34604f，深绿）压绿色渐变 = 1.13:1，
+     整个选中项变成一块看不出选中的深色块。
+     这正是「只在某个主题块里定义共享规则用到的变量」的典型翻车，
+     症状是「改了没反应」而不是报错。 */
+  --on-accent: #ffffff;
+
+  /* ---------- 阴影与圆角 ----------
+     原值叠了两层（1px+1px、1px+3px），在密集列表里会形成脏边。
+     现在只用一层极淡投影 + 1px 边框做分层——这是 Linear 的做法：
+     边界靠描边，不靠悬浮感。 */
+  --shadow-sm: 0 1px 2px rgba(29, 37, 47, .045);
+  --shadow: 0 2px 8px rgba(29, 37, 47, .06);
+  --shadow-lg: 0 12px 32px rgba(29, 37, 47, .12);
+  --radius: 8px;
+  --radius-sm: 6px;
+
+  --primary-ink: #146DC7;      /* 深色主题下会被覆盖成亮绿 */
+
+  /* 表格表头与斑马纹。写死色值的话，深色主题下表头会是一块
+     浅色横条插在深色表格里——这是深色模式最容易漏的一处，
+     因为它藏在 (0,1,2) 特异度的规则里，不改根本不知道它存在。 */
+  /* 表头：中性浅底 + 近黑字。
+     原来是 #eef5f2 绿底 + 深绿字，整行表头比它下面的数据还重——
+     表头的作用是**定位列**，一旦它自己比数据醒目，
+     长表里视线就被一排绿色横条拽住了。 */
+  --head-bg: var(--gray-50);
+  --head-fg: var(--gray-700);
+  --zebra: rgba(255, 255, 255, .62);
+
+  /* 卡片标题栏。深色实测：写死浅色底 + 继承浅色文字 = 1.33:1，
+     整行标题几乎消失。这是「深色模式最常见的翻车」的标准案例：
+     在浅色下天衣无缝，切深色才炸。 */
+  /* 主色深字：链接 hover、统计卡正数、项目名链接等。
+     与 --card-head-fg 分开是因为它们语义不同：一个是「强调文字」，
+     一个是「卡片标题」。之前批量替换时混在一起，变量名就失去了意义。 */
+  --primary-text: #0F5AA5;
+  /* 卡片标题栏：白底 + 近黑标题 + 1px 底边。
+     原值是浅绿渐变 + 深绿字。去掉两处颜色后，一屏几十个卡片
+     的标题栏不再是一排绿色横条，而标题颜色回到「文字该有的黑」——
+     品牌色只留给交互元素（按钮、链接、进度条、状态）。
+     ⚠ --card-head-fg 是**被大量模板共用**的标题色变量，
+     改成 --text 后「标题黑色」一次生效，不要再去模板里逐个改。 */
+  --card-head-bg: var(--surface);
+  --card-head-fg: var(--text);
+  --card-head-border: var(--gray-200);
+  --card-head-muted: var(--text-muted);
+  --card-head-solid: var(--gray-50);
+  --card-head-solid-border: var(--gray-200);
+  /* 项目详情页横幅：从三段浅绿渐变改成中性浅底。
+     它是全站最大的一块**单一彩色区域**（约 1200×210px），
+     而项目名、客户、金额才是这页的主角——绿底会把它们压成
+     「绿色上的字」而不是「内容」。
+
+     改成和 .card 同底（--surface），身份感交给左边的
+     主色竖条（见 .proj-hero 的 border-left）。
+     深色主题本来就是中性色阶（--gray-200 → #191919），不受影响。 */
+  --proj-hero-bg: var(--surface);
+  /* 卡片描边。深色主题另给 rgba(255,255,255,.08)：
+     那里页面底与卡片底只差 1.12:1，纯靠明度差在 OLED 上没有边界。 */
+  --card-border: #deeae6;
+  /* 压在 --primary-grad 上的文字色。浅色主题的渐变是深绿
+     （#0F5AA5 → #146DC7），**必须用白字**：7.68 / 5.48:1。
+     ⚠ 这一行原先写的是近黑 #0a0a0a，压在深绿上只有 2.58:1 ——
+     那是 v2 换金色时改的，理由是「深色块里要近黑」，顺手把浅色也改了。
+     近黑 → 白字这条**按主题各算各的**，不是同一套。
+     深浅两套独立推导，不能靠「把颜色反过来」了事。 */
+  --on-active-grad: #ffffff;
+  /* 表面第三层（弹出层）。浅色主题下它只比卡片略深一档，
+     够区分「浮起来了」即可，不必跟深色那样差一整档。 */
+  --surface-3: #ffffff;
+  /* 输入框底。浅色主题保持白底不变——「凹陷感」是深色 UI 的专属语言，
+     浅色下明暗相反才符合直觉。 */
+  --input-bg: #ffffff;
+  --input-border: var(--border-strong);
+  /* 浅色下的标签配色 = 莫兰迪原值（本轮深色块要引用的就是它们） */
+  --tag-bg: rgba(17,122,243,.10);  --tag-bg-hover: rgba(17,122,243,.16);  --tag-fg: #0B5FBF;
+  --tag-border: rgba(17,122,243,.22);
+  --tag2-bg: #ece0e6; --tag2-bg-hover: #e2d2db; --tag2-fg: #6a4a5c;
+  --tag2-fg-hover: #523a49;  --tag2-border: #dbc9d4;
+
+  /* 顶栏：实色，跟着页面底色走。原来这里是半透明白 + 背景模糊毛玻璃，
+     理由是「顶栏要能看见下面滚过去的内容」。
+     但代价是：全站其它表面都是实色 + 发丝线，就顶栏一个是玻璃，
+     而且半透明值每次换底色都要跟着改（下面那句「跟 --gray-50 走」
+     就是这个坑的记录）。
+     顶栏本来就有一条 border-bottom 底边线，分隔靠它就够 ——
+     实色 + 底线是同一套语言，还能少维护一个半透明值。 */
+  --topbar-bg: var(--bg);
+}
+
+/* ============================================================================
+   Basecamp 视觉质感层（置于 :root 主块之后，早期规则之前）
+   ----------------------------------------------------------------------------
+   为什么必须靠前：本文件后半段存在一处会让 Chrome 丢弃其后全部规则的选择器
+   （历史遗留的 `[data-bs-theme="dark"] ::-webkit-scrollbar`，已修）。
+   在那类问题彻底排查干净之前，把新增层放在文件前部最安全 ——
+   实测放在末尾时这 23 条规则会被整体吞掉，规则数停在 434。
+   ============================================================================ */
+
+/* ============================================================================
+   Basecamp 视觉质感层
+   ----------------------------------------------------------------------------
+   与同文件末尾的「Basecamp 配色主题层」配套，负责配色之外的**质感**：
+   6 层柔性阴影、12px 圆角、纯白浮起卡片、去统计卡顶部彩条。
+
+   ---------- 为什么阴影要用 em ----------
+   Basecamp 的阴影全是 em/相对单位，这样**阴影随字号缩放**：
+   文字密集的小卡片阴影浅，大面积卡片阴影重，视觉上自动分层。
+   用 px 做不到这一点 —— 8px 的小标签卡和 400px 的大面板会得到同样粗的边，
+   页面就会显得「到处都有灰边」。
+   公式复刻自 basecamp.com/assets/css/root.css 的 --box-shadow。
+
+   ---------- 为什么不直接删掉统计卡彩条 ----------
+   彩条是业务识别的最后一道线索（在建/待签/完工一眼可分）。
+   Basecamp 的做法是改用「状态点」——同样一眼可分，但不占垂直空间。
+   所以这里是**用状态点替代彩条**，而不是单纯删除信息。
+   ============================================================================ */
+
+/* ============================================================================
+   1. 阴影体系：6 层柔性阴影（Basecamp 招牌）
+   ============================================================================ */
+:root:not([data-bs-theme="dark"]) {
+  /* 主阴影：卡片/面板 */
+  --bc-shadow:
+     0 0 0 max(1px,.05em) rgba(11,21,27,.0625),
+     0 .2em 1.6em -.5em rgba(11,21,27,.04),
+     0 .3em 2.0em -.6em rgba(11,21,27,.04),
+     0 .3em  .8em -.7em rgba(11,21,27,.04),
+     0 .5em 1.2em -.9em rgba(11,21,27,.04),
+     0 .7em 1.6em -1.1em rgba(11,21,27,.04);
+
+  /* 轻阴影：表头、内嵌块、hover 前的常态 */
+  --bc-shadow-soft:
+     0 0 0 1px rgba(11,21,27,.02),
+     0 .2em 2.0em -1.2em rgba(11,21,27,.05),
+     0 .4em 2.8em -1.4em rgba(11,21,27,.08);
+
+  /* 抬升阴影：hover、下拉、弹出层 */
+  --bc-shadow-lifted:
+     0 0 0 max(1px,.05em) rgba(11,21,27,.08),
+     0 .6em  .4em -.8em rgba(11,21,27,.10),
+     0 1em  .8em -1.2em rgba(11,21,27,.15),
+     0 1.4em 1.2em -1.6em rgba(11,21,27,.20);
+
+  /* 把原有 3 档阴影 token 指向 Basecamp 体系，
+     这样全站现有的 var(--shadow-sm)/var(--shadow)/var(--shadow-lg) 无需逐处改写 */
+  --shadow-sm: var(--bc-shadow-soft);
+  --shadow:    var(--bc-shadow);
+  --shadow-lg: var(--bc-shadow-lifted);
+}
+
+[data-bs-theme="dark"] {
+  /* 深色底上靠「明度差 + 描边」分层，纯黑阴影看不见。
+     Basecamp 暗色版的做法与你的 build_dark_theme.py 一致：
+     描边权重提高，阴影只留很轻的一层。 */
+  --bc-shadow:
+     0 0 0 max(1px,.05em) rgba(225,229,232,.10),
+     0 .2em 1.6em -.5em rgba(0,0,0,.40),
+     0 .3em 2.0em -.6em rgba(0,0,0,.36),
+     0 .3em  .8em -.7em rgba(0,0,0,.30),
+     0 .5em 1.2em -.9em rgba(0,0,0,.26),
+     0 .7em 1.6em -1.1em rgba(0,0,0,.22);
+  --bc-shadow-soft:
+     0 0 0 1px rgba(225,229,232,.06),
+     0 .2em 2.0em -1.2em rgba(0,0,0,.34),
+     0 .4em 2.8em -1.4em rgba(0,0,0,.28);
+  --bc-shadow-lifted:
+     0 0 0 max(1px,.05em) rgba(225,229,232,.14),
+     0 .6em  .4em -.8em rgba(0,0,0,.45),
+     0 1em  .8em -1.2em rgba(0,0,0,.42),
+     0 1.4em 1.2em -1.6em rgba(0,0,0,.38);
+
+  --shadow-sm: var(--bc-shadow-soft);
+  --shadow:    var(--bc-shadow);
+  --shadow-lg: var(--bc-shadow-lifted);
+}
+
+/* ============================================================================
+   2. 圆角：Basecamp 用 12px / 9px，比原 8px / 6px 更柔
+   ============================================================================ */
+:root {
+  --radius: 12px;
+  --radius-sm: 9px;
+}
+
+/* head 中已有 :root{--radius:8px}，且位置更靠后导致覆盖。
+   这两个是纯设计 token（无组件需要覆盖），用 !important 锁定，
+   避免再被后续 :root 块反向覆盖。 */
+:root {
+  --radius: 12px !important;
+  --radius-sm: 9px !important;
+}
+
+/* ============================================================================
+   3. 卡片：纯白浮起，不再靠 1px 描边划分层级
+   ----------------------------------------------------------------------------
+   Basecamp 的卡片**没有实描边**，那 6 层阴影的第一层
+   （0 0 0 max(1px,.05em) rgba(11,21,27,.0625)）本身就是极淡的 1px 环。
+   描边+阴影同时存在会显得「框住」，这是老式后台系统的典型观感。
+   ============================================================================ */
+:root:not([data-bs-theme="dark"]) .card,
+[data-bs-theme="dark"] .card {
+  border: none;
+  box-shadow: var(--bc-shadow);
+  background: var(--surface);
+  border-radius: var(--radius);
+}
+
+/* 卡片内的次级块（统计卡等）用轻阴影，形成三级层次：
+   页面底 → 卡片(主阴影) → 内嵌块(轻阴影) */
+.stat-card {
+  border: none;
+  box-shadow: var(--bc-shadow-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  /* 顶部彩条 → 见下方状态点改造 */
+  border-top: none;
+  padding: 14px 16px 15px;
+}
+
+/* ============================================================================
+   4. 统计卡：用「状态点」替代顶部彩条
+   ----------------------------------------------------------------------------
+   彩条占 2~3px 垂直空间且颜色不可读（纯装饰），状态点只占一行文字的高度，
+   但颜色与含义绑定，信息密度更高 —— 这是 Basecamp 的取舍。
+   原：border-top: 2px solid var(--stat-accent)
+   新：标题前一个圆点，颜色仍由 --stat-accent 驱动（逻辑不变）
+   ============================================================================ */
+.stat-card .stat-label {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+.stat-card .stat-label::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--stat-accent, var(--primary));
+  flex: 0 0 7px;
+}
+
+/* 正负值状态（.is-neg / .is-pos）原本靠彩条区分，改用点色区分 */
+.stat-card.is-neg .stat-label::before { background: var(--danger); }
+.stat-card.is-pos .stat-label::before { background: var(--success); }
+
+/* stat-sm 紧凑卡：点缩到 6px */
+.stat-card.stat-sm .stat-label::before { width: 6px; height: 6px; flex-basis: 6px; }
+
+/* ============================================================================
+   5. 按钮：Basecamp 的 8px 圆角 + hover 抬升
+   ============================================================================ */
+.btn {
+  border-radius: 9px;
+  transition: background-color .15s ease, border-color .15s ease,
+              box-shadow .15s ease, color .15s ease;
+}
+.btn:hover { box-shadow: var(--bc-shadow-soft); }
+.btn-primary:hover,
+.btn-success:hover,
+.btn-danger:hover {
+  box-shadow: var(--bc-shadow-lifted);
+}
+
+/* ============================================================================
+   6. 表格：Basecamp 表头无底色，靠上方 1px 线分隔
+   ============================================================================ */
+:root:not([data-bs-theme="dark"]) .table thead th,
+[data-bs-theme="dark"] .table thead th {
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  font-weight: var(--fw-strong);
+}
+.table tbody td { border-bottom: 1px solid var(--border); }
+.table tbody tr:last-child td { border-bottom: none; }
+
+/* ============================================================================
+   7. 状态标签：Basecamp 用「淡色底 + 同色系深字」，无边框
+   ----------------------------------------------------------------------------
+   原有 state-badge 沿用你已验算过的 --*-ink / --*-bg（全部达 AA），
+   这里只统一形态：去边框、圆角 6px、字重 600。
+   ============================================================================ */
+.state-badge,
+.badge-status {
+  border: none;
+  border-radius: 6px;
+  font-weight: var(--fw-strong);
+  padding: .18rem .5rem;
+}
+
+/* ============================================================================
+   8. 下拉/弹出层：抬升阴影
+   ============================================================================ */
+.dropdown-menu,
+.select2-container--default .select2-results__option--highlighted,
+.form-control:focus,
+.form-select:focus {
+  box-shadow: var(--bc-shadow-lifted);
+}
+
+/* ============================================================================
+   9. 侧栏：Basecamp 用极轻底色，不靠描边切分
+   ============================================================================ */
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+.sidebar-nav .nav-item {
+  border-radius: 9px;
+  transition: background-color .15s ease, color .15s ease;
+}
+
+/* ============================================================================
+   10. 输入框：focus 时用主色环，不是重描边
+   ============================================================================ */
+.form-control,
+.form-select {
+  border-radius: 9px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 .2rem rgba(20,109,199,.14);
+}
+
+/* ============================================================================
+   11. 全局过渡：Basecamp 的 0.15s ease
+   ============================================================================ */
+.card, .btn, .form-control, .form-select, .sidebar-nav .nav-item,
+.dropdown-menu, .badge, .stat-card {
+  transition-duration: .15s;
+  transition-timing-function: ease;
+}
+
+
+/* ============================================================
+   深色主题
+   ============================================================
+   底色**不是纯黑**（#000），而是抬到 L≈10% 的深灰绿：纯黑配纯白
+   对比度过冲、刺眼，长时间盯着数字表格尤其难受。抬起来之后正文
+   对比 15.6:1，落在「比 AAA 还高一点」的位置，反而更耐看。
+
+   整套值由 tools/build_palette.py 产出并逐档验算，别手改——
+   深色主题最常见的翻车是「暗底 + 暗字」：浅色主题里看着正常的
+   gray-500/gray-600，搬到深底上就直接消失了。
+
+   切换方式见 base.html 里的 theme.js（写 localStorage，
+   且在 <head> 里就设好 data-bs-theme，避免刷新时白闪）。 */
+/* ============================================================================
+   深色主题 v2：炭灰三层 + 金色强调 + 四色语义
+   ----------------------------------------------------------------------------
+   值全部由 tools/build_dark_theme.py 反解产出，**别手改**。
+   改法：改那个脚本里的目标值，重跑，把输出粘回来。
+
+   ---------- v1 -> v2 改了什么，为什么 ----------
+   v1 是「近黑底 #0a0a0a + 满屏金」，实际用起来两个问题：
+     1. 底太死。#0a0a0a 亮度 0.0030，接近纯黑，卡片只能靠极小的
+        明度差分层，在 OLED 上等于没有边界。
+     2. 金色覆盖七处（链接 / 侧栏图标 / 状态徽章 / 进度条 / 主按钮 /
+        卡片标题 / 单号底色），满屏金 = 把「黄金」当「油漆」用了。
+   v2 的方向：
+     · 底色抬到 #121212，并明确三层抬升 #121212 / #1E1E1E / #2D2D2D
+     · 卡片额外加 1px rgba(255,255,255,.08) 描边 —— **明度差 + 描边双保险**，
+       只靠色差在 OLED 上会糊
+     · 金色只承担四件事：链接、主按钮、进度条、金额强调
+     · 状态不再靠金色区分，改为四色语义（绿 / 橙 / 红 / 蓝）
+
+   ---------- 为什么不能沿用 v1 的明度参数 ----------
+   WCAG 亮度权重 R 0.2126 / G 0.7152 / B 0.0722，绿光权重最高、蓝色最低，
+   **同样的 HSL 明度，绿色看起来比蓝色亮得多**。更关键的是这一轮底色
+   从 #0a0a0a（亮度 0.0030）抬到 #121212（亮度 0.0060），同样的前景色
+   对比度会**下降** —— v1 的数字不能跨底色搬运，必须重算。
+   ============================================================================ */
+[data-bs-theme="dark"] {
+  /* ---------- 中性色阶 ----------
+     surfaces（50~300）饱和度取 0：那是面积最大的地方，一点偏色就被读成
+     「底色脏」。文字档（400~700）取 0.02~0.04 的**暖中性**，与金色同色温；
+     800 / 900 是用户直接给定的值，不反解。 */
+  --gray-50:#121212;
+  --gray-100:#181818;
+  --gray-200:#2c2c2c;
+  --gray-300:#404040;
+  --gray-400:#5b5c5f;
+  --gray-500:#73757a;
+  /* 这一档承载「已收 ¥13,763,500」「分包 + 采购 + 费用」这类**真实信息**，
+     必须读得到，所以按**卡片底**（#1E1E1E）而不是页面底反解。
+     第一次按页面底解出 #838079，页面底 4.75:1 看着没问题，
+     到了卡片底只剩 **4.23:1** —— 全站 234 处不达标全来自这一档。
+     教训：同一支色会用在大背景、卡片、表单、侧栏多种底上，
+     只验最暗的那个底是不够的，要验**最亮**的那个。 */
+  --gray-600:#9CA3AF;
+  --gray-700:#a4a6ab;
+  --gray-800:#d3d4d7;
+  --gray-900:#E5E7EB;
+
+  /* ⚠ 深色主题必须重绑这几个「文字语义档」。
+     它们在 :root 里是 var(--gray-600) 的间接引用，而 --gray-600
+     在这里是 #918f88 —— 对**卡片底**（#1E1E1E）只有 4.26:1，
+     达不到 AA 正文要求的 4.5:1。
+
+     之前没暴露是因为这些类大多被 (0,2,0) 以上特异度的规则覆盖过
+     （.text-muted 有 `!important` 深色覆盖），所以「间接引用」这一层
+     一直没被真正读到。现在采购页的 .m-pct 直接用了 var(--text-muted)，
+     于是这条隐患浮出来了：次要文字掉到 4.26:1。
+
+     这里绑到 --gray-700（#a8a6a1），它对卡片底 7.1:1，
+     是深色主题本来就该用的次要文字档。
+     深色块里新增变量时记得同步 print 兜底块（test_print_theme 会查）。 */
+  --text-muted: var(--gray-700);
+  --text-2: var(--gray-700);
+  /* ⚠ 深色必须重绑 --primary。
+     之前它没定义，于是**一直继承浅色的 #146DC7**（深绿）。
+     平时看不出来——那些用到 --primary 的地方（链接、选中竖线、焦点环）
+     在深色下也跟着是绿的，混在一套强调色界面里就成了「第三种颜色」。
+
+     换肤时新增了 `.proj-hero { border-left: 3px solid var(--primary) }`
+     才把它显出来：深色横幅上突然出现一条与界面不协调的竖线。
+
+     v2 绑的是金色字面值 #c9a227，v3 换成与 --primary-ink 同一支蓝绿。
+     ⚠ 这里**不能**直接绑 --accent（#14B8A6）：那个是「强调色本体」，
+     作文字压在表格行的叠色底上只有 3.80:1，达不到 4.5:1。
+     --primary-ink 才是为文字档反解过的 #3E9AF6（叠色底 4.79:1）。 */
+  --primary: #3E9AF6;
+  /* 深色下的品牌浅底：强调色的 16% 透明层，而不是浅色主题那个 #F5F9FF。
+     后者在黑底上是一块亮斑（test_no_light_surfaces_in_dark 会拦）。 */
+  --brand-light: rgba(20, 184, 166, .16);
+
+  /* rgb 三元组必须跟着改：Bootstrap 的 -rgb 变量是写死的十进制数，
+     换色阶而忘了它，hover / 阴影 / 条纹会继续用旧色调。
+     这几个都是从上面色阶里取同一支颜色反算的：
+       gray-900 #E5E7EB -> 229,231,235
+       gray-600 #9CA3AF -> 156,163,175
+       gray-500 #73757A -> 115,117,122
+       gray-200 #2c2c2c ->  44, 44, 44
+       accent  #14B8A6 ->  20,184,166 */
+  --bs-emphasis-color-rgb: 229, 231, 235;   /* = --gray-900 #E5E7EB */
+  --bs-secondary-color-rgb: 156, 163, 175;   /* = --gray-600 #9CA3AF */
+  --bs-secondary-rgb: 156, 163, 175;
+  --bs-secondary-bg-rgb: 44, 44, 44;
+  --bs-tertiary-color-rgb: 115, 117, 122;   /* = --gray-500 #73757A */
+
+  /* 链接走蓝绿。它是强调色唯一大面积出现的地方（项目名、单号、合同号），
+     所以每一个底都验算过：大背景 7.72:1 / 卡片 6.87:1 /
+     悬停底 5.67:1 / **叠色底 4.79:1**（表格行，最亮的那种底）。
+     hover 用提亮档 #88d3cb，不用反色 —— 反色在深底上等于「变暗」。 */
+  --bs-link-color: #3E9AF6;
+  --bs-link-hover-color: #88d3cb;
+  --bs-link-color-rgb: 71, 166, 156;
+  --bs-link-hover-color-rgb: 136, 211, 203;
+  /* 表格行悬停：中性白 3.5%，**不染强调色**。
+     行悬停不是链接，染上色相就是「把强调色当油漆用」。
+     为什么必须是中性：它会和 --zebra(白 2.8%) 叠加，两层不同色相的
+     半透明叠在一起会产生偏色（实测绿调那版叠出 rgb(38,41,40)，
+     把红色文字拉到 4.17:1）。同一支白叠多少层都是中性灰。 */
+  --bs-table-hover-bg: rgba(255, 255, 255, .035);
+
+  /* ---------- 表面三层：抬升感 ----------
+     只靠明度差不够：#121212 与 #1E1E1E 的对比只有 1.12:1，
+     OLED 屏上几乎看不出边界。所以卡片再加 1px 半透明白描边。 */
+  --surface: #1E1E1E;
+  --surface-2: var(--gray-100);
+  --surface-3: #2D2D2D;          /* 悬停态 / 下拉菜单 / 弹出层 */
+  --card-border: rgba(255, 255, 255, .08);
+
+  /* 输入框要比背景**更暗**才有「凹陷、可以往里填」的感觉。
+     比背景亮的话，用户会以为那是一块可以点的区域。 */
+  --input-bg: #0E0E0E;
+  --input-border: #404040;
+
+  /* ---------- 标签（表格里那些带底色的小徽章）----------
+     浅色主题里它们是莫兰迪浅底 + 深字（浅绿/浅粉/浅棕），
+     深色下必须反转。但**不要各自再调一套**：本轮之前这四类
+     （项目 / 材料 / 客户 / 供应商+分类）在深色块里各写各的字面值，
+     换色时漏掉任何一类都看不出来，直到某个页面出现一块旧色斑。
+
+     现在收成两组：主色系（项目/材料/客户）走金色，
+     藕粉系（供应商/分类）保留色相以便扫视时能分开。
+     每组三个变量（常态 / 悬停 / 描边），组件块只引用不定义。 */
+  --tag-bg:        rgba(20, 184, 166, .14);
+  --tag-bg-hover:  rgba(20, 184, 166, .24);
+  --tag-fg:        #5fd4c8;   /* 金底上的浅金调，比 #c9a227 更亮一档 */
+  --tag-border:    rgba(20, 184, 166, .30);
+
+  --tag2-bg:        #241a20;
+  --tag2-bg-hover:  #2e2028;
+  --tag2-fg:        #d9a8c0;
+  --tag2-fg-hover:  #e8bfd4;
+  --tag2-border:    #3a2a34;
+
+  /* ---------- 强调色：蓝绿 ----------
+     用户在「青色 #06B6D4 / 蓝绿 #14B8A6」之间选了蓝绿。
+     为什么不是青色 —— 这是**算出来的**，不是审美偏好：
+     成功态那支绿 #22C55E 必须保留（「已完成/已付清」要一眼可辨），
+     而青色与信息蓝 #6c97dd 的色相只隔 28.4°，两支语义色靠得太近；
+     蓝绿与成功绿隔 31.3°、与信息蓝隔 43.8°，四支色相最散开。
+     计算见 tools/eval_dark_v3.py，验算见 tools/build_dark_theme.py。
+
+     浅色主题仍是绿色品牌 —— 深浅两套独立推导，不能靠「把颜色反过来」。 */
+  --accent: #14B8A6;
+  /* 链接文字比强调色本体亮一档：它要压在**叠色底**（表格行 + 斑马纹）上，
+     那是最亮的一种底。#3E9AF6 对叠色底 4.79:1，本体只有 3.80:1。 */
+  --primary-ink: #3E9AF6;
+
+  /* ---------- 三个「压着强调色的底」+ 各自的文字色 ----------
+     ⚠⚠ 下面这八行是**全块唯一的声明处**。v2 金色那一轮在更靠后的位置
+       又追加过同样这八条，位置更靠后所以生效，把这里的值全盖掉了 ——
+       症状是「截图整屏还是金色，但 --accent / --primary-ink 已是新蓝绿」
+       （那两条只声明在这一份，没被重复覆盖）。那份重复声明已删。
+       → tests/test_duplicate_decls.py 现在会挡住这一类。
+
+     ⚠ 这一组换过**一次方向**，值得记下来：
+       金色（亮度 0.12~0.16，偏暗）→ 满格底上压**白**字
+       蓝绿（亮度 0.372，偏亮）    → 满格底上压**近黑**字
+     同一条规则「底越亮，字越暗」，两种强调色恰好落在不同侧。
+     所以这些变量不是冗余，而是「换强调色那一轮必然要用到」的东西：
+     共用一个 --on-primary 的话，换色时必有一处错，而且错在哪个主题
+     上取决于强调色亮度，事先看不出来。
+
+     别混用这三个：
+       --accent-deep  深底 + **白**字 5.31:1  ← 侧栏选中 / 表格选中行
+       --accent-bar   中底 + 近黑字 4.99:1  ← 进度条
+       --accent-full  亮底 + 近黑字 9.06:1  ← 主按钮 / tab 选中
+     渐变的**深端必须另算**，不能直接拿 --accent-deep：
+       白字要 4.5:1 时底亮度上限 0.115，近黑字要 4.5:1 时下限 0.1940。
+     两者**无交集** —— 一条渐变上不可能同时满足白字和近黑字 4.5:1。
+     所以整条渐变统一走近黑字（#0a0a0a），深端按「近黑 4.5:1」反解
+     成 #3a877e（亮度 0.2004），而不是沿用白字路线的 #28776f（只有 3.73:1）。
+     浅端 #5DA1F8 近黑 9.06:1。 */
+  --accent-deep:  #28776f;   /* 选中态底（侧栏选中 / 表格选中行） */
+  --accent-bar:   #298e83;   /* 进度条 / 悬停 */
+  --accent-full:  #5DA1F8;   /* 满格底（主按钮 / tab 选中） */
+  --on-accent:      #ffffff;    /* 压在 --accent-deep 上：5.31:1 */
+  --on-accent-bright: #0a0a0a;  /* 压在 --accent-full 与整条渐变上：4.72~9.06:1 */
+  --primary-grad: linear-gradient(135deg, #3a877e 0%, #5DA1F8 100%);
+  --primary-grad-hover: linear-gradient(135deg, #5DA1F8 0%, #3a877e 100%);
+  --on-active-grad: #0a0a0a;
+
+  /* ---------- 四色语义 ----------
+     用户要求四色全上：成功绿 / 警告橙 / 错误红 / 信息蓝。
+     每个色都同时对**大背景**与**卡片底**验算过 ——
+     两层底差半个档，只验一层会漏（danger 就是这么漏的：
+     #EF4444 对大背景 4.98:1 过，对卡片底只有 4.43:1）。 */
+  --success-ink: #0D7A2C;   /* 叠色底 6.13:1 */
+  --warning-ink: #F97316;   /* 叠色底 4.98:1 */
+  /* ⚠ danger 与 info 的原定值（#EF4444 / #3B82F6）都被抬亮了。
+     原因不是「对卡片底差一点」，而是它们要压在**两层半透明叠色底**上：
+       斑马纹(白 2.8%) + 行悬停(白 3.5%) 叠在卡片底 = #2c2c2c
+     这是表格里最亮的一种行底，而**红色恰恰最容易撞上它**
+     —— 表格里的负数金额、逾期金额全是红。第一版按纯卡片底反解，
+     红看着有 4.43:1，到了叠色底只剩 3.71:1，
+     而现象是「待办总览某个金额 4.17:1」，极难定位。 */
+  --danger-ink:  #de7a73;   /* 叠色底 4.75:1  <- 原定 #EF4444 */
+  --info-ink:    #6c97dd;   /* 叠色底 4.73:1  <- 原定 #3B82F6 */
+
+  /* 徽章底由脚本反解（每种色的暗底上限不同，写死一套会让某一档压线）。
+     浅底在深色主题里会像一排小灯泡，所以一律「暗底 + 亮字」。 */
+  --success-bg: #F1FAF2;
+  --warning-bg: #372a1e;
+  --danger-bg:  #3d2321;
+  --info-bg:    #1f2a3a;
+
+  /* 语义描边按钮：亮色 + **近黑**文字。别写白字 ——
+     白字压 #22C55E 只有 1.4:1。 */
+  --success-btn: var(--success-ink);
+  --on-success-btn: #0a0a0a;
+  --danger-btn: var(--danger-ink);
+  --on-danger-btn: #0a0a0a;
+
+  /* 项目详情页横幅：同属卡片表面族，比卡片略亮一档，
+     用暖灰色相而不是亮度做区分。 */
+  --proj-hero-bg: linear-gradient(135deg, #242424 0%, #1d1d1d 60%, #191919 100%);
+
+  /* 深色下的表头：比卡片略暗一档。表头本该是这一块的标题，
+     理应更突出 —— 但「更突出」不等于「更亮」：一屏十几张表头都更亮，
+     反而比没有层级更乱。 */
+  --head-bg: var(--gray-100);
+  --head-fg: var(--gray-900);
+  --zebra: rgba(255, 255, 255, .028);
+
+  /* 深色下的卡片标题栏：底比卡片**暗**一档而不是亮（同上）。
+     标题文字用正文色，不用强调色 —— 强调色留给链接与金额。 */
+  --primary-text: #3E9AF6;   /* 与链接同档：这两个位置都是「可点/可看」的语义 */
+  --card-head-bg: linear-gradient(90deg, #1a1a1a, #161616);
+  --card-head-fg: var(--gray-900);
+  --card-head-border: var(--card-border);
+  --card-head-muted: var(--gray-600);
+  --card-head-solid: #1a1a1a;
+  --card-head-solid-border: var(--card-border);
+  /* 顶栏跟着 --bg 走（浅色 #F5F9FF / 深色 #121212），
+     不再是半透明黑：顶栏已经拍平成实色，
+     「半透明白会在深色界面顶部横一条亮带」那个坑一起消失了。 */
+  --topbar-bg: var(--bg);
+
+  /* 深色主题里阴影几乎不可见（黑上加黑），改用「描边 + 更深的暗部」
+     来制造层次 —— 这也是 Linear 深色模式的实际做法。 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow: 0 2px 8px rgba(0, 0, 0, .42);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, .55);
+
+  /* 侧边栏：与卡片同属中间层（#1E1E1E），稍微压深一档让内容区更突出。
+     未选中项是灰的，**图标也一样是灰的** —— v1 把链接色套在
+     a:not(.btn) 上，导致整条侧栏的图标和文字全金，这是要修的头号问题。
+     未选中用 --gray-700（7.70:1）而不是 --gray-600（5.50:1）：
+     侧栏是导航，用户在**快速扫视**里定位当前页，需要比正文次文本更亮，
+     否则「当前在哪一页」这件事本身就看不清。 */
+  /* 原来这里是一段竖向渐变（#1b1b1b → #171717 → #141414），
+      理由是「让侧栏有纵深」。但它回答不了任何设计问题：三档的
+      明度差极小（一屏之内几乎看不出），却让整个侧栏没有一块实色，
+      深色主题的其它表面全是实色，就它一个是渐变。
+      拍平成 #1a1a1a —— 落在原渐变的值域内，比卡片底 #1E1E1E 暗一档，
+      「压深一档让内容区更突出」这个意图原样保留。 */
+  --sidebar-bg: #1a1a1a;
+  --sidebar-text: var(--gray-700);
+  /* 侧栏选中块的第二档：同明度（HSL L=0.312）而饱和度更高，
+     做出渐变区分而不是明度差 —— 明度一动就有一端压不住白字。
+     原来写 #2f8a81：白字只有 4.14:1，一屏十三个导航项全部不达标。
+     白字要 4.6:1 的话底亮度上限是 0.115，两端都得压在这条线以下，
+     所以渐变只能靠饱和度做，不能靠亮度。 */
+  --sidebar-active: linear-gradient(90deg, var(--accent-deep), var(--accent-deep));
+  /* 分组标题比导航项更弱一级但仍要可读，用 --gray-600（4.63:1）。
+     「未分配项目」是**警示**语义，走橙，不用金色。 */
+  --sidebar-group-fg: var(--gray-600);
+  --unassigned-fg: var(--warning-ink);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  /* 基准从 15px 改成 14px（Carbon productive body-01）。
+     这一处改动影响面最大：原来 .small 是 .875em，父级 15px 时算出
+     13.125px；基准改成 14px 后它就是 12.25px——离 12px 只差 0.25。
+     真正的修法是下面那条「禁用 em 刻度」的规则，但基准对齐了，
+     残余误差才不会再冒出来。 */
+  font-size: var(--fs-1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Carbon body-01：14px 配 +0.16px 字距。
+     中文方块字不靠字距拉开就偏挤，尤其在 12px 小字上更明显。 */
+  letter-spacing: var(--ls-1);
+  /* 20px / 14px = 1.43。中文在 1.4 以下会显得拥挤、上下笔画粘连，
+     所以这里用 px 而非无单位倍数——倍数会随字号漂移，行高不跟着字号走。 */
+  line-height: var(--lh-1);
+  /* 数字默认不用等宽——正文里的年份、数量用比例数字更自然；
+     需要等宽的地方由 .text-money / .num 显式开启 */
+  font-variant-numeric: normal;
+}
+
+/* ============================================================
+   排版刻度：把 Bootstrap 的 em 刻度钉死成 px
+   ============================================================
+
+   为什么要写这一段
+   ---------------
+   Bootstrap 5 的字号工具类里，`.small` 是相对单位：
+
+       .small   { font-size: .875em }     ← 父级 15px 就变 13.125px
+       .fs-1    { font-size: 1rem }       ← 跟随 html，不受父级影响
+       .fs-2    { font-size: 1.25rem }    ← 20px
+
+   改造前实测全站渲染出 **26 种**字号，最大的一类 13.125px 出现
+   **43 次**——它不是某个人写的，是 `.small` 套在不同父级里级联出来的。
+   同一句话在「15px 的卡片标题栏里」和「14px 的表体里」用同一个
+   `.small`，渲染出来是两个尺寸。这正是「有的字大有的字小」的根因。
+
+   修法：把 `.small` 和 `.fs-*` 全部改写成**绝对 px**，并对齐到刻度。
+   这样模板里写 `.small` 的行为从此与父级字号无关。
+
+   加 `.fs-7/8` 两档不是多给自由，而是把 Bootstrap 原有的半档尺寸
+   （24px/30px）收编进刻度——它们以前能用但不在规范里，现在是 24px。
+
+   ── 踩过的坑 ────────────────────────────────────────────
+   本块最初把上面三行 Bootstrap 定义**原样带着行内注释**写进注释里，
+   像这样：`.small { font-size: .875em }   // 父级 15px → 13.125px`。
+   问题在于 CSS 注释**不嵌套**：正文里那个行内注释的结束符会提前
+   闭合外层注释，其后的内容全部变成「活」的 CSS 被解析器照单执行。
+   后果是本块整条规则被吞掉，页面照旧按 .875em 渲染——
+   而服务端测试全绿，因为 HTML 里根本没提到字号。
+   教训：**注释里不要出现注释定界符**，要举例就用 // 或 ── 这种非定界符。 */
+/* 把 `.small`、`<small>` 元素、`.form-text`、`<code>` 一并钉死。
+   Bootstrap 的定义是 `.small, small { font-size: .875em }`、`.form-text`
+   与 `code` 也是 `.875em` —— 全都是相对父级的。只覆盖 `.small` **类**的话，
+   模板里写 `<small class="text-muted">`（表格辅助说明，很常见）
+   仍然级联成 10.5px。实测里 10.5px 与 12.25px 两个残留档位
+   分别来自 `<code>` 与 `.form-text`，都是这个原因。 */
+.small, small, code, kbd, samp, pre,
+.fs-6, .fs-7, .fs-8 { font-size: var(--fs-0); letter-spacing: var(--ls-0); }
+.form-text {
+  font-size: var(--fs-0);
+  line-height: var(--lh-0);
+  letter-spacing: var(--ls-0);
+}
+
+/* `.fs-*` 必须带 !important。
+   Bootstrap 把这些工具类生成成 `.fs-1{font-size:1rem!important}`——
+   优先级是 !important，普通声明无论写在哪儿都赢不了。
+   不加这一条，本块看起来写得好好的，实际一条都没生效
+   （踩过一次：以为覆盖成功，页面上 fs-4 仍是 Bootstrap 的 2rem=32px，
+    刻度里根本没有这一档）。
+
+   Bootstrap 原生档位 → 本项目刻度的映射：
+     fs-1 1rem/16px → 16px（不变）
+     fs-2 1.25rem   → 20px（不变）
+     fs-3 1.5rem/24px → 24px（不变）
+     fs-4 2rem/32px   → **24px**（32px 不在刻度内，往下压一档）
+     fs-5 2.5rem/40px → **28px**（同上；40px 是展示型字号，
+                             产品界面里没有它的位置）
+     fs-6 1rem/16px   → **12px**（与 .small 同档，见上） */
+.fs-1 { font-size: var(--fs-2) !important; }
+.fs-2 { font-size: var(--fs-3) !important; }
+.fs-3 { font-size: var(--fs-4) !important; }
+.fs-4 { font-size: var(--fs-4) !important; }
+.fs-5 { font-size: var(--fs-5) !important; }
+
+/* 按钮与徽章的字距。
+   Bootstrap 的 `.btn` 不设 letter-spacing，于是按钮里的字在中文下
+   比旁边的段落更挤——按钮通常是页面上最需要一眼看清的东西。 */
+.btn { letter-spacing: var(--ls-1); }
+
+/* 20px 及以上字距归零。
+   Carbon 的 productive 标题档（heading-03 20px / heading-04 28px）
+   letter-spacing 明确是 0：小字要靠字距拉开笔画，大字再拉开字就散了。
+   body 上的 --ls-1 会被继承下来，所以这里要主动压回去。 */
+.fs-3, .fs-4, .fs-5,
+h1, h2, h3, h4,
+.stat-num, .stat-card .stat-value, .login-icon, .empty-state h4 {
+  letter-spacing: 0;
+}
+.fs-1  { font-size: var(--fs-1); }
+.fs-2  { font-size: var(--fs-2); }
+.fs-3  { font-size: var(--fs-3); }
+.fs-4  { font-size: var(--fs-4); }
+.fs-5  { font-size: var(--fs-5); }
+
+/* 字重只用 400 / 600。
+   改造前 500 出现 46 次、700 出现 43 次。中文在 500 这一档多数系统
+   没有对应字形，浏览器要么合成要么就近落到 400/600——于是「设了 500」
+   的地方和「设了 400」的地方看起来一模一样，500 是无效声明。
+   这里把 700 降为 600（保留 bold 的语义，视觉更接近规范），
+   500 降为 400（承认它本来就渲染成 400）。
+
+   `.fw-bold` 必须一起改：模板里用了 52 处 `fw-bold`，
+   改类名要动 52 个文件，而改一条规则就够——所以从工具类的源头下手。
+   这里**必须带 !important**：Bootstrap 把工具类生成成
+   `.fw-bold{font-weight:700!important}`，普通声明赢不了。
+   不加的话改了等于没改，页面上还是 700。 */
+b, strong, .fw-bold, .fw-semibold { font-weight: var(--fw-strong) !important; }
+.fw-normal, .fw-light { font-weight: var(--fw-normal) !important; }
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6 { font-weight: var(--fw-strong); }
+
+/* 表格与表单里的标签：小字要有对应行高，否则跨行时上下会挤。
+   12px 配 16px 是 Carbon label-01 的规格。 */
+.table { font-size: var(--fs-1); line-height: var(--lh-1); }
+.table th {
+  font-size: var(--fs-0);
+  line-height: var(--lh-0);
+  letter-spacing: var(--ls-0);
+  font-weight: var(--fw-strong);
+}
+
+/* ============ 布局 ============ */
+.app-wrapper { display: flex; min-height: 100vh; }
+
+/* ---- 侧边栏（深色渐变 + 玻璃） ---- */
+.sidebar {
+  width: var(--sidebar-width);
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; bottom: 0; left: 0;
+  z-index: 100;
+  box-shadow: 2px 0 16px rgba(29, 37, 47, .08);
+}
+
+.sidebar-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 22px 22px 18px;
+  font-size: 16px; font-weight: var(--fw-strong);
+  color: var(--card-head-fg);
+  letter-spacing: 0;
+}
+.brand-logo { height: 26px; width: auto; border-radius: 6px; }
+.brand-preview { width: 64px; height: 64px; border-radius: 10px; object-fit: contain; border: 1px solid var(--border); padding: 4px; background: var(--surface); }
+/* 项目详情 Tab 区块标题栏（浅绿背景） */
+#projTabsContent .proj-head {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  background: var(--card-head-bg);
+  color: var(--card-head-fg); font-weight: var(--fw-strong); font-size: 14px;
+  padding: 9px 14px; border-radius: 10px; margin-bottom: 12px;
+  border: 1px solid #deeae6;
+}
+#projTabsContent .card-header {
+  background: var(--card-head-bg);
+  color: var(--card-head-fg);
+  border-bottom: 1px solid var(--card-head-border);
+}
+#projTabsContent .card-header .text-muted { color: var(--card-head-muted) !important; }
+.phase-card { cursor: grab; }
+.phase-card:active { cursor: grabbing; }
+.phase-card-inner { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: var(--surface); transition: box-shadow .15s; position: relative; }
+.phase-del { position: absolute; top: 3px; right: 4px; opacity: .55; }
+.phase-del:hover { opacity: 1; }
+.phase-card:hover .phase-card-inner { box-shadow: var(--shadow-sm); border-color: #cdd9e6; }
+.phase-card.dragging { opacity: .5; cursor: grabbing; }
+.phase-card.dragging .phase-card-inner { border: 1px dashed var(--primary); }
+/* 施工阶段卡紧凑化 */
+/* 供应商表格：容器内双向滚动，表头冻结，滚动条可见 */
+.supplier-scroll {
+  max-height: 72vh;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.supplier-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #eef5f2;
+  box-shadow: 0 1px 0 #deeae6;
+}
+.supplier-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+.supplier-scroll::-webkit-scrollbar-thumb { background: #c9d3e0; border-radius: 5px; }
+.supplier-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+#phaseBlock .card-header { padding: 8px 14px; }
+#phaseBlock .card-header .form-control-sm { height: 28px; font-size: 14px; }
+#phaseBlock .card-body { padding: 10px 12px; }
+#phaseBlock .phase-card-inner { padding: 6px 8px; font-size: 14px; }
+#phaseBlock .phase-card-inner .form-select-sm { height: 26px; font-size: 12px; padding: 1px 6px; }
+#phaseBlock .phase-card-inner .input-group-sm .btn { font-size: 12px; padding: 2px 8px; }
+#phaseBlock .phase-card-inner .small { font-size: 12px; }
+#phaseBlock .phase-card-inner .btn-link { font-size: 12px; }
+.note-item {
+  border: 1px solid #e3e8ef; border-radius: 10px; padding: 10px 12px;
+  background: var(--card-head-solid); transition: box-shadow .15s; height: 100%;
+}
+.note-item:hover { box-shadow: var(--shadow-sm); border-color: #cdd9e6; }
+.note-editor {
+  border: 1px solid #d5dde6; border-radius: 8px; min-height: 120px; padding: 10px 12px;
+  font-size: 14px; background: #fff; outline: none;
+}
+.note-editor:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(20, 109, 199, .12); }
+.note-editor:empty:before { content: attr(data-placeholder); color: #8A949C; }
+.note-content img { max-width: 100%; border-radius: 8px; margin: 4px 0; }
+.note-content audio { width: 100%; margin: 4px 0; }
+.note-content ul, .note-content ol { padding-left: 1.2rem; }
+.note-content { font-size: 14px; line-height: 1.65; }
+/* 施工合同卡紧凑化 */
+#contract .form-label { margin-bottom: 2px; font-size: 12px; color: var(--text-2); }
+#contract .form-control-sm, #contract .form-select-sm {
+  height: 28px; font-size: 14px; padding: 2px 8px;
+}
+#contract input[name^="pt_"] { height: 26px; font-size: 12px; }
+#contract .table-sm { font-size: 14px; }
+#contract .card-header { padding: 8px 14px; }
+#contract .card-body { padding: 12px 14px; }
+#contract .proj-head { padding: 6px 10px; margin-bottom: 8px; font-size: 14px; }
+/* 品牌图标（没上传 logo 时的兜底字形）。
+   原来是把主色渐变裁切着填进字形里（CSS 那一套 gradient-text 写法）——
+   那是「给字上色」那一类花招：图标只有 24px，渐变两端根本分不出来，
+   唯一的实际效果是让这个图标和其它图标长得不一样。
+   实色 --primary 就够，层级由 .sidebar-brand 的字重和字号负责。 */
+.sidebar-brand i {
+  font-size: 24px;
+  color: var(--primary);
+}
+
+.sidebar-nav { flex: 1; padding: 10px 12px 14px; overflow-y: auto; }
+/* 导航分组标题（经营 / 项目管理 / 工程管理 …）
+   原来是 #7b988d，压侧栏渐变最亮的一档 #d4f2e7 只有 **2.63:1**，
+   一屏 7 个分组标题全部不合格。走变量是因为侧栏在浅色主题是浅绿底、
+   深色主题是近黑底，同一个字面值不可能两边都达标。 */
+.sidebar-group-title {
+  font-size: 12px; font-weight: var(--fw-strong); letter-spacing: .06em;
+  color: var(--sidebar-group-fg); text-transform: none;
+  padding: 14px 14px 5px; margin-top: 2px;
+}
+.sidebar-group-title:first-child { padding-top: 4px; }
+.sidebar-nav .nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px;
+  margin-bottom: 2px;
+  color: var(--sidebar-text);
+  text-decoration: none;
+  font-size: 14px;
+  border-radius: 10px;
+  transition: all .18s ease;
+  position: relative;
+}
+.sidebar-nav .nav-item i { width: 18px; text-align: center; font-size: 15px; opacity: .85; flex-shrink: 0; }
+.sidebar-nav .nav-item:hover {
+  background: rgba(20, 109, 199, .08);
+  color: var(--primary-text);
+}
+.sidebar-nav .nav-item.active {
+  /* 白卡浮起 + 主色竖条，而不是「绿色块 + 白字」。
+     一屏 24 个导航项里只有 1 个是选中态，用整块品牌色填充它，
+     等于让侧栏上唯一的高饱和区被「当前在哪」占着；
+     规范要的层次感来自「浮起来」，不是「涂成品牌色」。
+
+     侧栏底 --sidebar-bg #f2f8f5 与卡片白底只差 1.05:1，
+     纯靠明度差看不出边界，所以选中项靠**阴影 + 竖线**建立可见性，
+     两者缺一不可。深色下同样成立（深底 + 亮一点的卡 + 金竖线）。 */
+  background: var(--surface);
+  color: var(--primary-text);
+  font-weight: var(--fw-strong);
+  box-shadow: var(--shadow-sm);
+}
+/* 选中项左侧一条主色竖条。
+   为什么光靠色块不够：侧栏有二十多个同宽条目，色块只占其中一个，
+   竖排视线从上往下扫时，色块的边界不如一条竖线明确。
+   position:relative + ::before 是为了不额外占布局宽度。
+   ⚠ 用 --primary（浅色主色）而不是 --primary-ink：
+     后者在深色主题下是金色，会让深色侧栏里出现一条金线。 */
+.sidebar-nav .nav-item { position: relative; }
+.sidebar-nav .nav-item.active::before {
+  content: '';
+  position: absolute; left: 0; top: 6px; bottom: 6px;
+  width: 3px; border-radius: 0 3px 3px 0;
+  background: var(--primary);
+}
+.sidebar-nav .nav-item.active i { opacity: 1; }
+
+.sidebar-footer {
+  padding: 12px 20px;
+  border-top: 1px solid rgba(20, 109, 199, .16);
+}
+.sidebar-footer a { color: var(--sidebar-text); text-decoration: none; font-size: 14px; transition: color .15s; display: flex; align-items: center; gap: 8px; }
+.sidebar-footer a:hover { color: var(--primary-text); }
+
+/* ---- 主区域 ---- */
+.main {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  min-height: 100vh;
+}
+
+/* 顶部栏。实色 + 一条底边线；不再做背景模糊毛玻璃
+   （见 :root 和深色块里 --topbar-bg 的注释）。 */
+.topbar {
+  height: var(--topbar-height);
+  background: var(--topbar-bg);
+  border-bottom: 1px solid rgba(210, 223, 215, .9);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 28px;
+  position: sticky; top: 0; z-index: 90;
+}
+.topbar h5 { font-weight: var(--fw-strong); letter-spacing: 0; color: var(--text); }
+
+.content { padding: 26px 28px 34px; max-width: 100%; }
+
+/* ============ 登录页 ============ */
+.login-body {
+  background: #edf4f1;
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+/* 低对比度纹理帮助登录页保持层次，但不干扰表单阅读。 */
+.login-body::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cpath d='M0 48h96M48 0v96' stroke='%23c6dccd' stroke-width='1' opacity='.5'/%3E%3Ccircle cx='48' cy='48' r='2' fill='%2396c4a8' opacity='.45'/%3E%3C/svg%3E");
+  opacity: .7;
+}
+.login-card {
+  width: min(400px, calc(100vw - 32px));
+  background: rgba(255, 255, 255, .96);
+  border: 1px solid #dbe9e4;
+  border-radius: 12px;
+  box-shadow: 0 18px 42px rgba(29, 37, 47, .14);
+  position: relative;
+  z-index: 1;
+}
+.login-card .card-body { color: var(--text); }
+.login-card .form-label { color: var(--text-2); }
+.login-card .form-control {
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  border-radius: 8px;
+}
+.login-card .form-control::placeholder { color: var(--text-3); }
+.login-card .form-control:focus { background: var(--surface); color: var(--text); }
+.login-icon { font-size: 46px; color: var(--primary); }
+.login-card .alert { background: rgba(239, 68, 68, .08); border: 1px solid rgba(239, 68, 68, .35); color: var(--danger); }
+.login-card .text-muted { color: var(--text-3) !important; }
+.login-card .btn-primary {
+  background: var(--primary-grad);
+  border: none;
+  border-radius: 8px;
+  padding: 10px;
+  font-weight: var(--fw-strong);
+  /* 同上：这条重写了 .btn-primary 的 background，若不同步 color，
+     登录按钮在深色下就是白字压亮青绿（2.19:1）。 */
+  color: var(--on-active-grad, #fff);
+  box-shadow: 0 6px 16px rgba(20, 109, 199, .24);
+}
+
+/* ============ 卡片（圆角 + 细腻阴影） ============ */
+.card {
+  /* 卡片描边走变量：浅色主题是浅灰描边，深色主题是 rgba(255,255,255,.08)。
+   深色下加描边不是为了好看，是**必需品**——#121212 的页面底与 #1E1E1E 的
+   卡片底只差 1.12:1，纯靠明度差在 OLED 上等于没有边界，
+   屏幕会糊成一片「黑里的一块黑」。明度差 + 描边双保险才立得住。 */
+  border: 1px solid var(--card-border, #deeae6);
+  /* 描边不能盖住子元素：卡片标题栏本身也有边框，
+     两者重叠会让顶部出现一条 2px 的粗线（两段边框各 1px 叠在一起）。 */
+  overflow: visible;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  background: var(--surface);
+  transition: box-shadow .2s ease, transform .2s ease;
+}
+/* 悬停阴影压到「几乎看不见」：一屏几十张卡片时，
+   原值 0 7px 24px .09 让每张卡都浮起来，整页看着像一堆悬空的纸片。
+   规范给的是 0 4px 6px -1px rgba(0,0,0,.05) —— 只够表达「可交互」。 */
+.card:hover { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, .05); }
+.card-header {
+  background: var(--card-head-bg);
+  border-bottom: 1px solid var(--card-head-border);
+  border-radius: var(--radius) var(--radius) 0 0 !important;
+  font-weight: var(--fw-strong);
+  padding: 14px 18px;
+  color: var(--card-head-fg);
+}
+.card-footer { background: var(--gray-50); border-top: 1px solid var(--gray-200); }
+/* 卡片内边距 20px（原 16px）。规范写的是 24px，但这个系统的卡片
+   里有 6~9 列的表格，24px 会把表格挤到需要横向滚动
+   （test_procurement_table 会在 5 个视口逐个查溢出）。
+   20px 是「明显比原来松」且不触发滚动的上限。 */
+.card-body { padding: 20px; }
+
+/* ---- 统计卡：浅色底 + 深色数字 + 顶部语义色条 ----
+   数字比装饰更重要：底色压到极浅，金额用近黑，只有 4px 顶条与图标承载语义色。 */
+.stat-card {
+  border-radius: var(--radius-sm);
+  padding: 14px 16px 15px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  /* 顶条已改为「标题前的状态点」（见视觉质感层的 .stat-label::before）。
+     这里移除彩条 —— 两者同时存在会重复表达同一个语义，且点更省垂直空间。
+     原注释保留在下方，说明当初为何有彩条。 */
+  border-top: none;
+  /* 原：border-top: 2px solid var(--stat-accent, var(--primary));
+     当初的取舍是「顶条 3px×8 张卡 = 24px 连续色带太抢眼，收到 2px」。
+     改用状态点后，这个空间问题自然消失。 */
+  color: var(--text);
+  position: relative;
+  overflow: hidden;
+  transition: box-shadow .2s ease, transform .2s ease;
+  height: 100%;
+  min-height: 74px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+.stat-card .stat-num {
+  font-size: var(--fs-4); font-weight: var(--fw-strong); letter-spacing: -.01em;
+  color: var(--text); position: relative;
+  font-variant-numeric: tabular-nums; line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 密集版：同一屏要放十几张卡时用（项目详情的指标区就是 16 张）。
+   数字降到 --fs-3（20px，仍在六档刻度内），内边距与最小高度同步收紧——
+   只缩字号不缩行高，卡片高度不变，等于什么都没改。
+   24px 是给 4~6 张卡的常规场景留的，两档的差别只在密度，不在层级。 */
+.stat-card.stat-sm { padding: 9px 13px 10px; min-height: 60px; }
+.stat-card.stat-sm .stat-num { font-size: var(--fs-3); line-height: 1.2; }
+.stat-card.stat-sm .stat-label { font-size: var(--fs-0); }
+.stat-card .stat-label {
+  font-size: 12px; color: var(--text-muted); position: relative;
+  display: flex; align-items: center; gap: .25rem;
+  white-space: nowrap; overflow: hidden;
+  order: -1; margin-bottom: 1px;
+}
+.stat-card .stat-label i { flex-shrink: 0; color: var(--stat-accent, var(--primary)); }
+.stat-card .stat-label span {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; flex-shrink: 1;
+}
+.stat-card .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 3px; order: 1; }
+.stat-card:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+.stat-card.is-neg { --stat-accent: #b4574a; }
+.stat-card.is-neg .stat-num { color: #a0453a; }
+.stat-card.is-pos { --stat-accent: #5DA1F8; }
+.stat-card.is-pos .stat-num { color: var(--primary-text); }
+/* 负值（应收未收 / 超付）保持红色强调，Bootstrap 的 text-danger 在浅底上对比不足 */
+.stat-card .stat-num.text-danger { color: #a0453a; }
+.stat-card .stat-num.text-success { color: var(--primary-text); }
+
+/* 语义化统计卡配色：**取消顶条色相**，全部走中性主色。
+   原来是 6 种莫兰迪顶条（燕麦/藕粉/陶土/灰蓝/鼠尾草/石灰），
+   问题与采购页那 6 个色块一样：一屏 8 张统计卡排开就是 8 种颜色，
+   而这些数字里真正需要区分的只有「好 / 坏」两类，
+   剩下 6 种色相承载的其实是同级的分类信息。
+
+   类名保留（历史模板还在用，改名要动 70+ 文件），
+   但语义色相统一收到 --stat-accent = --primary：
+     类名只表示「这是哪个指标」，不再表示「它是什么颜色」。
+
+   ⚠ 这里**不能**把 grad-terra 映射成红色、grad-oat 映射成琥珀：
+     类名里的 terra/oat 是莫兰迪色号（陶土/燕麦），
+     不是「超支 / 待办」的意思。dashboard.html 里
+       grad-oat   = 应收余额   → 一个正常业务数字
+       grad-terra = 本月签约   → 一个正常业务数字
+     按颜色语义给它们上红/黄，等于把「正常的应收」显示成「出问题了」。
+     真正需要告警的卡片由模板显式标 .is-neg / .is-pos，
+     那是唯一可信的信号来源（.stat-card.is-neg / .is-pos）。 */
+.grad-pine, .grad-bean, .grad-oat,
+.grad-terra, .grad-lotus, .grad-sage,
+.grad-stone, .grad-indigo, .grad-blue, .grad-emerald,
+.grad-amber, .grad-rose, .grad-violet, .grad-cyan, .grad-slate {
+  --stat-accent: var(--primary);
+}
+
+/* ============ 表格（清新高可读） ============ */
+.table {
+  --bs-table-hover-bg: rgba(20, 109, 199, .06);
+  font-size: 14px;
+  color: var(--text);
+}
+.table > :not(caption) > * > * {
+  /* 12px/16px = .75rem 上下、16px = 1rem 左右。
+     原来的 .7rem/.9rem 让行高只有 38px，而规范要求「不少于 40px」——
+     财务表格逐行对账时，行与行贴得太近容易看错行，
+     而看错行在付款场景下是要出事的。 */
+  padding: .75rem 1rem;
+  vertical-align: middle;
+}
+/* 表头。
+   注意这里必须用刻度变量而不是写死值：`.table thead th` 的特异度
+   （0,1,2）高于前面那条 `.table th`（0,1,1），所以本规则里写什么
+   就是最终值。改造前这里硬写了 14px + letter-spacing: 0，
+   把上面刻度里定好的 12px + 0.32px 整个盖掉了——
+   这就是「表头和旁边的说明文字一样大、且中文挤在一起」的来源。 */
+.table thead th {
+  background: var(--head-bg);
+  color: var(--head-fg);
+  font-weight: var(--fw-strong);
+  font-size: var(--fs-0);
+  line-height: var(--lh-0);
+  letter-spacing: var(--ls-0);
+  border-bottom: 1px solid var(--border-strong);
+  border-top: none;
+  white-space: nowrap;
+  padding: .72rem .9rem;
+}
+.table thead th:first-child { border-top-left-radius: 10px; }
+.table thead th:last-child { border-top-right-radius: 10px; }
+.table tbody tr { transition: background .15s ease; }
+/* 斑马纹用半透明白而不是实色：深色主题下同样的写法才成立
+   （浅色主题里「白 + 透明」几乎看不出差别，深色主题里则是必要的提亮）。 */
+.table tbody tr:nth-child(even) { background: var(--zebra); }
+.table tbody td {
+  border-bottom: 1px solid #f0f3f2;
+  border-top: none;
+}
+.table tbody tr:last-child td { border-bottom: none; }
+.table-hover tbody tr:hover { background: rgba(20, 109, 199, .05); }
+.table-hover tbody tr:nth-child(even):hover { background: rgba(20, 109, 199, .08); }
+.table-responsive { border-radius: 12px; }
+.card > .table-responsive > .table { margin-bottom: 0; }
+
+/* 紧凑表格（明细/小表） */
+.table-sm > :not(caption) > * > * { padding: .52rem .65rem; }
+.table-sm thead th { font-size: 12px; }
+.table-sm tbody { font-size: 14px; }
+
+/* ============ 按钮（层级清晰） ============ */
+.btn { border-radius: var(--radius-sm); font-weight: var(--fw-normal); transition: all .18s ease; }
+   /* Basecamp 用 9px（--radius-sm 已是 9px），此处不再硬编码以免与 token 脱节。 */
+.btn-primary {
+  background: var(--primary-grad);
+  border: none;
+  /* ⚠ 文字色**必须**走 --on-active-grad，不能让 Bootstrap 的 #fff 留下来。
+     深色主题的渐变是蓝绿且整条都亮（亮度 0.20~0.37），
+     白字压亮端只有 2.19:1 —— 这是本轮对比度测试报出的最大一组（15 处）。
+     v2 是金色渐变（亮度 0.12~0.16）才碰巧白字够用，所以这条色一直没写。
+     浅色主题的渐变是深绿，白字 7.68:1 —— 又是按主题各算各的。 */
+  color: var(--on-active-grad, #fff);
+  box-shadow: 0 4px 12px rgba(20, 109, 199, .24);
+}
+.btn-primary:hover { background: var(--primary-grad-hover); color: var(--on-active-grad, #fff); transform: translateY(-1px); box-shadow: 0 6px 16px rgba(20, 109, 199, .32); }
+.btn-primary:focus-visible, .btn-outline-primary:focus-visible,
+.btn-outline-secondary:focus-visible, .btn-outline-danger:focus-visible,
+.btn-outline-success:focus-visible { box-shadow: 0 0 0 3px rgba(20, 109, 199, .18); }
+.btn-outline-primary { border-color: rgba(20,109,199,.45); color: #0F5AA5; }
+/* 原来这里是 color: #5DA1F8 —— 对白底只有 2.72:1，连「能看见」都不到。
+   #5DA1F8 是上一轮色相旋转的遗留（品牌色是 #146DC7，不是它）。
+   描边 #a6e2cb 同样偏亮，在白底上几乎看不见，一并压深。 */
+.btn-outline-primary:hover { background: #0F5AA5; border-color: #0F5AA5; color: #fff; }
+/* 次级按钮：白底 + 中性描边 + 深灰文字。
+   hover 时描边转主色、文字转主色 —— 让「可点」这件事在鼠标
+   移上去之前就成立，而不是移上去才知道。 */
+.btn-outline-secondary { border-color: var(--gray-300); color: var(--text-2); }
+.btn-outline-secondary:hover {
+  background: var(--brand-light, var(--gray-100));
+  border-color: var(--primary);
+  color: var(--primary-text);
+}
+.btn-filter-active { border-color: var(--primary) !important; background: rgba(20, 109, 199,.08) !important; color: var(--primary) !important; }
+.btn-filter-active:hover { background: rgba(20, 109, 199,.15) !important; color: var(--primary) !important; }
+.btn-filter-active .flt-badge { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 5px; margin-left:4px; border-radius:999px; background:var(--primary); color:#fff; font-size:11px; line-height:1; vertical-align:1px; }
+/* 供应商页表格：横向+竖向滚动，吸顶表头 */
+.sup-scroll { overflow: auto; max-height: calc(100vh - 330px); border-radius: 8px; }
+.sup-scroll thead th { position: sticky; top: 0; background: var(--surface); z-index: 2; box-shadow: 0 1px 0 #e5ece9; }
+.sup-scroll tbody tr:hover td { background: rgba(20, 109, 199,.06); }
+/* 收款节点拖拽排序 */
+.pay-row { cursor: grab; }
+.pay-row:active { cursor: grabbing; }
+.pay-row.dragging { opacity: .45; }
+/* 收款节点的**状态底色**。
+   原来是写在模板里的 inline style，三个写死的浅色调（绿/褐/红各 5~7%）。
+   inline style 的问题不是「不能改」，而是：
+     · 深浅两套主题只能各写一次，inline 写法做不到（它在两个主题里都一样）
+     · 深色下那三个暖色直接漏出来 —— 「部分」那行是 rgba(176,141,87,.07)，
+       一块偏黄的底插在黑底表格里，正是「金色残留」看起来最像的一处
+     · 深色下应该是「暗底 + 一点点色」，浅色下是「白底 + 一点点色」，
+       两者的 alpha 需求相反，不能共用同一个值
+   所以收成类名，值按主题各给一份。 */
+.pay-row.pay-done   { background: rgba(43, 135, 224, .05); }
+.pay-row.pay-part   { background: rgba(176, 141, 87, .07); }
+.pay-row.pay-unpaid { background: rgba(169, 106, 106, .05); }
+.so-row { cursor: grab; }
+.so-row:active { cursor: grabbing; }
+.so-row.dragging { opacity: .45; }
+.pay-tip { color: var(--text-2); font-size: 12px; }
+/* 可搜索供应商下拉 */
+.sup-picker { position: absolute; z-index: 1060; border-radius: 10px; box-shadow: 0 8px 24px rgba(30,50,40,.14); padding: 8px; }
+.sup-picker .dropdown-item { border-radius: 6px; cursor: pointer; white-space: normal; }
+.sup-picker .dropdown-item:hover { background: rgba(255,255,255,.06); color: var(--primary); }
+[data-bs-theme="light"] .sup-picker .dropdown-item:hover { background: rgba(20, 109, 199,.08); }
+/* 语义描边按钮：颜色与 hover 底色都走 --*-btn，
+   否则常态 4.07~4.44:1、hover 3.76:1，鼠标一移上去就看不清了。 */
+.btn-outline-danger,
+.btn-outline-danger:hover {
+  color: var(--danger-btn);
+  border-color: var(--danger-btn);
+}
+.btn-outline-danger:hover {
+  background: var(--danger-btn);
+  color: var(--on-danger-btn);
+}
+.btn-outline-success,
+.btn-outline-success:hover {
+  color: var(--success-btn);
+  border-color: var(--success-btn);
+}
+.btn-outline-success:hover {
+  background: var(--success-btn);
+  color: var(--on-success-btn);
+}
+.btn-sm { border-radius: 7px; }
+
+/* ============ 表单控件 ============ */
+.form-control, .form-select {
+  border-radius: var(--radius-sm);
+  /* 描边色走变量：深色下用 --input-border，比卡片描边亮一档，
+     否则输入框的轮廓会糊在卡片里。 */
+  border-color: var(--input-border, var(--border-strong));
+  /* 底色走 --input-bg（浅色主题下它等于 --surface，所以浅色观感不变）。
+
+     为什么深色下要比卡片**更暗**：比背景亮 = 一块「可以点的区域」，
+     比背景暗 = 一块「可以往里填」的凹陷。深色 UI 里凹陷感能省掉
+     大量解释，而浅色主题下明暗相反才符合直觉，所以做成变量。 */
+  background-color: var(--input-bg, var(--surface));
+  padding: .5rem .8rem;
+  /* 字号必须跟 body 一起降，不能停在 Bootstrap 的 1rem（16px）。
+     body 基准早已从 15px 改成 14px（--fs-1），输入框却还按 rem 算 16px，
+     于是**框里的字比它上方的标签还大**——占位文字继承同一个值，
+     满屏表单看上去就是一堆鼓起来的框。
+     刻度表也写明 --fs-2（16px）只给「页面标题、强调正文」，
+     输入框属于正文一档，用 --fs-1。 */
+  font-size: var(--fs-1);
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+/* -sm / -lg 的字号在这里被一并钉死。
+   Bootstrap 自己给这两档写了 font-size，但本条 `.form-control` 与它们
+   特异度相同 (0,1,0) 且 style.css 加载在后，会把两档都覆盖成同一字号——
+   「小号输入框」于是和普通框一样大，表格里的紧凑表单全部失效。 */
+.form-control-sm, .form-select-sm { font-size: var(--fs-0); }
+.form-control-lg, .form-select-lg { font-size: var(--fs-2); }
+.form-control:focus, .form-select:focus {
+  border-color: var(--primary-2);
+  /* 聚焦时**保持凹陷**：focus 时突然变亮会让用户以为焦点丢了，
+     这里只换描边与外发光，底色不动。 */
+  background-color: var(--input-bg, var(--surface));
+  box-shadow: 0 0 0 3px rgba(20, 109, 199, .14);
+}
+[data-bs-theme="dark"] .form-control:focus,
+[data-bs-theme="dark"] .form-select:focus {
+  box-shadow: 0 0 0 3px rgba(20, 109, 199, .2);
+}
+.form-control:disabled, .form-select:disabled { background-color: var(--surface-2); }
+.form-label { font-weight: var(--fw-strong); color: var(--text-2); }
+/* .form-text 是 Bootstrap 的「输入框下方说明文字」。
+   原来用 --text-3（= --gray-500），那个档位是按 3:1 设计的，
+   用在**占位符**上没问题，但说明文字是实打实要读的信息，
+   3.23:1 不够。改用 --text-2（= --gray-600，5.03:1）。
+
+   这一条与 ::placeholder 是**相反**的选择，方向要分清：
+     真实文字 → 必须够深（--text-2 及以上）
+     占位提示 → 必须够浅，否则用户分不清「填过没有」 */
+.form-text { color: var(--text-2); }
+/* 占位符不能和真实文字一样深，否则用户分不清「这一格填过没有」。
+   Carbon 对 helper-text 12px 用的是次要档。 */
+.form-control::placeholder { color: var(--text-3); opacity: 1; }
+
+/* ---- 触屏设备：输入框字号不得低于 16px ----
+   iOS Safari（以及部分安卓 WebView）在**聚焦**输入框时，若计算字号 < 16px
+   会自动放大整页视图，而且用户点页面别处后**不会**缩回去——用户被卡在
+   放大的状态里，只能手动双击缩放。本系统是局域网/手机常用的（run.py 里
+   就写了「手机可访问」），这一条不是美观问题，是可用性底线。
+
+   用 (hover: none) + (pointer: coarse) 而不是断点宽度判断：iPad 横屏宽度
+   已经超过 991px，按宽度写会把平板漏掉。桌面触屏笔记本会同时命中
+   hover:none，但字号 16px 顶多略大，不影响布局。 */
+@media (hover: none) and (pointer: coarse) {
+  .form-control, .form-select,
+  .form-control-sm, .form-select-sm { font-size: 16px; }
+}
+
+/* ============ 徽章（胶囊） ============ */
+/* 徽章：字号与字重都钉死。
+   Bootstrap 的 `.badge { font-size: .75em }` 会跟着父级缩放——
+   改造前徽章渲染成 10.5px（父级 14px）甚至 9px（套在 .small 里），
+   「待签约」三个字小到要凑近看。徽章是给人扫一眼就要读到的状态，
+   按 Carbon label-01 定在 12px。 */
+.badge {
+  border-radius: 6px;
+  font-size: var(--fs-0);
+  line-height: var(--lh-0);
+  letter-spacing: var(--ls-0);
+  font-weight: var(--fw-normal);
+  padding: .3em .6em;
+}
+.badge-status { font-weight: var(--fw-normal); }
+.text-bg-light { background: var(--surface-2) !important; color: var(--text-2) !important; }
+.text-bg-info { background: #146DC7 !important; }
+
+/* ============ 进度条（渐变） ============ */
+.progress { background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.progress-xs { height: 6px; }
+.progress-bar { background: var(--primary-grad); border-radius: 999px; transition: width .4s ease; }
+/* bg-success / bg-warning 走语义色的变量，不写死浅色调 ——
+   写死的那两支是为白底调的，深色下偏亮偏黄（#fbbf24 在 #121212 上
+   亮得像一排小灯泡），而且与「进度条本该是强调色」的设计冲突。 */
+.progress-bar.bg-success { background: linear-gradient(135deg, #0D7A3C, #0D9A3C); }
+.progress-bar.bg-warning { background: linear-gradient(135deg, #f59e0b, #fbbf24); }
+/* 深色下这两支换成暗底亮字路线的实心色，避免「一排小灯泡」 */
+[data-bs-theme="dark"] .progress-bar.bg-success { background: var(--success-ink); }
+[data-bs-theme="dark"] .progress-bar.bg-warning { background: var(--warning-ink); }
+/* .card.border-warning / .border-warning 的描边在深色下用的是
+   Bootstrap 的 #ffc107（亮黄），在黑底上是一条刺眼的金边。
+   应付账款页与银行对账页都用它标「这里要注意」。 */
+[data-bs-theme="dark"] .border-warning {
+  border-color: var(--warning-ink) !important;
+  --bs-border-opacity: 1;
+}
+
+/* ============ 页头与搜索 ============ */
+.page-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 20px; flex-wrap: wrap; gap: 12px;
+}
+.page-head h5 { margin: 0; font-weight: var(--fw-strong); }
+.search-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.search-row .form-control, .search-row .form-select { min-height: 38px; }
+
+/* ---------- 数字排版 ----------
+   财务系统里数字的「可比性」比美观重要。比例数字（默认）下
+   15,107,703.20 与 3,304,132.45 的字宽不同，右对齐后小数点上下跳动，
+   逐行对账时眼睛要重新定位两次——多页表格就是几百次。
+
+   tabular-nums 让每个数字占等宽格，纵向对齐成一条线。
+   开启后「1」和「8」一样宽，缺点是字面略宽，所以只在数据列上开，
+   正文叙述里的数字保持比例数字。 */
+.text-money,
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+/* 表格里的数字列：右对齐 + 等宽，是本系统出现最多的排版组合 */
+.table .text-end,
+.table th.text-end,
+.table td.text-end {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+/* 统计卡的大额数字：用等宽 + 稍紧字距，多个卡片并排时数字不会跳动 */
+.stat-card .stat-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -.02em;   /* 等宽下字面变宽，紧字距抵消视觉松散 */
+}
+
+/* 带数字的徽章：待审批、逾期这类标签里常带数量。
+   不开等宽时 badge 的内边距随内容宽度抖动，一列标签会左右参差。
+   开了之后 badge 宽度稳定，且「3 张发票」这类数字能纵向对齐。 */
+.badge {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+/* 反白徽章（primary/danger 底）上等宽字面偏宽，单独收一点字距 */
+.badge.text-bg-primary,
+.badge.text-bg-danger,
+.badge.text-bg-success,
+.badge.text-bg-warning {
+  letter-spacing: -.01em;
+}
+
+/* ---------- 语义文字色 ----------
+   见 :root 的说明：Bootstrap 把「底色」和「文字色」用同一个变量，
+   结果 .text-warning 是几乎读不出来的黄、.text-danger 差一点点到 AA。
+   这里统一改用 --xxx-ink，同时让彩色底带一层同色系的浅底，
+   读起来比纯白底更清楚，语义也更强。 */
+.text-danger { color: var(--danger-ink) !important; }
+.text-warning { color: var(--warning-ink) !important; }
+.text-success { color: var(--success-ink) !important; }
+.text-info    { color: var(--info-ink) !important; }
+
+/* 主色文字：链接与强调。原 --primary #146DC7 对白底 4.6:1 刚好卡线，
+   在 gray-50 底上会掉到 4.5 以下，这里再压深一档留出余量。 */
+.text-primary { color: var(--primary) !important; }
+a { color: var(--primary); }
+a:hover { color: var(--primary-text); }
+
+/* 反白徽章上的文字保持白色——它是底色场景，不适用上面的 ink */
+.badge.text-bg-danger, .badge.text-bg-warning,
+.badge.text-bg-success, .badge.text-bg-info,
+.badge.text-bg-primary { color: #fff; }
+
+/* 语义色 + 浅底的小标签（如「逾期 2 笔」），比纯文字更容易扫到 */
+.tag-danger  { color: var(--danger-ink);  background: var(--danger-bg); }
+.tag-warning { color: var(--warning-ink); background: var(--warning-bg); }
+.tag-success { color: var(--success-ink); background: var(--success-bg); }
+.tag-info    { color: var(--info-ink);    background: var(--info-bg); }
+
+/* ============ Alert 与空状态 ============ */
+.alert { border-radius: var(--radius-sm); border: 1px solid transparent; }
+/* text-muted 现在已由 --bs-secondary-color 重绑定到 gray-600（5.6:1），
+   Bootstrap 组件里的 .text-muted 会自动跟着变，不需要这条覆盖。
+   但下面三条要留：它们同时改了背景（#fbfdfb），那是「这里没有数据」的空状态
+   提示，语义上和普通灰文字不同，视觉上需要能区分出来。 */
+.table tbody td.text-center.text-muted { color: var(--text-2) !important; background: var(--surface-2); }
+.card > .card-body.text-center.text-muted { color: var(--text-2) !important; background: var(--surface-2); }
+.list-group-item.text-muted { color: var(--text-2) !important; background: var(--surface-2); }
+
+/* ============ Tabs ============ */
+.tab-card .nav-tabs { border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.tab-card .nav-link { color: var(--text-muted); border: none; padding: 9px 18px; margin: 5px 3px; font-weight: var(--fw-normal); transition: all .18s; border-radius: 10px !important; }
+.tab-card .nav-link:hover { color: var(--text); background: rgba(20, 109, 199, .1); border-radius: 10px !important; }
+.tab-card .nav-link.active {
+  /* 从「满格品牌渐变 + 反白字」改成「近黑文字 + 品牌下划线」。
+     项目详情页一排 tab 就是一排色块，而 tab 是**导航**不是**动作**——
+     导航项的选中态只需要「能看出选中」，不需要抢主体内容的注意力。
+     满格渐变在窄屏还会把 tab 行撑成一条厚色带。
+     下划线用 ::after 画在底部，不占布局高度。
+
+     ⚠⚠ 这里原来还有一条 `color: var(--on-active-grad) !important`，
+     是**渐变底时代**的遗留：那时 tab 选中是满格渐变，压字要用反色。
+     改成下划线方案后底已经透明，这条 !important 却没删，
+     于是文字色被钉死在「压渐变的颜色」上 —— 而它现在压的是
+     .nav-tabs 的 --surface-2 底：
+       浅色 白字 #ffffff 压 #F5F9FF = 1.12:1
+       深色 近黑 #0a0a0a 压 #181818 = 1.11:1
+     两个主题的选中 tab 都「看不见」，而三个自动化测试全绿：
+       对比度测试在改这条**之前**就报了这一处（1 处/主题），
+       CSS 结构测试看不出颜色，浅色面测试也不管它。
+     教训：设计从「色块」改成「下划线」时，压在色块上的反色**必须**一起删。
+     这种错在浅色下看起来像「选中 tab 文字发白」，很容易当成字体问题。 */
+  color: var(--text);
+  background: transparent;
+  font-weight: var(--fw-strong);
+  border-radius: 0 !important;
+  box-shadow: none;
+  position: relative;
+}
+.tab-card .nav-link.active::after {
+  content: '';
+  position: absolute; left: 18px; right: 18px; bottom: -5px;
+  height: 2px; border-radius: 2px;
+  background: var(--primary);
+}
+.tab-card .nav-link.active i { color: inherit; opacity: .9; }
+.nav-tabs .nav-link { border-radius: 0; }
+
+/* ============ 甘特图（清新绿） ============ */
+.gantt-scroll { max-height: 62vh; overflow: auto; }
+.gantt-chart { min-width: 720px; }
+.gantt-row { display: flex; align-items: stretch; border-bottom: 1px solid #eef6f3; min-height: 42px; }
+.gantt-label { width: 210px; min-width: 210px; padding: 6px 12px; font-size: 14px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis;
+  position: sticky; left: 0; z-index: 5; background: #fff; display: flex; align-items: center;
+  border-right: 1px solid #e6f0ec; box-shadow: 2px 0 4px rgba(29,37,47,.04); }
+.gantt-track { position: relative; flex: 1; height: 42px;
+  background-image: repeating-linear-gradient(90deg, #edf5f2 0 1px, transparent 1px 90px); }
+.gantt-node { position: absolute; top: 0; bottom: 0; transform: translateX(-50%); color: #646D72; z-index: 3; }
+.gantt-node::before { content: ''; position: absolute; left: 50%; top: 7px; bottom: 7px; width: 1px; transform: translateX(-50%); background: currentColor; opacity: .45; }
+.gantt-node::after { content: ''; position: absolute; left: 50%; top: 50%; width: 11px; height: 11px; border-radius: 50%; transform: translate(-50%, -50%); background: currentColor; border: 2px solid #fff; box-shadow: 0 0 0 1px currentColor; }
+.gantt-node .node-label { position: absolute; left: 50%; top: -17px; transform: translateX(-50%); font-size: 12px; white-space: nowrap; color: var(--primary-text); background: rgba(255,255,255,.92); padding: 0 4px; border-radius: 3px; max-width: 130px; overflow: hidden; text-overflow: ellipsis; font-weight: var(--fw-strong); }
+/* 甘特条。⚠ 原来是一段竖向渐变 #59a287 → #5DA1F8，白字压在上面：
+   亮端 3.02:1、暗端 2.87:1，而这里的文字是 12px（正文级，AA 要 4.5:1）
+   —— **两端都不合格**，只是因为甘特图页不在任何一条对比度测试的
+   覆盖范围内，一直没人发现。
+   拍平成品牌主色 #146DC7：白字 5.48:1，合格，且去掉了一个装饰。 */
+.gantt-bar { position: absolute; top: 9px; height: 24px; border-radius: 6px; background: #146DC7; color: #fff; font-size: 12px; line-height: 24px; padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; box-shadow: 0 1px 3px rgba(20, 109, 199, .35); min-width: 20px; border: 1px solid rgba(0,0,0,.1); z-index: 3; }
+.gantt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: #ef4444; opacity: .75; z-index: 4; box-shadow: 0 0 6px rgba(239,68,68,.5); }
+.gantt-axis-label { position: absolute; top: 50%; transform: translate(-50%, -50%); font-size: 12px; color: #7c8a85; white-space: nowrap; }
+.gantt-header { border-bottom: 2px solid #deeae6; position: sticky; top: 0; z-index: 10; background: #f7faf9; }
+.gantt-header .gantt-label { background: #f7faf9; z-index: 11; font-weight: var(--fw-strong); color: #4a5a54; }
+.gantt-section { background: #f2faf7; font-size: 14px; font-weight: var(--fw-strong); color: var(--primary-text); border-bottom: 1px solid #deeae6; display: flex; align-items: stretch; cursor: pointer; user-select: none; }
+.gantt-section:hover { background: #e9f2ef; }
+.gantt-section .gantt-label { background: inherit; }
+.group-caret { margin-right: 5px; font-size: 12px; transition: transform .15s; }
+.gantt-section.collapsed .group-caret { transform: rotate(-90deg); }
+.sup-pay-scroll { max-height: 62vh; overflow-y: auto; }
+.sup-pay-scroll .table thead th { position: sticky; top: 0; z-index: 5; box-shadow: 0 1px 0 #deeae6; }
+.gantt-tooltip {
+  display: none; position: absolute; top: 0; z-index: 50;
+  background: rgba(30, 55, 46, .92); color: #fff; font-size: 12px;
+  padding: 3px 9px; border-radius: 8px; pointer-events: none;
+  box-shadow: 0 4px 14px rgba(29, 37, 47, .25); white-space: nowrap;
+}
+
+/* ============ 看板（/gantt?mode=board） ============ */
+/* 三列固定，不随列内卡片数改变高度：min-height 给足，
+   否则一列 3 张卡、另一列 1 张，拖拽时的落点判断会跳。 */
+.kanban { display: flex; gap: 14px; align-items: flex-start; }
+.kanban-col {
+  flex: 1 1 0; min-width: 0; background: var(--gray-50);
+  border: 1px solid #deeae6; border-radius: 12px; padding: 10px;
+  transition: background .12s, border-color .12s;
+}
+.kanban-col-head {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px; padding-bottom: 8px;
+  border-bottom: 1px solid #deeae6;
+}
+.kanban-col-title { font-size: var(--fs-2); font-weight: var(--fw-strong); color: var(--primary-text); }
+/* 拖拽悬停的目标列用**边框 + 底色**双提示。
+   只给底色的话，绿色系底色在「未开始」列上与卡片白底差得太近，
+   拖到列内空白处时看不出自己在哪一列。 */
+.kanban-col-over { border-color: var(--primary); background: #eaf5f1; }
+.kanban-list { min-height: 160px; display: flex; flex-direction: column; gap: 8px; }
+.kanban-card {
+  background: #fff; border: 1px solid #deeae6; border-radius: 10px;
+  padding: 9px 11px; cursor: grab; box-shadow: var(--shadow-sm);
+}
+.kanban-card:hover { border-color: var(--primary); }
+.kanban-card-title { font-size: var(--fs-1); font-weight: var(--fw-strong); color: var(--primary-text); }
+.kanban-card-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; color: var(--text-muted); }
+.kanban-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.kanban-dragging { opacity: .45; cursor: grabbing; }
+/* 拖到卡片上时不要出现文字选中的高亮块 */
+.kanban-card, .kanban-card * { user-select: none; }
+.kanban-empty {
+  border: 1px dashed #c6d8d1; border-radius: 10px; padding: 18px 8px;
+  text-align: center; font-size: var(--fs-0); color: var(--text-muted);
+}
+.kanban-del { font-size: var(--fs-0); }
+/* 窄屏：三列并排会把每列压到 120px 以下，卡片文字只能逐字换行。
+   改成横向滚动而不是换行 —— 换行后列宽仍被 min-width 撑着，
+   实际会出现「页面没横向滚动条但内容被裁掉」。 */
+@media (max-width: 767.98px) {
+  .kanban { overflow-x: auto; padding-bottom: 8px; }
+  .kanban-col { flex: 0 0 240px; }
+}
+[data-bs-theme="dark"] .kanban-col { background: var(--gray-800); border-color: var(--gray-700); }
+[data-bs-theme="dark"] .kanban-col-head { border-color: var(--gray-700); }
+/* 深色下卡片底必须重写，否则是写死的 #fff 亮块 —— 浅色主题下天衣无缝，
+   深色主题下整列变成一摞白纸。 */
+[data-bs-theme="dark"] .kanban-card { background: var(--gray-700); border-color: var(--gray-600); }
+[data-bs-theme="dark"] .kanban-col-over { background: var(--gray-900); border-color: var(--primary-ink); }
+[data-bs-theme="dark"] .kanban-empty { border-color: var(--gray-600); }
+
+/* ============ 时间线（清新绿） ============ */
+.timeline { position: relative; padding-left: 34px; max-width: 780px; }
+.timeline::before { content: ''; position: absolute; left: 12px; top: 4px; bottom: 4px; width: 2px; background: linear-gradient(180deg, #9AA1A7, #d6eee5); }
+.timeline-item { position: relative; margin-bottom: 14px; }
+.timeline-dot { position: absolute; left: -29px; top: 8px; width: 14px; height: 14px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 2px #5DA1F8; }
+.timeline-date { font-size: 14px; color: #646D72; margin-bottom: 4px; font-weight: var(--fw-strong); }
+.timeline-card { border: 1px solid #deeae6; border-radius: 12px; box-shadow: var(--shadow-sm); }
+.timeline-today .timeline-dot { box-shadow: 0 0 0 2px #ef4444; }
+.timeline-today { border-top: 1px dashed #ef4444; padding-top: 10px; }
+.timeline-card .badge { color: #2f3a36; font-weight: var(--fw-strong); }
+
+/* ============ 移动端顶栏 ============ */
+.mobile-topbar {
+  /* 走变量而不是写死 #eaf8f3：窄屏顶栏在深色主题下也是一片浅绿。
+     这类「只在窄屏出现、但元素一直在 DOM 里」的漏网，
+     对比度测试抓不到（元素 visibility:hidden，采不到样），
+     只能靠变量化 + 人工在窄屏下看一眼。 */
+  background: var(--surface);
+  padding: 8px 12px;
+  position: sticky; top: 0; z-index: 90;
+  gap: 10px;
+  box-shadow: 0 2px 12px rgba(29, 37, 47, .12);
+}
+.mobile-topbar .alerts-root .btn { color: var(--primary-text); }
+
+/* ============ 响应式 ============ */
+@media (max-width: 991.98px) {
+  .main { margin-left: 0; }
+  .content { padding: 16px; }
+  .stat-card .stat-num { font-size: 20px; }
+  .topbar { padding: 0 16px; }
+}
+@media (max-width: 575.98px) {
+  .page-head .btn { font-size: 14px; }
+  .dropdown-menu.alert-list { position: fixed !important; left: 8px !important; right: 8px !important; width: auto !important; max-height: 60vh; }
+}
+
+/* ============================================================
+   信息密度：筛选条折叠 / 次要列收起 / 详情页字段分组
+   ------------------------------------------------------------
+   目标不是「好看」，是「首屏能看到数据」。三件事各自的判断依据写在
+   对应小节里。注意打印时这些控件全部隐藏（见 @media print 的
+   .no-print / .btn 规则），纸质上永远是完整的信息。
+   ============================================================ */
+
+/* ---------- 1. 筛选条可折叠 ----------
+   供应商页有 5 个多选筛选 + 搜索框，展开占 3 行，首屏要滚很久才看到
+   第一条数据；发票页 7 个筛选更甚。而这些筛选多数时候没在用——用户是来
+   查数据的，不是来调筛选器的。
+
+   默认收起，但**有筛选生效时不收起**：筛完却看不到筛了什么，是真痛点。
+   收起状态存 localStorage，同一台设备上所有页面保持同一习惯。 */
+.filter-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* 收起时筛选控件本体隐藏，但容器留着（否则整个布局跳到左边） */
+.filter-wrap.is-collapsed > .search-row,
+.filter-wrap.is-collapsed > .flt-host { display: none; }
+/* 展开时恢复正常流 */
+.filter-wrap > .search-row,
+.filter-wrap > .flt-host {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--gray-300);
+  background: var(--gray-100);
+  color: var(--gray-700);
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 32px;
+  font-family: inherit;
+}
+.filter-toggle:hover { background: var(--gray-200); color: var(--gray-900); }
+.filter-toggle .bi { font-size: 14px; transition: transform .18s ease; }
+.filter-wrap.is-expanded .filter-toggle .bi-chevron-down { transform: rotate(180deg); }
+
+/* 收起时的「已筛 N 项」角标：筛了东西却看不见，是最伤的体验 */
+.flt-active-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: var(--fw-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.filter-hint { font-size: 12px; color: var(--text-muted); display: none; }
+.filter-wrap.is-collapsed .filter-hint { display: inline; }
+
+/* 页头允许换行：筛选与操作按钮在窄屏要能分两行 */
+.page-head { flex-wrap: wrap; row-gap: 8px; }
+.page-head > .d-flex { flex-wrap: wrap; margin-left: auto; }
+
+/* ============================================================
+   状态色：4 档语义 + 1 个纯异常
+   ------------------------------------------------------------
+   收敛的动因：审计发现项目状态徽章在 4 个模板里各写了一遍**字面量完全
+   相同**的三元表达式（dashboard / projects.detail / projects.form /
+   contracts.detail）。改一次配色要动 4 个文件，漏一处就不一致——
+   这比"颜色多"更难察觉。
+
+   4 档：done（完成）· active（推进）· watch（关注）· idle（未开始/已终止）
+   1 个例外：alert（danger）**只用于金额异常**（超付）。
+
+   为什么「已驳回」不是红色：驳回是流程内的正常终止，不是错误。红色一旦
+   用滥就等于没有——财务系统里红色应该只出现在"这里有真问题"的地方。
+
+   为什么 success 和 active 都是绿系还够用：色相接近但饱和度差 3 倍，
+   且**每个徽章都带文字**。色盲用户（约 8% 男性）看到两个接近的绿，
+   靠字仍能分辨。颜色只表达粗粒度，精确状态靠文字——这是有意的取舍。
+   ============================================================ */
+
+.state-badge {
+  --sb-bg: var(--gray-200);
+  --sb-fg: var(--gray-700);
+  border: 1px solid transparent;
+  background: var(--sb-bg);
+  color: var(--sb-fg);
+  font-weight: var(--fw-normal);
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+/* done —— 完成 / 已确认 / 正常 */
+.state-done {
+  --sb-bg: #e4f2ed;
+  --sb-fg: #29353C;
+  border-color: rgba(11,21,27,.075);
+}
+/* active —— 正在推进。实心品牌绿，与 done 的淡绿底区分开 */
+.state-active {
+  --sb-bg: var(--primary);
+  --sb-fg: #fff;
+  border-color: var(--primary);
+  font-weight: var(--fw-strong);
+}
+/* watch —— 需要关注 */
+.state-watch {
+  --sb-bg: #fbf0d8;
+  --sb-fg: #8a5a06;
+  border-color: #f0dcae;
+}
+/* idle —— 未开始 / 已终止 */
+.state-idle {
+  --sb-bg: var(--gray-100);
+  --sb-fg: var(--gray-600);
+  border-color: var(--gray-200);
+}
+/* alert —— 仅金额异常。这是全站唯一的红 */
+.state-alert {
+  --sb-bg: #fdeceb;
+  --sb-fg: var(--danger-ink);
+  border-color: #f4cfcb;
+  font-weight: var(--fw-strong);
+}
+/* 状态徽章里常夹数字（"逾期 2 笔""5 项"），数字要等宽才不抖 */
+.state-badge .num,
+.state-badge .badge-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ---------- 2. 表格次要列收起 ----------
+   供应商 9 列、材料 14 列、发票 13 列。查数据时「品牌」「合作等级」
+   这类列基本不看，却占着宽度把关键列挤到要横向滚动。
+
+   次要列由模板显式标 .col-minor，不用 nth-child——列顺序会随版本变，
+   序号写死在 CSS 里迟早错位。状态按 data-col-key 存 localStorage。
+   **永远保留展开入口**，不存在「收起后找不到列」的情况。 */
+.table.col-minor-hidden th.col-minor,
+.table.col-minor-hidden td.col-minor { display: none; }
+
+/* 这里**不要**给 .table-wide 清 min-width。
+   曾经写过一条 `.table.col-minor-hidden.table-wide { min-width: 0 }`，
+   理由是「收起后列少了，不再需要强制宽度」——这个理由是错的：
+   收起次要列只是少了 2-5 列，剩下 10-13 列照样需要 min-width 撑着，
+   否则窄屏下宽表会被压成一团字（.table-wide 的 1040px 正是为此而设）。
+
+   它在屏幕态生效，导致**全站宽表都不再横向滚动**——影响所有页面，
+   只是没人报出来：表格没有横向滚动条不一定显眼，但列被压扁后
+   数字会挤在一起、换行错位。打印块里另有一条同名规则（那里确实
+   需要清零），不要与这条混为一谈。 */
+
+.colpick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 30px;
+}
+.colpick:hover { background: var(--gray-100); }
+.colpick input { cursor: pointer; }
+
+/* 折叠 / 收起类控件的屏幕态外观。**必须显式给 display:inline-flex**：
+   隐藏次要列的规则用了 `.table.col-minor-hidden th.col-minor{display:none}`，
+   而打印样式里为了让纸上显示全部列会写 `display:table-cell !important`——
+   !important 的优先级高于类选择器，会连带把 .filter-toggle 这类
+   本该 inline-flex 的元素也压成 table-cell（宽度塌成 0、按钮消失）。 */
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--gray-300);
+  background: var(--gray-100);
+  color: var(--gray-700);
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 32px;
+  min-width: 32px;
+  font-family: inherit;
+}
+.flt-active-dot { display: inline-flex; }
+.filter-hint { display: inline; }
+
+.col-hidden-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 2px 0;
+  display: none;
+}
+.col-hidden-note.is-on { display: block; }
+
+/* ---------- 2.1 关联选择器（变更签证「执行关联」） ----------
+   原生 <select multiple>，故意**不挂** Bootstrap 的 .form-select：
+   .form-select 会 appearance:none 并按 line-height 加上下 padding，
+   套在 multiple 上时最后一行被切掉半截。这里要靠原生列表样式才不裁行。
+
+   为什么不用自绘控件：选项文字里带金额与「已付清 / 欠 ¥X」，
+   列表要能一眼扫出哪几张没付清，原生多选反而最直接。 */
+.link-picker {
+  display: block;
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--gray-700);
+  background: #fff;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-sm);
+  /* **不要**给 select 自己加 padding。浏览器的原生列表按「框高必须是
+     行高的整数倍」来裁，加了上下 padding 就会在底部留下半行——
+     视觉上像最后一项被切了，而它其实是可以选中的。
+     边框圆角会去掉原生内边距，用 box-shadow 补回视觉上的内框。 */
+  padding: 0;
+  box-shadow: inset 0 0 0 3px #fff;
+}
+.link-picker:focus {
+  border-color: var(--primary);
+  outline: 2px solid rgba(20, 109, 199, .18);
+  outline-offset: 1px;
+}
+.link-picker option:checked {
+  background: rgba(20, 109, 199, .16);
+  color: var(--gray-900);
+}
+
+/* ---------- 3. 详情页字段分组 ----------
+   合同信息这类 20 来个字段平铺成 4-5 列小字表，一屏塞满却看不出重点。
+   分组后：标题分隔语义，字段右对齐 + 等宽，扫读时视线沿一条竖线走。 */
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 2px 20px;
+}
+.info-group { break-inside: avoid; }
+.info-group-title {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  font-weight: var(--fw-strong);
+  letter-spacing: .04em;
+  /* 原来用 --gray-500（3:1 档），但这是「金额与结算」这类分组的
+     **标签**，用户要照着它找字段，3.23:1 不够。改 --gray-600（5.03:1）。
+     同 .form-text：需要读的信息不能用占位档。 */
+  color: var(--gray-600);
+  padding: 10px 0 4px;
+  border-bottom: 1px solid var(--gray-100);
+  margin-bottom: 2px;
+}
+.info-group:first-child .info-group-title { padding-top: 0; }
+.info-field {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  min-width: 0;
+}
+.info-field > .k {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+/* 点线连接：字段长短不一时，右侧值仍然整齐对齐 */
+.info-field > .v {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-bottom: 1px dotted var(--gray-300);
+  padding-bottom: 1px;
+  font-size: 14px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.info-field > .v.num { font-weight: var(--fw-strong); }
+.info-field > .v:empty::before { content: "—"; color: var(--gray-400); }
+
+@media (max-width: 575.98px) {
+  .info-grid { grid-template-columns: 1fr; }
+}
+
+/* ============ 通用微效 ============ */
+a { transition: color .15s ease; }
+.table a { color: var(--primary-text); font-weight: var(--fw-normal); }
+.table a:hover { color: var(--primary-text); }
+
+/* 宽表：给列保留自然宽度，超出部分横向滚动，避免被压成竖排文字。
+   用法：给 table 加 class="table-wide"（配合外层 .table-responsive）。
+   仅桌面端生效；窄屏交给 .table-card 卡片化，避免手机上出现横向滚动。 */
+@media (min-width: 768px) {
+  .table-wide { min-width: 1040px; }
+  .table-wide.table-sm { min-width: 900px; }
+}
+
+/* 实体名标签：空间不足时截断而不是逐字换行 */
+.table a.entity-tag,
+.table a[href^="/projects/"]:not(.btn):not([href*="#"]),
+.table a[href^="/materials/"]:not(.btn):not([href*="#"]),
+.table a[href^="/customers/"]:not(.btn):not([href*="#"]),
+.table a[href^="/suppliers/"]:not(.btn):not([href*="#"]) {
+  display: inline-block; padding: 1px 8px; border-radius: 6px;
+  font-weight: var(--fw-strong); font-size: 14px; line-height: 1.5; text-decoration: none;
+  transition: background .15s, color .15s;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; vertical-align: bottom;
+}
+/* 四类实体名标签：统一中性底色，只在 hover 时透出品牌色。
+   原来是 4 种莫兰迪底（豆沙绿 / 灰绿 / 燕麦 / 藕粉），
+   用意是「按实体类型上不同颜色，便于在长表里定位列」。
+   但一张表里同时出现 4 种底色时，色相本身就开始承载信息了——
+   用户会不自觉地用「颜色」而不是「位置」去找列，
+   而两者的可靠性差很远（列顺序会变，颜色不会）。
+
+   现在统一成中性浅底 + hover 转品牌浅底：
+     常态 = 「这是一个可以点的实体名」
+     hover = 「这一个，且它属于哪个模块（品牌色提示）」
+   归属信息靠 URL 路径本身（/projects/ 就是项目），不靠颜色。 */
+.table a[href^="/projects/"]:not(.btn):not([href*="#"]),
+.table a[href^="/materials/"]:not(.btn):not([href*="#"]),
+.table a[href^="/customers/"]:not(.btn):not([href*="#"]),
+.table a[href^="/suppliers/"]:not(.btn):not([href*="#"]) {
+  background: var(--gray-100);
+  color: var(--text);
+  border: 1px solid var(--gray-200);
+}
+.table a[href^="/projects/"]:not(.btn):not([href*="#"]):hover,
+.table a[href^="/materials/"]:not(.btn):not([href*="#"]):hover,
+.table a[href^="/customers/"]:not(.btn):not([href*="#"]):hover,
+.table a[href^="/suppliers/"]:not(.btn):not([href*="#"]):hover {
+  background: var(--brand-light);
+  color: var(--primary-text);
+  border-color: var(--primary-2);
+}
+/* 与上面的四类实体名标签同一套视觉：中性底 + hover 品牌色。
+   这两个类是详情页与采购页单独用的，不走 [href^=] 选择器。 */
+.project-link {
+  display: inline-block; padding: 1px 8px; border-radius: 6px;
+  background: var(--gray-100); color: var(--text); border: 1px solid var(--gray-200);
+  font-weight: var(--fw-strong); font-size: 14px; line-height: 1.5; text-decoration: none;
+}
+.project-link:hover {
+  background: var(--brand-light); color: var(--primary-text);
+  border-color: var(--primary-2);
+}
+.supplier-tag {
+  display: inline-block; padding: 1px 8px; border-radius: 6px;
+  background: var(--gray-100); color: var(--text);
+  font-weight: var(--fw-strong); font-size: 14px; line-height: 1.5;
+  border: 1px solid var(--gray-200);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; vertical-align: bottom;
+}
+.supplier-tag:hover { background: var(--brand-light); color: var(--primary-text); }
+/* 分类徽章同理：原来藕粉底，现在中性。分类不是状态，不该占色。 */
+.badge-category { background: var(--gray-100); color: var(--text-2); border: 1px solid var(--gray-200); }
+
+/* 表格内的实体名标签：按实体类型上不同莫兰迪淡色底，便于在长表里快速定位列。
+   注意只排除 .btn 与锚点链接——早前用 :not([href*="/edit"]) 排除，
+   会连带把「供应商列表」里指向 /edit 的名称链接一起排除掉，标签样式从未生效。 */
+/* 下拉 / 弹出层用**第三层表面**（--surface-3，深色下 #2D2D2D）。
+   三层抬升是深色模式的核心：页面底 #121212 → 卡片 #1E1E1E → 弹出层 #2D2D2D。
+   弹出层必须比卡片亮，否则「浮起来」这件事在视觉上不成立——
+   这是深色 UI 里最容易被忽略的一层（浮层通常沿用卡片色，
+   结果用户以为下拉没打开）。 */
+.dropdown-menu,
+.sup-picker {
+  background-color: var(--surface-3, var(--surface));
+  border: 1px solid var(--card-border, var(--border));
+  box-shadow: var(--shadow-lg);
+}
+.dropdown-menu .dropdown-item:hover,
+.dropdown-menu .dropdown-item:focus {
+  background: rgba(255, 255, 255, .06);
+}
+[data-bs-theme="light"] .dropdown-menu .dropdown-item:hover,
+[data-bs-theme="light"] .dropdown-menu .dropdown-item:focus {
+  background: var(--gray-100);
+}
+.dropdown-menu { border-radius: 12px; }
+.sup-picker { border-radius: 10px; }
+.list-group-item { border-color: var(--border); }
+/* 窄屏抽屉式侧栏。走变量，深色下才是黑底而不是一条浅绿带。 */
+.offcanvas, .sidebar-offcanvas { background: var(--sidebar-bg); }
+
+/* ============ 页内标题（移动端显示；桌面端由 topbar 承担） ============ */
+.page-title {
+  font-size: 20px; font-weight: var(--fw-strong); color: var(--text);
+  margin: 0 0 14px; letter-spacing: 0;
+}
+
+/* ============ 侧边栏项目树 ============ */
+.proj-tree { margin: 2px 6px 8px; padding: 6px 8px; border-top: 1px dashed #deeae6; font-size: 12px; }
+.proj-tree .pt-title { font-weight: var(--fw-strong); color: var(--sidebar-text); padding: 2px 0 6px; display: flex; align-items: center; gap: 6px; }
+.proj-tree details.pt-item { margin-bottom: 2px; }
+.proj-tree summary { cursor: pointer; list-style: none; padding: 4px 8px; border-radius: 8px; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj-tree summary:hover { background: rgba(20, 109, 199,.1); }
+.proj-tree summary::-webkit-details-marker { display: none; }
+.proj-tree summary::before { content: '▸'; margin-right: 2px; color: #7b988d; transition: transform .15s; }
+.proj-tree details[open] > summary::before { transform: rotate(90deg); }
+.proj-tree .pt-links { padding: 2px 0 4px 26px; display: flex; flex-direction: column; gap: 1px; }
+.proj-tree .pt-links a { padding: 4px 8px; border-radius: 6px; color: var(--sidebar-text); text-decoration: none; display: flex; gap: 7px; align-items: center; font-size: 14px; }
+.proj-tree .pt-links a:hover { background: rgba(20, 109, 199,.1); color: var(--primary-text); }
+.proj-tree .pt-links a i { font-size: 12.5px; opacity: .8; }
+.pt-unassigned summary { color: var(--unassigned-fg); }
+.proj-tree.pt-nav-list { margin: 0 6px 6px 20px; border-top: 0; padding: 2px 0; }
+.proj-tree.pt-nav-list .pt-links { padding-left: 14px; }
+.proj-tree.pt-nav-list summary { font-size: 12px; padding: 3px 6px; }
+
+/* ============ 空状态组件 ============ */
+.empty-state {
+  text-align: center;
+  color: var(--text-2) !important;
+  background: var(--card-head-solid);
+  padding: 2.4rem 1rem;
+  font-size: 14px;
+}
+.empty-state i { display: block; font-size: 26px; margin-bottom: 6px; color: #a0c0b4; }
+.empty-state a { color: var(--primary); font-weight: var(--fw-normal); }
+.empty-state-sm {
+  text-align: center;
+  color: var(--text-2) !important;
+  background: var(--card-head-solid);
+  padding: .9rem .6rem;
+  font-size: 14px;
+}
+.empty-state-sm i { color: #646D72; margin-right: 4px; }
+/* 表格空行（colspan 居中灰字即空状态）统一留白与字号 */
+.table tbody td[colspan].text-center.text-muted {
+  color: var(--text-2) !important;
+  background: var(--card-head-solid);
+  padding: 2rem 1rem !important;
+  font-size: 14px;
+}
+
+/* ============ 语义化小工具类（替代内联样式） ============ */
+/* .text-pine：项目名/客户名这类要读的绿色文字。
+   原来 #2c8865 压 .proj-hero 最亮的一档 #c7e1d7 只有 **3.15:1**，
+   现值 #1e6b4e 是 4.71:1。深色下用 var(--primary-ink)（金，7.62:1）。 */
+.text-pine { color: #146DC7 !important; }
+.text-pine-2 { color: var(--sidebar-text) !important; }
+/* 项目头部的浅绿横幅。⚠ 这块原来是**写死的**浅色渐变，
+   深色主题不受变量影响，于是在黑底上留了一整条浅绿带：
+     「客户：…」        1.43:1
+     「已收 ¥13,763,500」 1.84:1
+     「施工中」徽章       1.01:1
+   现在改走变量，深色块里覆盖。 */
+/* 横幅底色去掉后，靠一条左侧主色竖条保留「这是项目」的身份感。
+   竖条 3px 是侧栏选中项用的同一档 —— 同一套语言。 */
+.proj-hero {
+  background: var(--proj-hero-bg);
+  border-left: 3px solid var(--primary);
+}
+/* 横幅里的次要文字（「客户：…」「设计：一口价 · 工期：—」这些）。
+   原来用 --sidebar-text —— 那是**侧栏专用**变量，
+   当初选中它只因为横幅是绿底、需要和侧栏一样深的绿才够对比。
+   横幅改成白底后这个理由消失了，继续用侧栏变量是语义错配：
+   以后有人改侧栏色会连带改掉横幅文字。
+
+   改用 --text-muted（= --gray-600，白底 5.03:1，达 AA）。
+   ⚠ **必须带 !important**：Bootstrap 5.3 的 .text-muted 本身就是
+   `color: var(--bs-secondary-color) !important`，不加就输给它。 */
+.proj-hero .text-muted { color: var(--text-muted) !important; }
+.badge-task { background: #146DC7; color: #fff; }
+
+/* ============ 小屏工作区 ============ */
+@media (max-width: 575.98px) {
+  .content { padding: 14px 12px 24px; }
+  .page-head { align-items: stretch; margin-bottom: 16px; }
+  .page-head > *, .page-head .search-row { width: 100% !important; }
+  .page-head .search-row > .form-control,
+  .page-head .search-row > .form-select { width: 100% !important; }
+  .page-head > .d-flex { justify-content: stretch; }
+  .page-head > .d-flex .btn { flex: 1; }
+  .card-header { padding: 12px 14px; }
+  .card-body { padding: 14px; }
+  .stat-card { min-height: 70px; padding: 11px 13px; }
+  .stat-card .stat-num { font-size: 20px; }
+  .table > :not(caption) > * > * { padding: .58rem .65rem; }
+  .login-card .card-body { padding: 22px !important; }
+}
+
+/* ============ 移动端：触摸目标放大 ============
+   桌面端 .btn-sm 只有 22px 高、表格内实体链接 22px，手指点不准（误触相邻行）。
+   窄屏统一放大到可点范围。只在窄屏生效，桌面端密度不受影响。 */
+@media (max-width: 767.98px) {
+  .btn-sm {
+    min-height: 34px;
+    padding-top: .3rem;
+    padding-bottom: .3rem;
+  }
+  /* 按钮内的图标跟着放大一点，避免图大字小 */
+  .btn-sm .bi { font-size: 1.05rem; }
+
+  /* 表格卡片化后，单元格里的实体标签是最常点的东西，抬高点击区 */
+  .table-card a[href^="/projects/"]:not(.btn):not([href*="#"]),
+  .table-card a[href^="/materials/"]:not(.btn):not([href*="#"]),
+  .table-card a[href^="/customers/"]:not(.btn):not([href*="#"]),
+  .table-card a[href^="/suppliers/"]:not(.btn):not([href*="#"]),
+  .table a.entity-tag {
+    padding: 6px 10px;
+    line-height: 1.6;
+  }
+
+  /* 复选框：表格行里最容易误触的，单独加大。
+     用 !important 是因为各列表格自带 width/height 覆盖（实测材料页仍是 16px）。 */
+  .table input[type="checkbox"] {
+    width: 22px !important;
+    height: 22px !important;
+    margin: 0;
+    vertical-align: middle;
+    cursor: pointer;
+  }
+  /* 行内复选框的可点区域：td 撑满整格，触摸时不用精准点到 22px 的方块。
+     材料库 191 行、库存 191 行都有这个复选框，是移动端点选的主入口。 */
+  .table td > input[type="checkbox"]:only-child,
+  .table td > .form-check:only-child,
+  .table th > input[type="checkbox"]:only-child {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    min-width: 32px;
+    cursor: pointer;
+    /* 扩大触摸热区到整格，但视觉上不撑开列宽 */
+    margin: -6px -8px !important;
+  }
+  .table .form-check { padding-left: 1.9rem; min-height: 24px; display: flex; align-items: center; }
+  .table .form-check-input { margin-left: -1.7rem; }
+
+  /* 筛选区的开关（form-switch）：材料/库存页有 800+ 个。
+     Bootstrap 的开关靠 padding 画出滑轨，直接改 width 会让滑块与轨道错位，
+     所以只放大它的可点行高（.form-check），滑块尺寸保持原样。 */
+  .page-head .form-check,
+  .search-row .form-check {
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* 卡片化后单元格里的裸链接（合同名、附件图标）也抬高点击区 */
+  .table-card td a.fw-semibold,
+  .table-card td a:not(.btn) {
+    display: inline-block;
+    padding: 5px 2px;
+    line-height: 1.5;
+    min-height: 32px;
+  }
+
+  /* 行内「编 / 删」文字按钮：模板里用 font-size: 12px 的 btn-link 写成单字，
+     桌面端够用，手机上 19px 高根本点不准。它们通常三五个并排出现在
+     一行收发明细里，误触代价高（删一条收款记录）。 */
+  .btn-link.p-0 {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    min-width: 32px;
+    padding: 0 8px !important;
+    font-size: 14px !important;
+    border-radius: var(--radius-sm);
+    background: var(--gray-100);
+  }
+  .btn-link.p-0:active { background: var(--gray-200); }
+
+  /* 正文里的说明链接（口径说明、提示条里的「详见…」）：不是主要操作，
+     但仍要够得着。必须限定在「独占一行的块级容器」里——
+     上游那条 `.card-body ul li a { min-height: 28px }` 会被项目详情页
+     收款表格里的 <a> 继承（它们也在 .card-body 内），把 156 个单元格
+     链接全撑成固定高度，反而压坏了表格行高。 */
+  .alert a, .form-text a {
+    display: inline-block;
+    padding: 3px 1px;
+    min-height: 28px;
+  }
+  /* 口径说明这类「一个 li 一条」的正文列表：li 独占一行时链接可以撑高 */
+  .card-body > ul > li > a {
+    display: inline-block;
+    padding: 4px 1px;
+    min-height: 28px;
+  }
+  /* 详情页头部的项目名/客户名链接：独占一行，给足点击区 */
+  .card .fw-semibold,
+  .card h4 > a {
+    display: inline-block;
+    padding: 5px 2px;
+    min-height: 30px;
+  }
+
+  /* ---- 以下是零散控件的兜底 ----
+     上面几条规则按语义挑了「表格里」「卡片里」的链接，但这个系统里
+     还有一批小控件散落在别的容器里（tab 条、页脚退出、批量操作条），
+     实测它们窄屏下只有 20-25px。统一兜到 32px。 */
+
+  /* tab 条：材料库 / 预算 vs 采购 这类页面内切换，20px 太小 */
+  .nav-tabs .nav-link {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* 抽屉菜单里的退出入口 */
+  .sidebar-footer a {
+    display: flex;
+    align-items: center;
+    min-height: 36px;
+  }
+
+  /* 页头操作条（批量修改、导出、恢复原样…） */
+  .page-head .btn,
+  .page-head .d-flex > .btn {
+    min-height: 34px;
+  }
+
+  /* 图标按钮（搜索框里的放大镜、清除标签的 ×）：
+     Bootstrap 的 .btn-close 只有 16px，窄屏必须放大 */
+  .input-group .btn,
+  .btn-close {
+    min-width: 34px;
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* .btn-close 用背景图画 ×，放大时要防止图案被拉变形 */
+  .btn-close {
+    background-size: 12px 12px;
+  }
+}
+
+/* ============ 移动端：防横向撑破 ============
+   问题：表格带 min-width（如收款明细 900px）时，若它的父级是 flex/grid 的
+   flex-item 或 grid-item，.table-responsive 自身的 min-width:0 不足以约束，
+   表格仍会把整个页面撑宽，手机上出现整页横向滚动条。
+
+   修法：让滚动容器在 flex/grid 里明确可收缩，并兜住所有超宽子元素。
+   这里不动表格本身——带拖拽排序的表（收款明细行可拖动）卡片化会破坏交互。 */
+@media (max-width: 991.98px) {
+  .table-responsive {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* 兜底：任何 grid/flex 子项都不许比容器宽。
+     .tab-pane 必须一并覆盖——项目详情页的收款明细表就卡在 tab-pane 里，
+     它默认 min-width:auto，宽表会一路把 tab 内容区撑破。 */
+  .row > *, .col, .col-12, .col-lg-8, .col-lg-6,
+  .tab-pane, .tab-content, .card-body { min-width: 0; }
+  /* 超宽元素（内联 min-width 的表等）在窄屏允许自身滚动 */
+  .table-responsive > table,
+  .table-responsive > div { max-width: none; }
+}
+
+/* ============ 移动端：宽表卡片化 ============
+   用法：给 <table> 加 class="table-card"，每个需要显示字段名的单元格加 data-label="字段名"。
+   窄屏下每行变成一张卡片，字段名在左、值在右，避免多列挤压看不清。
+   复选框列加 class="td-pick"、操作列放最后且不带 data-label，窄屏下自动右对齐。 */
+@media (max-width: 767.98px) {
+  .table-card { display: block; width: 100%; }
+  .table-card thead { display: none; }
+  .table-card tbody { display: block; }
+  .table-card tbody tr {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 10px;
+    padding: 2px 0 6px;
+  }
+  .table-card tbody tr.text-muted { opacity: .6; }
+  .table-card tbody tr:has(td[colspan]) {
+    border: 0; box-shadow: none; background: transparent; margin-bottom: 0; padding: 0;
+  }
+  .table-card tbody td {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    width: auto;
+    max-width: none !important;
+    border: 0 !important;
+    padding: 5px 12px !important;
+    text-align: left !important;
+    white-space: normal !important;
+    word-break: break-word;
+  }
+  .table-card tbody td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    min-width: 62px;
+    max-width: 45%;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text-3);
+    font-weight: var(--fw-strong);
+  }
+  .table-card tbody td:not([data-label])::before { content: none; }
+  .table-card tbody td.td-pick { justify-content: flex-end; padding: 6px 12px 0 !important; }
+  .table-card tbody td:last-child { justify-content: flex-end; padding-top: 9px !important; }
+  .table-card tbody td .text-truncate,
+  .table-card tbody td > div {
+    max-width: none !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+  }
+  .table-card tbody td .badge { max-width: none !important; }
+  .table-card tbody td[colspan] { justify-content: center !important; text-align: center !important; }
+  .table-card tbody td[colspan]::before { content: none; }
+}
+
+/* ============================================================
+   深色主题：Bootstrap 不覆盖的部分
+   ============================================================
+   Bootstrap 5.3 自带 [data-bs-theme="dark"]，它管的是 `--bs-*` 那套变量。
+   但我们在 :root 里重绑的 `--gray-*` / `--surface` / `--shadow-*` 是自定义
+   变量，Bootstrap 不认识，凡是直接引用它们或写死颜色的地方都要在这里补。
+
+   漏一处的后果不是「颜色不对」而是「看不见」：深底上残留的浅边框、
+   白底浮层，都会让人以为页面坏了。
+
+   注意本块只放**深色专属的补丁**。深色的中性色阶与变量重绑定在
+   style.css 上方的 [data-bs-theme="dark"] 块里，不在这里。 */
+[data-bs-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* ---- flatpickr 日历 ----
+   它是完全独立的第三方组件，自带浅色样式，且不读 --bs-* 变量，
+   必须手工覆盖。它挂在 body 末尾，所以靠 html 上的属性来选中。
+   主题切换的 JS（base.html）会给打开着的日历补 .dark 类——
+   CSS 里两条选择器都写上，覆盖「切换时已打开」和「新打开」两种情况。
+
+   ⚠ 这一整块原先**写死了旧深绿主题的色值**（#1d2d27 / #39544a /
+     #b6cec5 / #294037 / #54806f / #5DA1F8 / #045c40 / #1b4133 …）。
+     换色时它是最容易漏的一处，因为它是「第三方组件补丁」，
+     变量块改了、变量驱动的部分全对了，只有它还留在旧世界里。
+     现在全部改走变量，以后再换主题不会再漏。 */
+[data-bs-theme="dark"] .flatpickr-calendar,
+.flatpickr-calendar.dark {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .6);
+}
+[data-bs-theme="dark"] .flatpickr-calendar.arrowTop::before,
+[data-bs-theme="dark"] .flatpickr-calendar.arrowTop::after,
+.flatpickr-calendar.dark.arrowTop::before,
+.flatpickr-calendar.dark.arrowTop::after { border-bottom-color: var(--border-strong); }
+[data-bs-theme="dark"] .flatpickr-calendar.arrowTop::after,
+.flatpickr-calendar.dark.arrowTop::after { border-bottom-color: var(--surface); }
+[data-bs-theme="dark"] .flatpickr-months .flatpickr-month,
+[data-bs-theme="dark"] .flatpickr-weekdays,
+[data-bs-theme="dark"] span.flatpickr-weekday {
+  background: transparent;
+  color: var(--gray-700);
+  fill: var(--gray-700);
+}
+[data-bs-theme="dark"] .flatpickr-current-month { color: var(--gray-900); }
+[data-bs-theme="dark"] .flatpickr-monthDropdown-months,
+[data-bs-theme="dark"] .numInput.cur-year {
+  background: var(--bg);
+  color: var(--gray-900);
+}
+[data-bs-theme="dark"] .flatpickr-day {
+  color: var(--gray-800);
+  border: 1px solid transparent;
+}
+[data-bs-theme="dark"] .flatpickr-day:hover,
+[data-bs-theme="dark"] .flatpickr-day:focus {
+  background: var(--gray-200);
+  border-color: var(--border-strong);
+}
+/* today 只加边框不填色——今天是「参考」不是「选中」，
+   用强调色实底会和 selected 抢视觉焦点。 */
+[data-bs-theme="dark"] .flatpickr-day.today { border-color: var(--primary-ink); }
+/* selected 是满格强调底 → 必须配近黑字（--on-accent-bright，9.06:1）。
+   注意底用 --accent-full 而不是 --primary-ink：后者是**文字档**，
+   按叠色底 4.5:1 反解来的，当底会让字压不住。 */
+[data-bs-theme="dark"] .flatpickr-day.selected,
+[data-bs-theme="dark"] .flatpickr-day.selected:hover {
+  background: var(--accent-full); color: var(--on-accent-bright);
+}
+/* 区间选择（start/end）是「半选」，比 selected 暗一档，
+   免得和 selected 分不清；深底 + 白字（5.31:1）。 */
+[data-bs-theme="dark"] .flatpickr-day.startRange,
+[data-bs-theme="dark"] .flatpickr-day.endRange {
+  background: var(--accent-deep); color: var(--on-accent);
+}
+[data-bs-theme="dark"] .flatpickr-day.inRange {
+  background: rgba(20, 184, 166, .14); border-color: transparent;
+}
+[data-bs-theme="dark"] .flatpickr-day.flatpickr-disabled,
+[data-bs-theme="dark"] .flatpickr-day.prevMonthDay,
+[data-bs-theme="dark"] .flatpickr-day.nextMonthDay,
+[data-bs-theme="dark"] .flatpickr-day.flatpickr-disabled:hover { color: var(--gray-500); }
+.flatpickr-calendar.dark .flatpickr-current-month input.cur-year,
+.flatpickr-calendar.dark .flatpickr-current-month input.cur-month { color: var(--gray-900); }
+
+/* ---- 表格斑马纹 ----
+   浅色主题用 2.5% 的**黑**做深浅差；深色主题下加黑等于没加（深底+黑
+   本来就深），方向反了。必须换成白字的透明度。 */
+[data-bs-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) > * {
+  --bs-table-accent-bg: rgba(255, 255, 255, .022);
+  color: var(--gray-800);
+}
+
+/* ---- 输入框自动填充 ----
+   Chrome/Safari 的自动填充底色是系统级的黄，CSS 只能压到「几乎透明」，
+   压不掉。不压的话深色主题下每次填表都闪出一片黄。
+   9999s 的 transition 是社区通用做法：把背景变化推迟到用户离开之后。 */
+[data-bs-theme="dark"] input:-webkit-autofill,
+[data-bs-theme="dark"] input:-webkit-autofill:hover,
+[data-bs-theme="dark"] input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--gray-900);
+  -webkit-box-shadow: 0 0 0 1000px var(--bg) inset;
+  caret-color: var(--gray-900);
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+/* ---- 滚动条 ----
+   默认滚动条是浅灰的，深底上像一条亮缝。 */
+/* 这里必须有前置元素：`[data-bs-theme="dark"] ::-webkit-scrollbar` 的
+   空格让 `::-webkit-scrollbar` 变成「任意元素的滚动条伪元素」，
+   而纯伪元素开头的选择器会让 Chrome 解析失败并丢弃其后所有规则。
+   实际要改的是「页面整体滚动条」，所以前置 `*` 而不是 html。 */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: var(--bg); }
+*::-webkit-scrollbar-thumb {
+  background: var(--gray-400);
+  border-radius: 6px;
+  border: 2px solid var(--bg);
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--gray-500); }
+
+/* ---- 焦点可见 ----
+   原注释说「浅色下蓝色 3px 环」——蓝色早就换掉了，这句注释本身
+   就是上一轮漏改的证据之一。深底上焦点环要够亮才看得见，
+   用强调色（对卡片底 4.20:1，比原来的浅绿还醒目）。 */
+[data-bs-theme="dark"] :focus-visible { outline-color: var(--accent-bar); }
+
+[data-bs-theme="dark"] {
+  /* ---- 主色当文字色 ----
+     ⚠⚠ 这一条**必须排除侧栏**。原来写的是 `a:not(.btn)`，
+     它把**整条侧栏的图标和文字全染成强调色** —— 一屏二十多个彩色图标，
+     这正是「把强调色当油漆用」最刺眼的表现。
+     现在改成只作用于**内容区的链接**：排除侧栏导航、项目树、
+     侧栏页脚。侧栏的颜色由 .sidebar-nav 那组规则单独管。
+     为什么非得这样写：`a:not(.btn)` 太粗，而侧栏的 <a> 长得
+     和普通链接一模一样（只有 .nav-item / .pt-links a 这点区别），
+     没有办法靠「排除 .btn」顺带排掉。 */
+  .main a:not(.btn):not(.nav-link) { color: var(--primary-ink); }
+  .main a:not(.btn):not(.nav-link):hover { color: var(--accent-bar); }
+  /* .nav-link 单独处理：项目详情页的 tab 同时带 .card-header，
+     深色下会被 .card-header 的 color 覆盖，导致 tab 选中态的文字色
+     不是「压渐变该有的颜色」。这里只把非选中态交回 --text-muted，
+     选中态由上面那条 !important 的规则管。
+     为什么不能整体 !important：那会把 tab 选中态也一起覆盖掉，
+     反而丢掉 --on-active-grad。 */
+  .main .nav-link:not(.active):not(.btn) { color: var(--text-muted) !important; }
+  .main .nav-link:not(.active):not(.btn):hover { color: var(--text) !important; }
+  .btn-outline-primary { border-color: var(--primary-ink); color: var(--primary-ink); }
+  .btn-outline-primary:hover {
+    background: var(--primary-ink); border-color: var(--primary-ink);
+    color: var(--on-accent-bright);
+  }
+  .btn-link, .text-primary { color: var(--primary-ink) !important; }
+
+  /* ---- 侧栏：未选中是灰的，选中才是强调色 ----
+     用户原话：「侧边栏的『项目总览』等图标和文字目前全是黄色，
+     建议未选中时使用灰色，仅在悬停或选中时变为黄色」。
+     这里再加一条：选中项除了色块，左侧加一条 2px 竖条——
+     纯色块在长侧栏里不够醒目，竖条能把视线直接带过去。
+     未选中用 --sidebar-text（= --gray-700）而不是 --gray-600：
+     侧栏是导航，用户在**快速扫视**里定位当前页，需要比正文次文本更亮，
+     否则「当前在哪一页」这件事本身就看不清。 */
+  .sidebar-nav .nav-item,
+  .sidebar-nav .nav-item i { color: var(--sidebar-text); }
+  .sidebar-nav .nav-item:hover { color: var(--gray-800); }
+  .sidebar-nav .nav-item.active,
+  .sidebar-nav .nav-item.active i { color: var(--on-accent); }
+  .proj-tree .pt-links a,
+  .proj-tree .pt-links a i { color: var(--sidebar-text); }
+  .proj-tree .pt-links a:hover { color: var(--gray-800); }
+  .proj-tree .pt-title { color: var(--gray-800); }
+  .proj-tree summary { color: var(--sidebar-text); }
+
+  /* ⚠ --primary-grad / --primary-grad-hover 已在 v2 移进**主变量块**
+     （那次是「强调色收敛到四处」）。原来它们声明在这里、而主变量块里没有，
+     于是「主色渐变」这件事分散在两个块里 —— 改的时候很容易只改一处。
+     现在统一在主变量块，打印回退块与浅色 :root 也各有一份，
+     tests/test_print_theme.py 会检查三者是否一致。 */
+  /* .text-pine 带 !important，所以深色覆盖也必须带 !important */
+  .text-pine { color: var(--primary-ink) !important; }
+
+  /* 表格里的项目名 / 材料 / 客户链接：浅色下是浅莫兰迪底 + 深字，
+     深色下必须反转，否则是「亮底 + 暗字」反过来变成「暗底 + 暗字」。
+     配色走 --tag-* 变量（见主变量块），这里只管选择器。
+
+     ⚠ 属性选择器的值**必须带引号**。写成 [href^=/projects/] 是无效选择器，
+     CSS 解析器会**整条丢弃**——不报错、不警告，这条规则凭空消失，
+     于是浅色那条继续生效，表现为「深色下项目名链接亮底亮字 1.43:1」。
+     这条曾因通过 shell heredoc 写文件而被吃掉引号，
+     tests/test_css_structure.py 里有对应的回读校验。 */
+  /* 客户 / 供应商 / 分类标签：这几类徽章在浅色主题是**莫兰迪浅底**，
+     上一轮只给 /projects/ 与 /materials/ 做了深色反转，
+     剩下两类漏了 —— 于是在黑底上留下一块藕粉浅斑。
+
+     ⚠ 本轮把这些字面值**收窄成两类**，因为它们是全站最后几处
+     还在用「自己一套颜色」的地方：主色系（客户/项目/材料）统一走强调色变量，
+     藕粉系（供应商/分类）保留色相区分但底色压到与卡片同族。
+     不这么收的话，下一次换色仍要回来改这一段。 */
+  .table a[href^="/customers/"]:not(.btn):not([href*="#"]),
+  /* 深色下与浅色保持同一套逻辑：常态中性底 + hover 品牌浅底。
+     原值在这里还区分「项目/材料/客户」与「供应商/分类」两族色相，
+     浅色侧已统一，这里跟着统一，否则切主题时颜色会变。 */
+  .table a[href^="/projects/"]:not(.btn):not([href*="#"]),
+  .table a[href^="/materials/"]:not(.btn):not([href*="#"]),
+  .table a[href^="/customers/"]:not(.btn):not([href*="#"]),
+  .table a[href^="/suppliers/"]:not(.btn):not([href*="#"]),
+  .supplier-tag,
+  .badge-category,
+  .project-link {
+    background: var(--gray-200); color: var(--gray-800);
+    border: 1px solid var(--card-border);
+  }
+  .table a[href^="/projects/"]:not(.btn):not([href*="#"]):hover,
+  .table a[href^="/materials/"]:not(.btn):not([href*="#"]):hover,
+  .table a[href^="/customers/"]:not(.btn):not([href*="#"]):hover,
+  .table a[href^="/suppliers/"]:not(.btn):not([href*="#"]):hover,
+  .project-link:hover {
+    background: var(--brand-light); color: var(--primary-text);
+    border-color: var(--primary-2);
+  }
+
+  /* 甘特图分节标题 */
+  .gantt-section { background: var(--gray-100); color: var(--gray-800); }
+
+  /* 状态徽章：浅色主题是「浅底 + 深字」，深色下必须整体反转成
+     「暗底 + 亮字」。用 rgba 叠在卡面上而不是实色，避免出现
+     一排突兀的实心色块。
+
+     ⚠⚠ 本轮起**用 --*-bg 而不是 rgba**。原因：这些色值上一版是
+     写死的 rgba(61, 161, 248,.16) 之类，和主变量块里的
+     --success-ink 并不是同一支颜色。换配色时要改两处，
+     而 rgba 那几处藏在补丁块里，最容易漏。
+     现在统一走 --*-bg / --*-ink，两者由 tools/build_dark_theme.py
+     一起产出，天然一致。 */
+  .state-badge.state-done  { background: var(--success-bg); color: var(--success-ink) !important; }
+  .state-badge.state-active{ background: var(--success-bg); color: var(--success-ink) !important; }
+  .state-badge.state-watch { background: var(--warning-bg); color: var(--warning-ink) !important; }
+  .state-badge.state-idle  { background: var(--gray-200);    color: var(--gray-700) !important; }
+  .state-badge.state-alert { background: var(--danger-bg);  color: var(--danger-ink) !important; }
+
+  /* 语义文字色：四色语义，用户要求全上。
+     注意 info 是**蓝**——上一轮把它并进强调色了（理由是「黑白三色」），
+     但那样一来「信息」和「品牌强调」就分不开了：
+     一个链接和一个提示用同一个颜色，用户无法判断哪个是状态。
+     蓝色回归，且它同时也是 --bs-link-color 之外唯一可用的冷色，
+     给了界面一个除强调色之外的第二锚点。 */
+  .text-success { color: var(--success-ink) !important; }
+  .text-warning { color: var(--warning-ink) !important; }
+  .text-danger  { color: var(--danger-ink) !important; }
+  .text-info    { color: var(--info-ink) !important; }
+  .text-muted   { color: var(--gray-700) !important; }
+
+  /* 卡片本体：深色下靠「明度差 + 1px 描边」双保险分层。
+     单靠明度差不够——#121212 与 #1E1E1E 只差 1.12:1，
+     OLED 上等于没有边界。 */
+  .card {
+    background: var(--surface);
+    border-color: var(--card-border);
+  }
+  /* 卡片内的浅色块（如空状态、提示条）不能留白 */
+  .empty-state, .table th.wrap { background: var(--surface-2); }
+
+  /* 表格：悬停行用**中性**白 3.5%，不染强调色。
+     行悬停不是链接，染了色相就是「把强调色当油漆用」。 */
+  .table-hover tbody tr:hover > td,
+  .table > tbody > tr:hover > td {
+    background-color: var(--bs-table-hover-bg) !important;
+    color: var(--gray-900);
+  }
+
+  /* ⚠⚠ 表格的**层叠半透明底**必须在这里换成中性白。
+     :root 里有两处写死绿调的行悬停底：
+       --bs-table-hover-bg: rgba(20, 109, 199,.06)     （表行悬停）
+       .sup-scroll tbody tr:hover td: 同样一个绿 rgba
+     它们在深色下会叠在 --zebra(白 2.8%) 之上，于是待办总览那一行
+     叠出 rgb(38,41,40) 这个**带绿偏**的底，红字压它只有 4.17:1。
+     单看每一层都合规（绿 6% 几乎看不见），叠起来才出问题 ——
+     这是「半透明底色要按叠加后的实际值验」的典型。
+     换成中性白之后，深色下表格的所有底都是同一支白，
+     叠加多少层都是中性灰。 */
+  [data-bs-theme="dark"] .sup-scroll tbody tr:hover td {
+    background: rgba(255, 255, 255, .05);
+  }
+
+  /* ---- Bootstrap 组件里写死浅底的三个 ----
+     它们都只在「浅底 + 深字」这一种前提下成立，深色下必须整体反转。
+     .table-light 用在 tfoot（合计行）——合计行往往是最该看清的一行，
+     却因为藏在 tfoot 里、样式又来自框架，肉眼最容易漏。 */
+  .table-light {
+    --bs-table-bg: var(--surface-2);
+    --bs-table-color: var(--gray-900);
+    --bs-table-border-color: var(--border-strong);
+  }
+  /* navbar-light 是 Bootstrap 的「浅色导航条」。它只在窄屏显示，
+     但元素一直在 DOM 里，深色下会是一条横在顶部的浅绿亮带。 */
+  .navbar-light {
+    background-color: var(--surface) !important;
+    color: var(--gray-900) !important;
+  }
+  .navbar-light .navbar-brand,
+  .navbar-light .nav-link { color: var(--gray-900) !important; }
+
+  /* 收款节点行底（深色版）：暖色那几个 5~7% 的半透明层在黑底上会偏色，
+     改用「对应语义色的暗底」，与 .state-badge 同一套底色。 */
+  .pay-row.pay-done   { background: rgba(29, 184, 71, .07); }
+  .pay-row.pay-part   { background: rgba(249, 115, 22, .07); }
+  .pay-row.pay-unpaid { background: rgba(222, 122, 115, .06); }
+
+  /* ---- 统计卡顶部那条 2px 色带（深色版）----
+     ⚠ 这里**只有两条规则**，没有按指标分类的七条 ——
+     v2 有意收敛成单色，理由是「一屏十六张统计卡排开就是一片彩色顶条」，
+     而这些色带本来只是装饰（区分「这张卡是哪类指标」），不承担状态语义。
+     浅色侧同样收敛，两边一致（浅色在 :root 里那条）。
+
+     ⚠⚠ v3 换强调色时，我在这里写过一套七条分类色
+     （#3fb5a3 / #5ec9b9 / #c9a87a / #d08a72 / #9d8fc9 / #6ea6b1 / #9b9ea3），
+     并在 tools/build_dark_theme.py 里加了对应的验算 ——
+     结果那条规则组在**下面**，把这七条全盖掉了，六张卡渲出来一个颜色。
+     也就是说：七条分类色连同那套「色相要与成功绿散开」的推导
+     全是**死代码**。已删，脚本里那段也删了。
+
+     教训与本轮那条 --primary-grad 重复声明是同一个：
+       **写在后面的规则赢**，而加新样式时人只会往下加。
+       所以「新加一组分类样式」之后必须确认它真的生效了 ——
+       唯一可靠的办法是把 computed 值和字面值对一下，
+       或者用 tests/test_duplicate_decls.py 挡住「块内同值/异值重复」。
+
+     .is-neg / .is-pos 保留：那两个是**真的**「坏 / 好」，不是装饰。 */
+  .grad-pine, .grad-bean, .grad-oat, .grad-terra, .grad-lotus,
+  .grad-sage, .grad-stone, .grad-indigo, .grad-blue, .grad-emerald,
+  .grad-amber, .grad-rose, .grad-violet, .grad-cyan, .grad-slate {
+    --stat-accent: var(--primary);
+  }
+  .stat-card.is-pos { --stat-accent: var(--success-ink); }
+  .stat-card.is-neg { --stat-accent: var(--danger-ink); }
+  /* is-neg / is-pos 的数字颜色走语义色：红与绿在黑底上都要抬亮，
+     否则「已付超 251,716.95」这种关键数字会看不清。 */
+  .stat-card.is-neg .stat-num { color: var(--danger-ink); }
+  .stat-card.is-pos .stat-num { color: var(--success-ink); }
+
+}
+
+/* ---------- 作废行（软删除：付款 / 费用） ----------
+   作废的单据行仍留在表里——财务要能看见「这里有一笔作废的记录」才能对账，
+   直接从列表消失反而会被理解成「这笔从来没付过」。但它不计入合计，
+   视觉上也必须一眼看出「这笔不算数」，否则有人会把它加进总账然后对不上。
+
+   用 --text-muted 而不是 opacity，有两个原因：
+     1. opacity 会把徽章和恢复按钮一起压暗，按钮变得难点；
+     2. 更要紧的是——opacity 不改 computed color，只改合成结果，
+        所以 test_dark_contrast 读到的比值仍是达标的，实际观感却已经
+        低于 3:1。那正是这套 CSS 最忌讳的「静默失效」。
+        --text-muted 在浅色与深色下都保证 4.5:1 以上。
+
+   !important 是必需的：Bootstrap 的 .text-danger 与 table>td 都有优先级，
+   普通声明赢不了（与 .text-danger 改绑 --danger-ink 时同一个道理）。 */
+.row-voided td { color: var(--text-muted) !important; }
+
+
+/* ============================================================================
+   Basecamp 配色主题层 · 覆盖层（必须置于文件末尾）
+   ----------------------------------------------------------------------------
+   为什么放在最后：本文件原有多个 [data-bs-theme="dark"] 块位于更靠前的位置，
+   而本层与其特异性相同。CSS 同优先级下「后声明者胜出」，放在文件中间会被
+   后面的原深色块反向覆盖 —— 实测过一次，深色 --primary 被压回旧的 #3E9AF6。
+
+   本层只覆盖语义 token（--bg / --surface / --text / --border / --primary /
+   --*-ink / --*-bg / --bs-*），不动原 :root 的 --gray-* 色阶：
+   那是由 tools/build_palette.py 与 build_dark_theme.py 按 WCAG 反解的，
+   含深色主题 234 处不达标的修复历史，重算成本高且易引入新的不达标点。
+   ============================================================================ */
+/* ============================================================================
+   Basecamp 配色主题层
+   ----------------------------------------------------------------------------
+   放在原 :root **之后**，用同等特异性覆盖语义 token。
+   不动原 :root 的 --gray-* 色阶 —— 那是 tools/build_palette.py 按 WCAG
+   对比度反解出来的（含深色主题 234 处不达标的修复历史），重算成本高且
+   容易引入新的不达标点。本层只接管「语义层」：
+
+     --bg / --surface*  页面底与卡片底  → Basecamp 的低饱和近白画布
+     --text*            文字语义档      → Basecamp 的 5 级蓝调墨色
+     --border*          描边            → 1px + 7.5% 黑透明度
+     --primary*         主色            → Basecamp 蓝
+     --*-ink / --*-bg   语义色          → 逐个按 WCAG AA 反解，见下
+
+   ---------- 为什么主色用 #146DC7 而不是 Basecamp 自己的 #117AF3 ----------
+   Basecamp 的亮蓝 #117AF3 配白字只有 **4.12:1**，达不到 AA 的 4.5:1
+   （只满足 ≥18px 大字的 3:1）。Basecamp 自己是营销站，不受 WCAG 约束；
+   你的系统要过无障碍。所以主按钮/主文字统一用它的深蓝 #146DC7（5.20:1），
+   亮蓝仅用于进度条填充、装饰点等**不承载文字信息**的地方。
+
+   ---------- 语义色逐个验算（白底/画布底上的文字对比度）----------
+     danger  #C0251F  5.02:1  AA   ← Basecamp 用 #FA423C，仅 3.55:1
+     warning #8A5A06  6.11:1  AA   ← Basecamp 用 #FF801F，仅 2.51:1
+     success #0D7A2C  4.83:1  AA   ← Basecamp 用 #1DB847，仅 2.63:1
+     info    #146DC7  5.20:1  AA   同主色
+   Basecamp 那套高饱和色只适合当色块，不能当文字色 —— 这是它作为
+   营销站与你的管理系统的根本差别。
+
+   ---------- 浅色画布选哪一套 ----------
+   5 套画布（绿/紫/橙/蓝/红调）饱和度都极低，文字对比度差异 < 0.2:1。
+   这里取**蓝调 #F5F9FF**：主色是蓝，同色相的底更协调，也最接近
+   Basecamp 自身产品界面的观感。
+   ============================================================================ */
+:root {
+  /* ---------- 画布：Basecamp 低饱和近白 ---------- */
+  --canvas-1:#F5FAF6;  /* 绿调 */
+  --canvas-2:#FCF7FF;  /* 紫调 */
+  --canvas-3:#FFF9F5;  /* 橙调 */
+  --canvas-4:#F5F9FF;  /* 蓝调 ← 采用 */
+  --canvas-5:#FEF3F3;  /* 红调 */
+
+  /* ---------- 墨色：Basecamp 5 级蓝调 ---------- */
+  --bc-ink-1:#0B151B;
+  --bc-ink-2:#131F25;
+  --bc-ink-3:#1B2930;
+  --bc-ink-4:#29353C;
+  --bc-ink-5:#646D72;
+
+  /* ---------- Basecamp 强调色原值（小面积用：进度条、装饰点） ---------- */
+  --bc-blue:#117AF3;
+  --bc-blue-light:#3E9AF6;
+  --bc-green:#1DB847;
+  --bc-red:#FA423C;
+  --bc-orange:#FF801F;
+  --bc-purple:#7A70FF;
+  --bc-yellow:#FFDC74;
+  --bc-yellow-light:#FDF2C4;
+  /* Basecamp hill chart 五色（取自其首页内联 SVG 实测值） */
+  --bc-hill-1:#EB7550;
+  --bc-hill-2:#51B0BF;
+  --bc-hill-3:#5DA1F8;
+  --bc-hill-4:#E79335;
+  --bc-hill-5:#58A65C;
+
+  /* ---------- 6 层柔性阴影：Basecamp 的招牌 ---------- */
+  /* 全用 em，阴影随字号缩放 —— 文字卡片的阴影比大卡片浅 */
+  --bc-shadow:
+     0 0 0 max(1px,.05em) rgba(11,21,27,.0625),
+     0 .2em 1.6em -.5em rgba(11,21,27,.04),
+     0 .3em 2.0em -.6em rgba(11,21,27,.04),
+     0 .3em .8em -.7em rgba(11,21,27,.04),
+     0 .5em 1.2em -.9em rgba(11,21,27,.04),
+     0 .7em 1.6em -1.1em rgba(11,21,27,.04);
+  --bc-shadow-lifted:
+     0 .6em .4em -.8em rgba(11,21,27,.1),
+     0 1em .8em -1.2em rgba(11,21,27,.15),
+     0 1.4em 1.2em -1.6em rgba(11,21,27,.2);
+}
+
+/* ============================================================================
+   浅色主题：接入 Basecamp 画布 + 墨色 + 蓝调语义
+   ============================================================================ */
+:root:not([data-bs-theme="dark"]) {
+  /* 页面底 = Basecamp 蓝调画布；卡片 = 纯白（靠 6 层阴影分层，不靠明度差） */
+  --bg: var(--canvas-4);
+  --surface: #ffffff;
+  --surface-2: #ffffff;
+  --surface-3: #ffffff;
+  --input-bg: #ffffff;
+
+  /* 文字语义档 → Basecamp 墨色
+     正文用 ink-3 (14.1:1)，表头/次要用 ink-5 (5.0:1 AA)，占位用 ink-5 */
+  --text: var(--bc-ink-3);
+  --text-2: var(--bc-ink-4);
+  --text-3: var(--bc-ink-5);
+  --text-muted: var(--bc-ink-5);
+
+  /* 描边：Basecamp 做法 = 1px + 7.5% 黑透明度，不是灰色实线 */
+  --border: rgba(11,21,27,.075);
+  --border-strong: rgba(11,21,27,.14);
+  --card-border: rgba(11,21,27,.075);
+  --card-head-border: rgba(11,21,27,.075);
+  --card-head-solid: var(--canvas-4);
+  --card-head-solid-border: rgba(11,21,27,.075);
+
+  /* 主色：深蓝（白字 5.20:1，过 AA） */
+  --primary: #146DC7;
+  --primary-2: #0F5AA5;
+  --accent: var(--bc-blue);
+  --accent-deep: #146DC7;
+  --accent-full: var(--bc-blue);
+  --on-accent: #ffffff;
+  --on-accent-bright: #ffffff;
+  /* 渐变两端都要过 AA：Basecamp 亮蓝 #117AF3 配白字只有 4.12:1，
+     而渐变按钮的文字会压在渐变中段，实际比端点更差。
+     故两端都限制在 >=5.2:1 的深蓝区间，亮蓝只留给进度条等非文字场景。 */
+  --primary-grad: linear-gradient(135deg, #0F5AA5 0%, #146DC7 100%);
+  --primary-grad-hover: linear-gradient(135deg, #0B4A8A 0%, #0F5AA5 100%);
+  --on-active-grad: #ffffff;
+  --primary-ink: #146DC7;
+  --link: #146DC7;
+
+  /* 语义色：均按 AA 反解，非 Basecamp 原值（理由见文件头） */
+  --danger: #C0251F;
+  --danger-btn: #A81E19;
+  --danger-ink: #C0251F;
+  --danger-bg: #FEF3F3;
+  --warning: #E07B00;
+  --warning-ink: #8A5A06;
+  --warning-bg: #FFF6E8;
+  --success: #0D9A3C;
+  --success-btn: #0B7D31;
+  --success-ink: #0D7A2C;
+  --success-bg: #F1FAF2;
+  --info-ink: #146DC7;
+  --info-bg: #F5F9FF;
+
+  /* 莫兰迪标签色 → Basecamp 淡色底（同色系淡底 + 深字） */
+  --tag-bg: rgba(17,122,243,.10);
+  --tag-bg-hover: rgba(17,122,243,.16);
+  --tag-fg: #0B5FBF;
+  --tag-border: rgba(17,122,243,.22);
+  --tag2-bg: rgba(122,112,255,.10);
+  --tag2-bg-hover: rgba(122,112,255,.16);
+  --tag2-fg: #5849E0;
+  --tag2-fg-hover: #4638C4;
+  --tag2-border: rgba(122,112,255,.22);
+
+  --proj-hero-bg: var(--surface);
+  --topbar-bg: var(--bg);
+}
+
+/* ============================================================================
+   深色主题：Basecamp 同样有暗色版，画布换成墨色-1
+   （原深色主题的 --gray-* 色阶由 build_dark_theme.py 反解，不动；
+     这里只接语义层，保留它那套已验证的对比度修复）
+   ============================================================================ */
+[data-bs-theme="dark"] {
+  --bg: #0B151B;
+  --surface: #131F25;
+  --surface-2: #18242B;
+  --surface-3: #1B2930;
+  --input-bg: #131F25;
+
+  --text: #E1E5E8;
+  --text-2: #C3C8CC;
+  --text-3: #9AA1A7;
+  --text-muted: #9AA1A7;
+
+  --border: rgba(225,229,232,.12);
+  --border-strong: rgba(225,229,232,.22);
+  --card-border: rgba(225,229,232,.12);
+  --card-head-border: rgba(225,229,232,.12);
+  --card-head-solid: #131F25;
+  --card-head-solid-border: rgba(225,229,232,.12);
+
+  --primary: #3E9AF6;
+  --primary-2: #5DA1F8;
+  --accent: #3E9AF6;
+  --accent-deep: #117AF3;
+  --accent-full: #3E9AF6;
+  --on-accent: #ffffff;
+  --on-accent-bright: #ffffff;
+  /* 深色主题按钮：沿用「白字 + 深蓝底」，与浅色一致。
+     曾试过「暗字 #0B151B + 亮蓝底」——最亮端也只有 4.49:1，
+     压暗后更差（hover 端 3.19:1）。深蓝底配白字反而能到 5.20:1，
+     所以暗色主题的主按钮不做明暗反转，只让背景色比浅色略亮一档
+     以便在深底上仍能分辨。 */
+  --primary-grad: linear-gradient(135deg, #0F5AA5 0%, #146DC7 100%);
+  --primary-grad-hover: linear-gradient(135deg, #0B4A8A 0%, #0F5AA5 100%);
+  --on-active-grad: #ffffff;
+  --primary-ink: #5DA1F8;
+  --link: #5DA1F8;
+
+  --danger: #FA6A65;
+  --danger-btn: #E04A45;
+  --danger-ink: #FF8A85;
+  --danger-bg: rgba(250,66,60,.14);
+  --warning: #FFA83D;
+  --warning-ink: #FFBE6B;
+  --warning-bg: rgba(255,128,31,.14);
+  --success: #3FD068;
+  --success-btn: #2EB84E;
+  --success-ink: #63D982;
+  --success-bg: rgba(29,184,71,.14);
+  --info-ink: #5DA1F8;
+  --info-bg: rgba(17,122,243,.14);
+
+  --tag-bg: rgba(62,154,246,.16);
+  --tag-bg-hover: rgba(62,154,246,.24);
+  --tag-fg: #7FBBF9;
+  --tag-border: rgba(62,154,246,.30);
+  --tag2-bg: rgba(148,140,255,.16);
+  --tag2-bg-hover: rgba(148,140,255,.24);
+  --tag2-fg: #A79EFF;
+  --tag2-fg-hover: #B7B0FF;
+  --tag2-border: rgba(148,140,255,.30);
+
+  --proj-hero-bg: var(--surface);
+  --topbar-bg: var(--bg);
+}
+
+/* ============================================================================
+   Bootstrap 变量重绑（Basecamp 版）
+   原 :root 里那批 --bs-* 是浅色/深色通用的，这里按主题分别给值，
+   否则深色主题会继续读到浅色的链接色与表格悬停色。
+   ============================================================================ */
+:root:not([data-bs-theme="dark"]) {
+  --bs-body-bg: var(--canvas-4);
+  --bs-body-color: var(--bc-ink-3);
+  --bs-emphasis-color: var(--bc-ink-3);
+  --bs-emphasis-color-rgb: 27, 41, 48;
+  --bs-secondary-color: var(--bc-ink-5);
+  --bs-secondary-color-rgb: 100, 109, 114;
+  --bs-secondary-bg: rgba(11,21,27,.05);
+  --bs-secondary-bg-rgb: 233, 236, 238;
+  --bs-tertiary-color: var(--bc-ink-5);
+  --bs-tertiary-color-rgb: 100, 109, 114;
+  --bs-tertiary-bg: rgba(11,21,27,.035);
+  --bs-heading-color: var(--bc-ink-1);
+  --bs-border-color: rgba(11,21,27,.10);
+  --bs-border-color-translucent: rgba(11,21,27,.10);
+  --bs-link-color: #146DC7;
+  --bs-link-color-rgb: rgba(20, 109, 199;
+  --bs-link-hover-color: #0F5AA5;
+  --bs-link-hover-color-rgb: 15, 90, 165;
+  --bs-table-border-color: rgba(11,21,27,.075);
+  --bs-table-striped-bg: rgba(11,21,27,.02);
+  --bs-table-striped-color: var(--bc-ink-4);
+  --bs-table-hover-bg: rgba(17,122,243,.045);
+  --bs-table-hover-color: var(--bc-ink-3);
+  --bs-light-bg-subtle: rgba(11,21,27,.035);
+  --bs-light-border-subtle: rgba(11,21,27,.10);
+  --bs-light-text-emphasis: var(--bc-ink-4);
+  --bs-dark-bg-subtle: rgba(11,21,27,.06);
+  --bs-dark-border-subtle: rgba(11,21,27,.14);
+  --bs-dark-text-emphasis: var(--bc-ink-3);
+  --bs-form-control-bg: #ffffff;
+  --bs-form-control-border-color: rgba(11,21,27,.14);
+  --bs-form-control-hover-border-color: rgba(11,21,27,.24);
+  --bs-form-control-focus-border-color: #146DC7;
+  --bs-form-control-focus-box-shadow: 0 0 0 .2rem rgba(20,109,199,.16);
+  --bs-form-control-disabled-bg: var(--canvas-4);
+  --bs-form-control-placeholder-color: var(--bc-ink-5);
+  --bs-secondary-bg-subtle: rgba(11,21,27,.035);
+  --bs-secondary-border-subtle: rgba(11,21,27,.10);
+  --bs-btn-color: var(--bc-ink-4);
+  --bs-btn-border-color: rgba(11,21,27,.14);
+  --bs-btn-hover-bg: rgba(11,21,27,.04);
+  --bs-btn-hover-border-color: rgba(11,21,27,.24);
+  --bs-btn-active-bg: rgba(11,21,27,.07);
+  --bs-btn-active-border-color: rgba(11,21,27,.28);
+  --bs-btn-disabled-bg: rgba(11,21,27,.04);
+  --bs-btn-disabled-border-color: rgba(11,21,27,.08);
+  --bs-table-accent-bg: rgba(11,21,27,.03);
+  --bs-table-bg: transparent;
+}
+
+[data-bs-theme="dark"] {
+  --bs-body-bg: #0B151B;
+  --bs-body-color: #E1E5E8;
+  --bs-emphasis-color: #E1E5E8;
+  --bs-emphasis-color-rgb: 225, 229, 232;
+  --bs-secondary-color: #9AA1A7;
+  --bs-secondary-color-rgb: 154, 161, 167;
+  --bs-secondary-bg: rgba(225,229,232,.08);
+  --bs-secondary-bg-rgb: 39, 45, 49;
+  --bs-tertiary-color: #9AA1A7;
+  --bs-tertiary-color-rgb: 154, 161, 167;
+  --bs-tertiary-bg: rgba(225,229,232,.05);
+  --bs-heading-color: #FFFFFF;
+  --bs-border-color: rgba(225,229,232,.14);
+  --bs-border-color-translucent: rgba(225,229,232,.14);
+  --bs-link-color: #5DA1F8;
+  --bs-link-color-rgb: 93, 161, 248;
+  --bs-link-hover-color: #7FBBF9;
+  --bs-link-hover-color-rgb: 127, 187, 249;
+  --bs-table-border-color: rgba(225,229,232,.10);
+  --bs-table-striped-bg: rgba(225,229,232,.025);
+  --bs-table-striped-color: #C3C8CC;
+  --bs-table-hover-bg: rgba(62,154,246,.08);
+  --bs-table-hover-color: #FFFFFF;
+  --bs-light-bg-subtle: rgba(225,229,232,.05);
+  --bs-light-border-subtle: rgba(225,229,232,.14);
+  --bs-light-text-emphasis: #C3C8CC;
+  --bs-dark-bg-subtle: rgba(225,229,232,.08);
+  --bs-dark-border-subtle: rgba(225,229,232,.20);
+  --bs-dark-text-emphasis: #C3C8CC;
+  --bs-form-control-bg: #131F25;
+  --bs-form-control-border-color: rgba(225,229,232,.18);
+  --bs-form-control-hover-border-color: rgba(225,229,232,.30);
+  --bs-form-control-focus-border-color: #3E9AF6;
+  --bs-form-control-focus-box-shadow: 0 0 0 .2rem rgba(62,154,246,.20);
+  --bs-form-control-disabled-bg: #18242B;
+  --bs-form-control-placeholder-color: #9AA1A7;
+  --bs-secondary-bg-subtle: rgba(225,229,232,.05);
+  --bs-secondary-border-subtle: rgba(225,229,232,.14);
+  --bs-btn-color: #C3C8CC;
+  --bs-btn-border-color: rgba(225,229,232,.20);
+  --bs-btn-hover-bg: rgba(225,229,232,.08);
+  --bs-btn-hover-border-color: rgba(225,229,232,.32);
+  --bs-btn-active-bg: rgba(225,229,232,.12);
+  --bs-btn-active-border-color: rgba(225,229,232,.38);
+  --bs-btn-disabled-bg: rgba(225,229,232,.05);
+  --bs-btn-disabled-border-color: rgba(225,229,232,.12);
+  --bs-table-accent-bg: rgba(225,229,232,.04);
+  --bs-table-bg: transparent;
+}
+

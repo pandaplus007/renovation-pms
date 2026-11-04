@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}分包管理
+{% endblock %}
+{% block page_title %}分包管理{% endblock %}
+{% block content %}
+
+<div class="page-head d-flex justify-content-between align-items-center mb-3">
+  <form class="search-row" id="fltForm" method="get">
+    <input type="text" name="q" value="{{ q }}" class="form-control" style="width:220px" placeholder="搜索分包合同 / 编号 / 分包商">
+    {% import "_multiselect.html" as ms %}
+    {{ ms.multiselect('category', '分类', categories, categories, category) }}
+    {{ ms.multiselect('project_id', '项目', [-1] + projects|map(attribute='id')|list, ['未分配项目'] + projects|map(attribute='name')|list, project_id) }}
+    <a href="/subcontracts" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> 恢复原样</a>
+    <div class="ms-auto d-flex gap-2">
+      <a href="/subcontracts/orders/new" class="btn btn-outline-primary btn-sm"><i class="bi bi-cart-plus"></i> 新增分包采购单</a>
+      <a href="/subcontracts/new" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增分包合同</a>
+    </div>
+  </form>
+</div>
+
+<div id="result-box">
+{% if not data %}
+<div class="card"><div class="card-body empty-state"><i class="bi bi-diagram-3"></i>暂无分包合同，点击右上角「新增分包合同」开始</div></div>
+{% endif %}
+
+{% for d in data %}
+{% set c = d.contract %}
+<div class="card mb-3" id="sc-{{ c.id }}">
+  <div class="card-header py-2">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <a href="/subcontracts/{{ c.id }}" class="fw-bold text-decoration-none">{{ c.name }}</a>
+        {% if c.contract_no %}<span class="badge text-bg-light ms-1">{{ c.contract_no }}</span>{% endif %}
+        <span class="small text-muted ms-2">
+          {{ c.party_b or '—' }}
+          {% if c.project %} · {{ c.project.name }}{% endif %}
+          <span class="badge text-bg-info ms-1">{{ c.category }}</span>
+        </span>
+      </div>
+      <form method="post" action="/subcontracts/{{ c.id }}/delete" class="d-inline"
+            onsubmit="return confirm('删除该分包合同？将连同其分包采购单一起删除。');">
+        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+      </form>
+    </div>
+  </div>
+  <div class="card-body py-2">
+    <div class="row g-2 mb-2">
+      <div class="col-md-3"><div class="text-muted small">分包合同额</div><div class="fw-semibold">¥{{ c.amount|money }} <span class="text-muted small fw-normal">（{{ '%.1f'|format(d.amount_pct) }}%）</span></div></div>
+      <div class="col-md-3"><div class="text-muted small">已下单</div><div class="fw-semibold text-primary">¥{{ d.ordered|money }} <span class="text-muted small fw-normal">（{{ '%.1f'|format(d.ordered_pct) }}%）</span></div></div>
+      <div class="col-md-3"><div class="text-muted small">剩余合同额</div><div class="fw-semibold {% if d.remain > 0 %}text-danger{% else %}text-success{% endif %}">¥{{ d.remain|money }} <span class="text-muted small fw-normal">（{{ '%.1f'|format(d.remain_pct) }}%）</span></div></div>
+      <div class="col-md-3"><div class="text-muted small">已付款</div><div class="fw-semibold text-danger">¥{{ d.paid|money }} <span class="text-muted small fw-normal">（{{ '%.1f'|format(d.paid_pct) }}%）</span></div></div>
+      <div class="col-md-3"><div class="text-muted small">剩余未付款</div><div class="fw-semibold {% if d.remain_pay > 0 %}text-danger{% else %}text-success{% endif %}">¥{{ d.remain_pay|money }} <span class="text-muted small fw-normal">（{{ '%.1f'|format(d.remain_pay_pct) }}%）</span></div></div>
+      <div class="col-md-3">
+        <div class="text-muted small">进度 {{ '%.0f'|format(d.progress) }}%</div>
+        <div class="progress" style="height:8px"><div class="progress-bar" style="width: {{ d.progress }}%"></div></div>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 table-card" data-col-resizable data-col-key="subcontracts" data-sortable>
+        <thead><tr><th class="sortable" data-sort="no">单号</th><th class="sortable" data-sort="date" data-type="date">日期</th><th class="text-end sortable" data-sort="amount" data-type="number">金额</th><th class="sortable" data-sort="note">备注</th><th></th></tr></thead>
+        <tbody>
+          {% for o in c.orders %}
+          <tr>
+            <td class="fw-semibold">{{ o.order_no or ('分包单 #' ~ o.id) }}</td>
+            <td class="small" data-value="{{ o.order_date or '' }}">{{ o.order_date or '—' }}</td>
+            <td class="text-money" data-value="{{ o.total_amount or 0 }}">¥{{ o.total_amount|money }}</td>
+            <td class="small text-muted">{{ o.note or '' }}</td>
+            <td>
+              <form method="post" action="/subcontracts/orders/{{ o.id }}/delete" class="d-inline"
+                    onsubmit="return confirm('删除该分包采购单？');">
+                <button class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-muted py-2">暂无分包采购单，请在下方添加</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    
+  </div>
+</div>
+{% endfor %}
+</div>
+
+<script>
+function fltSubmit(cb){
+  if(!cb) cb = document.querySelector('input.flt-cb');
+  if(!cb) return;
+  var form = cb.form;
+  if(!form) return;
+  var fd = new FormData(form);
+  var qs = new URLSearchParams(fd).toString();
+  var url = location.pathname + (qs ? '?' + qs : '');
+  var boxId = form.getAttribute('data-result') || 'result-box';
+  var box = document.getElementById(boxId);
+  if(!box){ form.submit(); return; }  // 无局部容器则整页提交
+  fetch(url, {headers:{'X-Requested-With':'fetch'}})
+    .then(function(r){ if(!r.ok) throw 0; return r.text(); })
+    .then(function(html){
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var nb = doc.getElementById(boxId);
+      if(nb) box.innerHTML = nb.innerHTML;   // 仅更新表格区，下拉/页面不刷新
+      history.replaceState(null, '', url);
+      syncAllChecks(form);
+      updateFilterBadges(form);
+    })
+    .catch(function(){ form.submit(); });    // 异常时退化为整页
+}
+function syncAllChecks(form){
+  form.querySelectorAll('input[id^="all-"]').forEach(function(all){
+    var g = all.id.replace('all-','');
+    var cbs = form.querySelectorAll('input[data-group="' + g + '"]');
+    var allc = cbs.length > 0 && [].every.call(cbs, function(c){ return c.checked; });
+    all.checked = allc;
+  });
+}
+function updateFilterBadges(form){
+  form.querySelectorAll('.dropdown').forEach(function(dd){
+    var cbs = dd.querySelectorAll('input.flt-cb');
+    if(cbs.length === 0) return;  // 仅处理筛选下拉
+    var n = [].filter.call(cbs, function(c){ return c.checked; }).length;
+    var filtered = n > 0 && n < cbs.length;  // 有勾选但未全选 = 筛选状态
+    var btn = dd.querySelector('.dropdown-toggle');
+    if(!btn) return;
+    var icon = btn.querySelector('.bi');
+    if(filtered){
+      btn.classList.add('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel-fill';
+      var b = btn.querySelector('.flt-badge');
+      if(!b){ b = document.createElement('span'); b.className='flt-badge'; btn.appendChild(b); }
+      b.textContent = n;
+    } else {
+      btn.classList.remove('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel';
+      var ob = btn.querySelector('.flt-badge');
+      if(ob) ob.remove();
+    }
+  });
+}
+function fltToggleAll(g, el){
+  var form = el.form;
+  if(!form) return;
+  var first = form.querySelector('input[data-group="' + g + '"]');
+  if(!first) return;
+  form.querySelectorAll('input[data-group="' + g + '"]').forEach(function(c){ c.checked = el.checked; });
+  if(el.checked){ fltSubmit(first); }  // 勾选全选：提交全部
+  else { updateFilterBadges(form); }  // 取消全选：清空并恢复按钮未筛选样式
+}
+</script>
+
+
+{% endblock %}

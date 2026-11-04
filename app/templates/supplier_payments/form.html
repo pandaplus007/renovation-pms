@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑付款' if payment else '登记付款' }}{% endblock %}
+{% block page_title %}{{ '编辑付款' if payment else '登记付款' }}{% endblock %}
+{% block content %}
+
+{% set val_amount = payment.amount if payment else (parsed.amount if parsed else 0) %}
+{% set val_date = payment.pay_date if payment and payment.pay_date else (parsed.trade_date if parsed and parsed.trade_date else '') %}
+{% set val_note = payment.note if payment else (parsed.summary if parsed else '') %}
+{% set sel_sup = payment.supplier_id if payment else (prefill_supplier_id if prefill_supplier_id else (match.supplier.id if match and match.supplier else 0)) %}
+
+<!-- 转账单导入识别 -->
+<div class="card mb-3" style="max-width:800px;">
+  <div class="card-header"><i class="bi bi-bank me-1 text-success"></i>银行转账单导入</div>
+  <div class="card-body">
+    <form method="post" action="/supplier-payments/parse" enctype="multipart/form-data"
+          class="d-flex gap-2 align-items-end flex-wrap">
+      <input type="hidden" name="supplier_id" value="{{ sel_sup }}">
+      <input type="hidden" name="project_id" value="{{ (payment.project_id if payment else (prefill_project_id if prefill_project_id else 0)) or 0 }}">
+      <input type="hidden" name="contract_id" value="{{ (payment.contract_id if payment else (prefill_contract_id if prefill_contract_id else 0)) or 0 }}">
+      <input type="hidden" name="po_id" value="{{ (payment.po_id if payment else (prefill_po_id if prefill_po_id else 0)) or 0 }}">
+      <input type="hidden" name="subcontract_id" value="{{ (payment.subcontract_id if payment else (prefill_subcontract_id if prefill_subcontract_id else 0)) or 0 }}">
+      <input type="hidden" name="suborder_id" value="{{ (payment.suborder_id if payment else (prefill_suborder_id if prefill_suborder_id else 0)) or 0 }}">
+      {% if suborders %}
+      {% endif %}
+      {% if back_url %}<input type="hidden" name="back_url" value="{{ back_url }}">{% endif %}
+      <div class="flex-grow-1" style="min-width:280px">
+        <input type="file" name="file" class="form-control" accept="image/png,image/jpeg,application/pdf,.pdf">
+      </div>
+      <button class="btn btn-outline-success"><i class="bi bi-magic"></i> 识别并预填</button>
+    </form>
+    <div class="small text-muted mt-2">
+      上传银行转账单（截图/电子回单 PDF），自动识别收款方、金额、日期、摘要，并匹配供应商；文件自动存档。
+      {% if bank_file %}<span class="badge {{ "已上传存档" | state_badge }} ms-1">已上传存档</span>{% endif %}
+    </div>
+    {% if bank_file %}
+    <div class="mt-2">
+      <a href="{{ bank_file }}" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-eye"></i> 查看</a>
+      <a href="{{ bank_file }}" download class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> 下载</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{% if parsed %}
+<div class="alert alert-success py-2">
+  <i class="bi bi-check-circle-fill me-1"></i>
+  已识别：收款方「<strong>{{ parsed.payee or '—' }}</strong>」| 金额 <strong>¥{{ parsed.amount|money }}</strong>
+  | 日期 {{ parsed.trade_date or '—' }} | 摘要「{{ parsed.summary or '—' }}」
+  {% if match and match.supplier %}
+  → 已匹配供应商「<strong>{{ match.supplier.name }}</strong>」，已自动填入下方供应商框
+  {% elif parsed.payee %}
+  <span class="text-muted">（收款方「{{ parsed.payee }}」未匹配到供应商，请手动选择或先到供应商管理添加）</span>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card" style="max-width:800px;">
+  <div class="card-body p-4">
+    <form method="post" action="{{ '/supplier-payments/%d/edit' % payment.id if payment else '/supplier-payments/new' }}">
+      {% if back_url %}<input type="hidden" name="back_url" value="{{ back_url }}">{% endif %}
+      <input type="hidden" name="bank_file" value="{{ payment.bank_file if payment else bank_file }}">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">供应商 *</label>
+          {% set ns = namespace(sup_name = prefill_supplier_name if prefill_supplier_name else '') %}
+          {% if not ns.sup_name %}{% for s in suppliers %}{% if sel_sup == s.id %}{% set ns.sup_name = s.name %}{% endif %}{% endfor %}{% endif %}
+          <input type="text" name="supplier_name" class="form-control" list="paySupDatalist" autocomplete="off" required placeholder="点击选择供应商…" value="{{ ns.sup_name }}">
+          <datalist id="paySupDatalist">
+            {% for s in suppliers %}<option value="{{ s.name }}">{% endfor %}
+          </datalist>
+          <input type="hidden" name="supplier_id" value="0">
+          <div class="small text-muted mt-1">点击输入框弹出供应商列表，输入名称可搜索</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">付款金额（¥）*</label>
+          <input type="number" step="0.01" name="amount" class="form-control" value="{{ val_amount }}" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">付款日期</label>
+          <input type="date" name="pay_date" class="form-control" value="{{ val_date }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">付款方式</label>
+          <select name="pay_method" class="form-select">
+            {% for m in OPTIONS.pay_methods %}
+            <option value="{{ m }}" {{ 'selected' if (payment and payment.pay_method == m) or (not payment and m == '银行转账') else '' }}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">关联项目（可选）</label>
+          <select name="project_id" class="form-select">
+            <option value="0">—</option>
+            {% for p in projects %}<option value="{{ p.id }}" {{ 'selected' if (payment and payment.project_id == p.id) or (not payment and prefill_project_id == p.id) else '' }}>{{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+        {% if (payment and payment.suborder_id) or (not payment and (prefill_suborder_id or suborders)) %}
+        <div class="col-md-6">
+          <label class="form-label">关联分包采购单（该分包合同）</label>
+          <select name="suborder_id" class="form-select">
+            <option value="0">—</option>
+            {% if payment and payment.suborder_id and payment.suborder_id not in suborders|map(attribute='id')|list %}
+            <option value="{{ payment.suborder_id }}" selected>原分包单 #{{ payment.suborder_id }}</option>
+            {% endif %}
+            {% for so in suborders %}<option value="{{ so.id }}" {{ 'selected' if (payment and payment.suborder_id == so.id) or (not payment and prefill_suborder_id == so.id) else '' }}>{{ so.order_no or ('分包单#' ~ so.id) }} · ¥{{ so.total_amount|money }}</option>{% endfor %}
+          </select>
+        </div>
+        {% else %}
+        <div class="col-md-6">
+          <label class="form-label">关联采购单（可选）</label>
+          <select name="po_id" class="form-select">
+            <option value="0">—</option>
+            {% if payment and payment.po_id and payment.po_id not in pos|map(attribute='id')|list %}
+            <option value="{{ payment.po_id }}" selected>原采购单 #{{ payment.po_id }}</option>
+            {% endif %}
+            {% for po in pos %}<option value="{{ po.id }}" {{ 'selected' if (payment and payment.po_id == po.id) or (not payment and prefill_po_id == po.id) else '' }}>{{ po.order_no or ('采购单#' ~ po.id) }}</option>{% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <div class="col-md-6">
+          <label class="form-label">关联采购合同（可选）</label>
+          {% set sel_contract = payment.contract_id if payment else (prefill_contract_id if prefill_contract_id else 0) %}
+          <select name="contract_id" class="form-select">
+            <option value="0">—</option>
+            {% if payment and payment.contract_id and payment.contract_id not in contracts|map(attribute='id')|list %}
+            <option value="{{ payment.contract_id }}" selected>原合同 #{{ payment.contract_id }}</option>
+            {% endif %}
+            {% for ct in contracts %}<option value="{{ ct.id }}" {{ 'selected' if sel_contract == ct.id else '' }}>{{ ct.name }}{% if ct.contract_no %}（{{ ct.contract_no }}）{% endif %}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">关联分包合同（可选）</label>
+          {% set sel_subcontract = payment.subcontract_id if payment else (prefill_subcontract_id if prefill_subcontract_id else 0) %}
+          <select name="subcontract_id" class="form-select">
+            <option value="0">—</option>
+            {% if payment and payment.subcontract_id and payment.subcontract_id not in subcontracts|map(attribute='id')|list %}
+            <option value="{{ payment.subcontract_id }}" selected>原分包合同 #{{ payment.subcontract_id }}</option>
+            {% endif %}
+            {% for sc in subcontracts %}<option value="{{ sc.id }}" {{ 'selected' if sel_subcontract == sc.id else '' }}>{{ sc.name }}（{{ sc.contract_no or '无编号' }}）</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-12">
+          <label class="form-label">备注（自动填入转账摘要）</label>
+          <textarea name="note" class="form-control" rows="2">{{ val_note }}</textarea>
+        </div>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">保存</button>
+        {% if back_url %}<a href="{{ back_url }}" class="btn btn-outline-secondary">取消</a>{% else %}<a href="/suppliers?tab=payments" class="btn btn-outline-secondary">取消</a>{% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% include "_approval_bar.html" %}
+{% endblock %}

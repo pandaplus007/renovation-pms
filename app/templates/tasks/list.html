@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% from "_staff.html" import staff_filter %}
+{% block title %}任务{% endblock %}
+{% block page_title %}任务{% endblock %}
+{% block content %}
+
+{# 页面定位：这是全站唯一的「跨项目横向看任务」的地方。项目详情页的任务 Tab
+   只能看到一个项目的任务，而「我今天有几件事要做」是跨项目的——所以需要这页。 #}
+
+<div class="page-head">
+  <form method="get" action="/tasks" class="search-row flex-wrap" id="fltForm">
+    <input type="text" name="q" value="{{ q }}" class="form-control" style="width:200px"
+           placeholder="搜索任务内容 / 备注">
+    {# 负责人筛选改成下拉。原来也是自由文本，但筛选是精确匹配：
+       输「刘工」能筛出来，输「刘」什么都筛不到——用户会以为没数据。
+       下拉里同时列出名册外的存量名字（extra_names），否则老数据里的人在
+       筛选框里根本选不到。 #}
+    {{ staff_filter('assignee', staffs, assignee, extra_names=orphan_assignees,
+                    classes='form-select form-select-sm', width='150px') }}
+    {# 视角切换用 submit 按钮而不是纯链接：筛选条件要一起带上，
+       用 <a> 的话一换视角就把 q/assignee 丢了。 #}
+    <button class="btn btn-sm btn-outline-secondary" name="who" value="mine">
+      <i class="bi bi-person"></i> 我的任务
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" name="who" value="overdue">
+      <i class="bi bi-exclamation-triangle"></i> 逾期
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" name="who" value="today">
+      <i class="bi bi-calendar-day"></i> 今天到期
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" name="who" value="week">
+      <i class="bi bi-calendar-week"></i> 未来 7 天
+    </button>
+    <a href="/tasks" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> 全部</a>
+  </form>
+  <div class="d-flex gap-2">
+    {# 新增任务只能在项目里建（任务必须属于某个项目），
+       所以这里引导过去而不是放一个空的「新增」按钮。 #}
+    <a href="/projects" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-folder2-open"></i> 去项目里派活</a>
+  </div>
+</div>
+
+{# 状态筛选做成按钮组而不是多选下拉：任务状态只有 4 个且经常要连选，
+   多选下拉每次要点两次才选得完，这里一排按钮一次点完。 #}
+<div class="d-flex gap-1 flex-wrap mb-3">
+  <a href="/tasks?who={{ who }}&q={{ q }}&assignee={{ assignee }}"
+     class="btn btn-sm {{ 'btn-primary' if not status else 'btn-outline-secondary' }}">全部状态</a>
+  {% for s in TASK_STATUS %}
+  <a href="/tasks?who={{ who }}&status={{ s }}&q={{ q }}&assignee={{ assignee }}"
+     class="btn btn-sm {{ 'btn-primary' if s in status else 'btn-outline-secondary' }}">{{ s }}</a>
+  {% endfor %}
+</div>
+
+<div class="row g-3 mb-3">
+  {# 四张卡的数字都基于**当前筛选结果**，不是全库。所以切到「我的任务」时，
+     这些数字会跟着变——这是刻意的：顶部写着 12 条逾期、点进去一条没有，
+     用户就不信这个页面了。 #}
+  <div class="col-6 col-lg-3">
+    <div class="stat-card stat-sm grad-pine">
+      <div class="stat-label">当前筛选</div>
+      <div class="stat-num">{{ tasks | length }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <a href="/tasks?who=mine" class="text-decoration-none">
+      <div class="stat-card stat-sm grad-sage">
+        <div class="stat-label">我的未完成</div>
+        <div class="stat-num">{{ my_open }}</div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-lg-3">
+    <a href="/tasks?who=overdue" class="text-decoration-none">
+      {# 逾期是唯一用 alert（红）的地方：它表示「已经欠了」。
+         其余数字用中性的 done/watch，避免满屏红色稀释了真正的逾期。 #}
+      <div class="stat-card stat-sm {{ 'grad-terra is-neg' if overdue_count else 'grad-stone' }}">
+        <div class="stat-label">逾期未完成</div>
+        <div class="stat-num">{{ overdue_count }}</div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card stat-sm grad-bean">
+      <div class="stat-label">今天到期</div>
+      <div class="stat-num">{{ today_count }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="result-box">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-list-check me-1"></i>
+      {% if who == 'mine' %}我的任务{% elif who == 'overdue' %}逾期任务
+      {% elif who == 'today' %}今天到期{% elif who == 'week' %}未来 7 天
+      {% else %}全部任务{% endif %}
+      （{{ tasks | length }}）</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 table-card" data-sortable>
+      <thead><tr>
+        <th class="sortable" data-sort="project">项目</th>
+        <th class="sortable" data-sort="title">任务</th>
+        <th class="sortable" data-sort="phase">阶段</th>
+        <th class="sortable" data-sort="assignee">负责人</th>
+        <th class="sortable" data-sort="due" data-type="date">截止</th>
+        <th class="sortable" data-sort="status">状态</th>
+        <th style="width:190px">操作</th>
+      </tr></thead>
+      <tbody>
+        {% for t in tasks %}
+        {# 逾期行用 watch（琥珀）而不是 alert（红）：这里要做的动作是「去看一眼、
+           把它做完」，不是紧急事故。红色留给金额异常，见 state_colors.py。 #}
+        <tr class="{{ 'table-warning' if t.is_overdue else '' }}">
+          <td data-value="{{ t.project.name }}">
+            <a href="/projects/{{ t.project_id }}#tasks" class="project-link">{{ t.project.name }}</a>
+          </td>
+          <td data-value="{{ t.title }}">
+            {% if t.parent %}<i class="bi bi-arrow-return-right text-muted me-1"></i>{% endif %}{{ t.title }}
+            {% if t.parent %}<div class="small text-muted">属于：{{ t.parent.title }}</div>{% endif %}
+            {% if t.note %}<div class="small text-muted">{{ t.note[:40] }}</div>{% endif %}
+          </td>
+          <td class="small text-muted" data-value="{{ t.phase_name }}">{{ t.phase_name or '—' }}</td>
+          <td data-value="{{ t.assignee }}">
+            {% if t.assignee_user_id %}
+              <span class="badge text-bg-light">{{ t.assignee }}</span>
+            {% elif t.assignee %}
+              {# 有名字但没绑账号：给一个「认领」入口，否则这条任务永远进不了
+                 「我的任务」——历史数据全是这种。 #}
+              <span class="badge text-bg-light">{{ t.assignee }}</span>
+              <form method="post" action="/tasks/{{ t.id }}/take" class="d-inline"
+                    onsubmit="return confirm('把这条任务认领给自己？负责人将改为你。');">
+                <button class="btn btn-link p-0 ms-1" style="font-size:12px" title="认领给我">认领</button>
+              </form>
+            {% else %}
+              <span class="text-muted small">未指派</span>
+            {% endif %}
+          </td>
+          <td class="small" data-value="{{ t.due_date or '' }}">
+            {% if t.is_overdue %}
+              <span class="badge state-badge state-watch" title="已逾期 {{ (t.due_date).strftime('%Y-%m-%d') }}">逾期</span>
+              <span class="text-danger">{{ t.due_date }}</span>
+            {% elif t.due_date %}
+              {{ t.due_date }}
+              {% if t.due_date == today %}<span class="badge state-badge state-active ms-1">今天</span>{% endif %}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td data-value="{{ t.status }}">
+            <span class="badge {{ t.status | state_badge }}">{{ t.status }}</span>
+          </td>
+          <td>
+            {# 状态下拉直接在本页改：跨项目改状态是这里的主要动作，
+               跳回项目详情再改一次是纯额外劳动。 #}
+            {# action 用 set-status：projects.py 里那个同名 /status 路由会先命中 #}
+            <form method="post" action="/tasks/{{ t.id }}/set-status" class="d-flex gap-1 align-items-center">
+              <select name="status" class="form-select form-select-sm" style="width:88px">
+                {% for s in TASK_STATUS %}
+                <option value="{{ s }}" {{ 'selected' if s == t.status else '' }}>{{ s }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-sm btn-outline-primary" title="保存状态"><i class="bi bi-check-lg"></i></button>
+            </form>
+            <a href="/projects/{{ t.project_id }}#tasks" class="btn btn-link text-primary p-0 mt-1" style="font-size:12px">
+              在项目中查看
+            </a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">
+          {% if who == 'mine' %}没有分配给你的任务。任务在项目详情页的「任务清单」里派。
+          {% elif who == 'overdue' %}没有逾期任务。
+          {% else %}还没有任务。到项目详情页的「任务清单」里添加。{% endif %}
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if by_user | length > 1 %}
+<div class="card mt-3">
+  <div class="card-header py-2"><i class="bi bi-people me-1"></i>按负责人分布</div>
+  <div class="card-body py-2">
+    <div class="d-flex flex-wrap gap-2">
+      {% for name, ts in by_user %}
+      {% set od = ts | selectattr('is_overdue') | list | length %}
+      <a href="/tasks?assignee={{ name }}"
+         class="btn btn-sm {{ 'btn-outline-danger' if od else 'btn-outline-secondary' }}"
+         title="{{ od }} 条逾期">
+        {{ name }} <span class="badge text-bg-light">{{ ts | length }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="form-text mt-2">
+  <i class="bi bi-info-circle me-1"></i>
+  任务在「项目详情 → 任务清单」里创建；本页只做跨项目查看与状态修改，两边数据同源。
+  「认领」用于把写着名字但未绑定账号的历史任务归到自己名下。
+</div>
+{% endblock %}

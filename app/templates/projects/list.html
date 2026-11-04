@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}项目管理
+{% endblock %}
+{% block page_title %}项目管理{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <form class="search-row" id="fltForm" method="get">
+    <input type="text" name="q" value="{{ q }}" class="form-control" style="width:260px" placeholder="搜索项目名 / 客户名">
+    {% import "_multiselect.html" as ms %}
+{% import "_progress.html" as pg %}
+    {{ ms.multiselect('status', '状态', OPTIONS.project_status, OPTIONS.project_status, status) }}
+    <a href="/projects" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> 恢复原样</a>
+  </form>
+  <a href="/projects/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 新建项目</a>
+</div>
+
+<!-- ============ 成本报表（合并） ============ -->
+<div class="row g-2 mb-3">
+  <div class="col-6 col-md-3"><div class="stat-card grad-pine"><div class="stat-label">合同总额</div><div class="stat-num">¥{{ total_contract|money }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card grad-bean"><div class="stat-label">已收款</div><div class="stat-num">¥{{ total_received|money }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card grad-terra"><div class="stat-label">成本合计</div><div class="stat-num">¥{{ total_cost|money }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card grad-lotus"><div class="stat-label">预计毛利（{{ '%.2f'|format(profit_rate) }}%）</div><div class="stat-num">¥{{ profit_total|money }}</div></div></div>
+</div>
+
+<div class="card" id="result-box">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+    <span><i class="bi bi-briefcase me-1"></i>项目列表（含经营情况）</span>
+    <a href="/reports/costs/export" class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel"></i> 导出 Excel</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table-wide table table-hover align-middle mb-0 table-card" data-col-resizable data-col-key="pms-project-colwidths" data-col-minor>
+      {# 主列：项目名、状态、合同额、已收、应收余额——看项目列表就是为了判断
+         「这个项目收得怎么样、还欠多少」。次要列（客户/进度/工期/结算金额/
+         成本/毛利/毛利率）默认收起，需要时点页头的「展开 N 列」。 #}
+      <thead><tr>
+        <th>项目</th><th class="col-minor">客户</th><th>状态</th><th class="col-minor">施工</th><th>回款</th><th class="col-minor">工期</th>
+        <th class="text-end">合同额</th><th class="col-minor text-end">结算金额</th><th class="text-end">已收</th><th class="col-minor text-end">成本</th>
+        <th class="col-minor text-end">毛利</th><th class="col-minor text-end">毛利率</th><th class="text-end">应收余额</th><th>操作</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        {% set p = r.project %}
+        {% set paid = p.payments | sum(attribute='paid_amount') %}
+        {% set plan = p.payments | sum(attribute='plan_amount') %}
+        <tr>
+          <td><a href="/projects/{{ p.id }}" class="fw-semibold">{{ p.name }}</a></td>
+          <td class="col-minor">{% if p.customer %}<a href="/customers/{{ p.customer_id }}">{{ p.customer.name }}</a>{% else %}—{% endif %}</td>
+          <td>
+            <span class="badge badge-status {{ p.status | state_badge }}">{{ p.status }}</span>
+            {% if p.phase_never_started %}<div class="mt-1">{{ pg.phase_flag(p) }}</div>{% endif %}
+          </td>
+          <td class="col-minor" style="min-width:96px;">{{ pg.build_bar(p) }}</td>
+          <td style="min-width:110px;">{{ pg.recv_bar(p) }}</td>
+          <td class="small text-nowrap col-minor">{{ p.start_date or '—' }} ~ {{ p.end_date or '—' }}</td>
+          <td class="text-end text-money">¥{{ r.contract|money }}</td>
+          <td class="text-end text-money col-minor">{% if r.settle %}¥{{ r.settle|money }}{% else %}—{% endif %}</td>
+          <td class="text-end text-money text-success">¥{{ r.received|money }}</td>
+          <td class="text-end text-money col-minor">¥{{ r.cost|money }}</td>
+          <td class="text-end text-money col-minor {{ 'text-success' if r.profit >= 0 else 'text-danger' }}">¥{{ r.profit|money }}</td>
+          <td class="text-end col-minor {{ 'text-success' if r.profit_rate >= 0 else 'text-danger' }}">{{ '%.2f'|format(r.profit_rate) }}%</td>
+          <td class="text-end text-money {% if plan > paid %}text-danger{% endif %}">¥{{ (plan - paid)|money }}</td>
+          <td>
+            <a href="/projects/{{ p.id }}" class="btn btn-sm btn-outline-primary">详情</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="12" class="text-center text-muted py-4">暂无项目</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        {# 合计行的单元格必须与表头一一对应（13 列），且次要列同样标 col-minor。
+           原来这里只有 12 个 td 且金额列错位一位：total_received 落在了
+           「结算金额」那一格上。列收起后错位更刺眼——合计行的数字会整体偏移，
+           看起来像是加错了。 #}
+        <tr class="table-light">
+          <td class="fw-bold">合计</td>
+          <td class="col-minor"></td><td></td><td class="col-minor"></td><td class="col-minor"></td>
+          <td class="text-end text-money fw-bold">¥{{ total_contract|money }}</td>
+          <td class="text-end text-money fw-bold col-minor"></td>
+          <td class="text-end text-money fw-bold text-success">¥{{ total_received|money }}</td>
+          <td class="text-end text-money fw-bold col-minor">¥{{ total_cost|money }}</td>
+          <td class="text-end fw-bold col-minor {{ 'text-success' if profit_total >= 0 else 'text-danger' }}">¥{{ profit_total|money }}</td>
+          <td class="text-end fw-bold col-minor">{{ '%.2f'|format(profit_rate) }}%</td>
+          <td></td><td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+<script>
+function fltSubmit(cb){
+  if(!cb) cb = document.querySelector('input.flt-cb');
+  if(!cb) return;
+  var form = cb.form;
+  if(!form) return;
+  var fd = new FormData(form);
+  var qs = new URLSearchParams(fd).toString();
+  var url = location.pathname + (qs ? '?' + qs : '');
+  var boxId = form.getAttribute('data-result') || 'result-box';
+  var box = document.getElementById(boxId);
+  if(!box){ form.submit(); return; }  // 无局部容器则整页提交
+  fetch(url, {headers:{'X-Requested-With':'fetch'}})
+    .then(function(r){ if(!r.ok) throw 0; return r.text(); })
+    .then(function(html){
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var nb = doc.getElementById(boxId);
+      if(nb) box.innerHTML = nb.innerHTML;   // 仅更新表格区，下拉/页面不刷新
+      history.replaceState(null, '', url);
+      syncAllChecks(form);
+      updateFilterBadges(form);
+    })
+    .catch(function(){ form.submit(); });    // 异常时退化为整页
+}
+function syncAllChecks(form){
+  form.querySelectorAll('input[id^="all-"]').forEach(function(all){
+    var g = all.id.replace('all-','');
+    var cbs = form.querySelectorAll('input[data-group="' + g + '"]');
+    var allc = cbs.length > 0 && [].every.call(cbs, function(c){ return c.checked; });
+    all.checked = allc;
+  });
+}
+function updateFilterBadges(form){
+  form.querySelectorAll('.dropdown').forEach(function(dd){
+    var cbs = dd.querySelectorAll('input.flt-cb');
+    if(cbs.length === 0) return;  // 仅处理筛选下拉
+    var n = [].filter.call(cbs, function(c){ return c.checked; }).length;
+    var filtered = n > 0 && n < cbs.length;  // 有勾选但未全选 = 筛选状态
+    var btn = dd.querySelector('.dropdown-toggle');
+    if(!btn) return;
+    var icon = btn.querySelector('.bi');
+    if(filtered){
+      btn.classList.add('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel-fill';
+      var b = btn.querySelector('.flt-badge');
+      if(!b){ b = document.createElement('span'); b.className='flt-badge'; btn.appendChild(b); }
+      b.textContent = n;
+    } else {
+      btn.classList.remove('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel';
+      var ob = btn.querySelector('.flt-badge');
+      if(ob) ob.remove();
+    }
+  });
+}
+function fltToggleAll(g, el){
+  var form = el.form;
+  if(!form) return;
+  var first = form.querySelector('input[data-group="' + g + '"]');
+  if(!first) return;
+  form.querySelectorAll('input[data-group="' + g + '"]').forEach(function(c){ c.checked = el.checked; });
+  if(el.checked){ fltSubmit(first); }  // 勾选全选：提交全部
+  else { updateFilterBadges(form); }  // 取消全选：清空并恢复按钮未筛选样式
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}审批单 {{ req.id }}{% endblock %}
+{% block page_title %}{{ req.title }}{% endblock %}
+{% block content %}
+
+<div class="mb-2"><a href="/approvals" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回审批中心</a></div>
+
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-file-earmark-text me-1"></i>审批单 #{{ req.id }}</span>
+    <span class="badge {{ req.status | state_badge }}">{{ req.status }}</span>
+  </div>
+  <div class="card-body">
+    <dl class="row mb-0 small">
+      <dt class="col-sm-3 text-muted">单据类型</dt>
+      <dd class="col-sm-9">{{ entity_labels.get(req.entity_type, req.entity_type) }}</dd>
+
+      <dt class="col-sm-3 text-muted">金额</dt>
+      <dd class="col-sm-9">{{ req.amount|money }} 元</dd>
+
+      <dt class="col-sm-3 text-muted">提交人</dt>
+      <dd class="col-sm-9">{{ (req.submitter.display_name or req.submitter.username) if req.submitter else '—' }}</dd>
+
+      <dt class="col-sm-3 text-muted">提交时间</dt>
+      <dd class="col-sm-9">{{ req.submitted_at.strftime('%Y-%m-%d %H:%M') if req.submitted_at else '—' }}</dd>
+
+      <dt class="col-sm-3 text-muted">完成时间</dt>
+      <dd class="col-sm-9">{{ req.finished_at.strftime('%Y-%m-%d %H:%M') if req.finished_at else '进行中' }}</dd>
+
+      {% if req.result_note %}
+      <dt class="col-sm-3 text-muted">审批意见</dt>
+      <dd class="col-sm-9">{{ req.result_note }}</dd>
+      {% endif %}
+    </dl>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header"><i class="bi bi-diagram-3 me-1"></i>审批流程</div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th style="width:70px">关卡</th><th style="width:120px">审批岗位</th>
+        <th style="width:110px">状态</th><th style="width:120px">处理人</th>
+        <th style="width:150px">处理时间</th><th>意见</th>
+      </tr></thead>
+      <tbody>
+      {% for s in steps %}
+        {% set is_cur = req.status in ['待审批','审批中'] and loop.index0 == req.current_step %}
+        <tr class="{{ 'table-warning' if is_cur else '' }}">
+          <td class="small">第 {{ loop.index }} 关{% if is_cur %} <span class="badge {{ "当前" | state_badge }}">当前</span>{% endif %}</td>
+          <td class="small">{{ s.role }}</td>
+          <td>
+            <span class="badge {{ s.status | state_badge }}">{{ s.status }}</span>
+          </td>
+          <td class="small">{{ s.actor_name or '—' }}</td>
+          <td class="small text-nowrap">{{ s.acted_at.strftime('%m-%d %H:%M') if s.acted_at else '—' }}</td>
+          <td class="small text-muted">{{ s.comment or '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">该单据未配置审批流程</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if detail_can_approve %}
+<div class="card mb-3">
+  <div class="card-header"><i class="bi bi-pencil-square me-1"></i>处理当前关卡</div>
+  <div class="card-body">
+    <form method="post" action="/approvals/{{ req.id }}/approve" class="row g-2 align-items-end mb-2">
+      <div class="col-auto flex-grow-1">
+        <label class="form-label small mb-1">审批意见</label>
+        <input type="text" name="comment" class="form-control form-control-sm" placeholder="填写意见（可选）">
+      </div>
+      <div class="col-auto"><button class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> 通过</button></div>
+    </form>
+    <form method="post" action="/approvals/{{ req.id }}/reject" class="row g-2 align-items-end">
+      <div class="col-auto flex-grow-1">
+        <input type="text" name="comment" class="form-control form-control-sm" placeholder="驳回理由（建议填写）">
+      </div>
+      <div class="col-auto"><button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg"></i> 驳回</button></div>
+    </form>
+
+    {% if user.role in ['老板', 'admin'] and req.total_steps > 1 %}
+    <hr class="my-3">
+    <form method="post" action="/approvals/{{ req.id }}/force-pass" class="row g-2 align-items-end">
+      <div class="col-auto flex-grow-1">
+        <label class="form-label small mb-1">一键通过剩余 {{ req.total_steps - req.current_step }} 关</label>
+        <input type="text" name="comment" class="form-control form-control-sm" placeholder="意见（可选）">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-warning"><i class="bi bi-lightning-charge"></i> 全部通过</button>
+      </div>
+    </form>
+    <div class="small text-muted mt-1">
+      <i class="bi bi-shield-lock me-1"></i>老板特权：可跳过其余关卡直接终审，节点会逐条留痕。
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% elif user.role in ['老板', 'admin'] and req.status in ['待审批', '审批中'] %}
+<div class="card mb-3">
+  <div class="card-header"><i class="bi bi-lightning-charge me-1"></i>老板操作</div>
+  <div class="card-body">
+    <form method="post" action="/approvals/{{ req.id }}/force-pass" class="row g-2 align-items-end">
+      <div class="col-auto flex-grow-1">
+        <input type="text" name="comment" class="form-control form-control-sm" placeholder="意见（可选）">
+      </div>
+      <div class="col-auto"><button class="btn btn-sm btn-warning">全部通过</button></div>
+    </form>
+  </div>
+</div>
+{% elif req.submitted_by == user.id and req.status in ['待审批', '审批中'] %}
+<div class="mb-3">
+  <form method="post" action="/approvals/{{ req.id }}/withdraw">
+    <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> 撤回审批</button>
+  </form>
+</div>
+{% elif req.status in ['已驳回', '已撤回'] and (req.submitted_by == user.id or user.role in ['老板', 'admin']) %}
+<div class="mb-3">
+  <form method="post" action="/approvals/{{ req.id }}/resubmit" class="d-flex gap-2">
+    <input type="text" name="comment" class="form-control form-control-sm" placeholder="说明（可选）" style="max-width:320px">
+    <button class="btn btn-sm btn-primary"><i class="bi bi-arrow-repeat"></i> 重新提交</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="text-muted small">
+  <i class="bi bi-info-circle me-1"></i>
+  审批为留痕流程，不影响项目台账与利润报表的记账。
+</div>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}OA 管理{% endblock %}
+{% block page_title %}OA 用户与岗位管理{% endblock %}
+{% block content %}
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div class="page-head">
+  <form class="search-row" method="get">
+    <input type="text" name="q" value="{{ q }}" class="form-control" style="width:260px" placeholder="搜索用户名 / 姓名">
+    <button class="btn btn-outline-primary"><i class="bi bi-search"></i> 搜索</button>
+  </form>
+  <div class="d-flex gap-2">
+    <a href="/oa/permissions" class="btn btn-outline-primary"><i class="bi bi-shield-lock"></i> 岗位权限矩阵</a>
+    <a href="/oa/users/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 新建账号</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>岗位权限速览</span>
+    <a href="/oa/permissions" class="btn btn-sm btn-outline-primary">去配置</a>
+  </div>
+  <div class="card-body py-2 small">
+    <div class="d-flex flex-wrap gap-2">
+      {% for r in roles %}
+      <a href="/oa/permissions?role={{ r.name }}" class="badge text-bg-light text-decoration-none">
+        {{ r.name }}：{{ view_counts.get(r.name, 0) }} 个模块
+      </a>
+      {% endfor %}
+    </div>
+    <div class="text-muted mt-2">
+      「模块数」＝该岗位可查看的模块数。点岗位名可进入权限矩阵逐项勾选查看 / 新增 / 修改 / 删除 / 导出 / 审批。
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 table-card">
+      <thead><tr>
+        <th>用户名</th><th>姓名</th><th>岗位</th><th>状态</th><th>创建时间</th><th>操作</th>
+      </tr></thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td class="fw-semibold">{{ u.username }}</td>
+          <td>{{ u.display_name or '—' }}</td>
+          <td><span class="badge text-bg-light">{{ u.role }}</span></td>
+          <td>
+            {% if u.is_active %}
+            <span class="badge {{ "启用" | state_badge }}">启用</span>
+            {% else %}
+            <span class="badge {{ "停用" | state_badge }}">停用</span>
+            {% endif %}
+          </td>
+          <td class="small text-muted">{{ u.created_at.strftime('%Y-%m-%d') }}</td>
+          <td>
+            <a href="/oa/users/{{ u.id }}/edit" class="btn btn-sm btn-outline-secondary">编辑</a>
+            <form method="post" action="/oa/users/{{ u.id }}/delete" class="d-inline"
+                  onsubmit="return confirm('确定删除该账号？');">
+              <button class="btn btn-sm btn-outline-danger">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">暂无用户</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

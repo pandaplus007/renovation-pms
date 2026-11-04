@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑供应商' if supplier else '新增供应商' }}{% endblock %}
+{% block page_title %}{{ '编辑供应商' if supplier else '新增供应商' }}{% endblock %}
+{% block content %}
+
+{% if msg %}
+<div class="alert alert-info py-2 small" style="max-width:700px">{{ msg }}</div>
+{% endif %}
+
+<div class="card mb-3 border-success-subtle" style="max-width:700px">
+  <div class="card-header py-2"><i class="bi bi-magic me-1"></i>智能识别 / Excel 导入（可选）</div>
+  <div class="card-body py-2">
+    {% if parsed and parsed.error %}
+    <div class="alert alert-warning py-2 small">{{ parsed.error }}</div>
+    {% endif %}
+    {% if parsed and not parsed.error %}
+    <div class="alert alert-info py-2 small">已识别：{{ parsed.name or '—' }} ｜ {{ parsed.tax_no or '—' }} ｜ {{ parsed.contact or '—' }} ｜ {{ parsed.phone or '—' }} ｜ {{ parsed.bank or '—' }} {{ parsed.account or '—' }}，确认后保存。</div>
+    {% endif %}
+    <form method="post" action="/suppliers/parse" class="mb-2">
+      <div class="d-flex gap-2 align-items-start flex-wrap">
+        <textarea name="text" class="form-control" rows="4" style="flex:1;min-width:260px;font-size:14px"
+                  placeholder="智能识别：粘贴单个供应商信息（名称/税号/联系人/电话/地址/开户银行/银行账户）"></textarea>
+        <button class="btn btn-primary"><i class="bi bi-magic"></i> 识别填充</button>
+      </div>
+    </form>
+    <hr class="my-2">
+    <form method="post" action="/suppliers/import" enctype="multipart/form-data">
+      <div class="d-flex gap-2 align-items-end flex-wrap">
+        <div style="flex:1;min-width:260px">
+          <label class="form-label small mb-1">从 Excel 批量导入供应商（表头：供应商名称/供应品类/品牌/联系人/联系电话/微信号/地址/开户银行/银行账户/供货时长/合作税点/合作方式/合作等级）</label>
+          <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls,.csv" required>
+        </div>
+        <button class="btn btn-outline-success"><i class="bi bi-file-earmark-excel"></i> 从 Excel 导入</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card" style="max-width:700px;">
+  <div class="card-body p-4">
+    <form method="post" action="{{ '/suppliers/%d/edit' % supplier.id if supplier else '/suppliers/new' }}">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">供应商名称 *</label>
+          <input type="text" name="name" class="form-control" required value="{{ supplier.name if supplier else (parsed.name if parsed and parsed.name else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">供应品类</label>
+          <input type="text" name="category" class="form-control" value="{{ supplier.category if supplier else '' }}" placeholder="如：瓷砖 / 大理石 / 灯具">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">品牌</label>
+          <input type="text" name="brand" class="form-control" value="{{ supplier.brand if supplier else '' }}" placeholder="如：简一 / 兴辉">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">联系人</label>
+          <input type="text" name="contact" class="form-control" value="{{ supplier.contact if supplier else (parsed.contact if parsed and parsed.contact else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">联系电话</label>
+          <input type="text" name="phone" class="form-control" value="{{ supplier.phone if supplier else (parsed.phone if parsed and parsed.phone else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">微信号</label>
+          <input type="text" name="wechat" class="form-control" value="{{ supplier.wechat if supplier else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">供货时长</label>
+          <input type="text" name="supply_duration" class="form-control" value="{{ supplier.supply_duration if supplier else '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">合作税点</label>
+          <input type="text" name="tax_point" class="form-control" value="{{ supplier.tax_point if supplier else '' }}" placeholder="如：13（8）">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">合作方式</label>
+          <input type="text" name="coop_method" class="form-control" value="{{ supplier.coop_method if supplier else '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">合作等级</label>
+          <input type="text" name="coop_level" class="form-control" value="{{ supplier.coop_level if supplier else '' }}" placeholder="如：3 / 4 / 5">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">地址</label>
+          <input type="text" name="address" class="form-control" value="{{ supplier.address if supplier else (parsed.address if parsed and parsed.address else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">公司资料（证件文件等）</label>
+          <input type="text" name="profile" class="form-control" value="{{ supplier.profile if supplier else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">税号</label>
+          <input type="text" name="tax_no" class="form-control" value="{{ supplier.tax_no if supplier else (parsed.tax_no if parsed and parsed.tax_no else '') }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label">银行账户（开票信息，可多个）</label>
+          <div id="bankRows">
+            {% if parsed and parsed.bank %}
+            <div class="row g-2 mb-1 align-items-center bank-row">
+              <div class="col-md-5"><input name="bank_names" class="form-control form-control-sm" placeholder="开户银行" value="{{ parsed.bank }}"></div>
+              <div class="col-md-5"><input name="bank_accounts" class="form-control form-control-sm" placeholder="银行账户" value="{{ parsed.account }}"></div>
+              <div class="col-md-2"><button type="button" class="btn btn-sm btn-outline-danger bank-del">×</button></div>
+            </div>
+            {% else %}
+            {% for b in (supplier.bank_accounts if supplier else []) %}
+            <div class="row g-2 mb-1 align-items-center bank-row">
+              <div class="col-md-5"><input name="bank_names" class="form-control form-control-sm" placeholder="开户银行" value="{{ b.bank_name }}"></div>
+              <div class="col-md-5"><input name="bank_accounts" class="form-control form-control-sm" placeholder="银行账户" value="{{ b.account_no }}"></div>
+              <div class="col-md-2"><button type="button" class="btn btn-sm btn-outline-danger bank-del">×</button></div>
+            </div>
+            {% endfor %}
+            {% endif %}
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-primary mt-1" id="bankAdd"><i class="bi bi-plus-lg"></i> 添加银行账户</button>
+        </div>
+        <div class="col-12">
+          <label class="form-label">备注</label>
+          <textarea name="note" class="form-control" rows="2">{{ supplier.note if supplier else '' }}</textarea>
+        </div>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">保存</button>
+        <a href="/suppliers" class="btn btn-outline-secondary">取消</a>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  document.getElementById('bankAdd')?.addEventListener('click', function () {
+    var rows = document.getElementById('bankRows');
+    var div = document.createElement('div');
+    div.className = 'row g-2 mb-1 align-items-center bank-row';
+    div.innerHTML = '<div class="col-md-5"><input name="bank_names" class="form-control form-control-sm" placeholder="开户银行"></div>' +
+      '<div class="col-md-5"><input name="bank_accounts" class="form-control form-control-sm" placeholder="银行账户"></div>' +
+      '<div class="col-md-2"><button type="button" class="btn btn-sm btn-outline-danger bank-del">×</button></div>';
+    rows.appendChild(div);
+  });
+  document.getElementById('bankRows')?.addEventListener('click', function (e) {
+    if (e.target.classList.contains('bank-del')) e.target.closest('.bank-row').remove();
+  });
+</script>
+
+{% endblock %}

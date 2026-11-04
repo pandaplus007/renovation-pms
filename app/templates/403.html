@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}无权限{% endblock %}
+{% block page_title %}无权限访问{% endblock %}
+{% block content %}
+<div class="card" style="max-width:520px;margin:60px auto;">
+  <div class="card-body text-center p-5">
+    {# 数字用 .fs-1 + --text-muted。原先是 display-1 + 字面色 #c8b48a：
+       那个金是 v2 金色主题的残留（style.css 早已换成绿系），而且它
+       绕开了整套 token —— 以后改主色它不会跟着变。
+       display-* 是展示字号，40px 的 fs-1 足够撑住一个 403。 #}
+    <div class="fs-1 fw-bold mb-3" style="color:var(--text-muted);">403</div>
+    <h5 class="mb-2"><i class="bi bi-shield-lock me-1" style="color:var(--primary);"></i>抱歉，当前岗位无权访问该模块</h5>
+    <p class="text-muted">您的岗位：<strong>{{ user.role if user else '未知' }}</strong>。如有需要，请联系管理员（老板）分配权限。</p>
+    <a href="/" class="btn btn-primary mt-2"><i class="bi bi-house"></i> 返回首页</a>
+  </div>
+</div>
+{% endblock %}

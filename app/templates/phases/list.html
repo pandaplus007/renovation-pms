@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}施工阶段{% endblock %}
+{% block page_title %}施工阶段{% endblock %}
+{% block content %}
+
+{% if msg %}
+<div class="alert alert-warning py-2 small">{{ msg }}</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-diagram-3 me-1"></i>阶段模板（{{ data | length }}）</span>
+    <form method="post" action="/phases" class="d-flex gap-1">
+      <input type="text" name="name" class="form-control form-control-sm" placeholder="新增阶段名称，如：拆除 / 收尾" required style="width:220px">
+      <button class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> 添加阶段</button>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 table-card">
+      <thead><tr>
+        <th style="width:60px">序号</th>
+        <th>阶段名称</th>
+        <th>使用中项目</th>
+        <th style="width:110px">操作</th>
+      </tr></thead>
+      <tbody>
+        {% for d in data %}
+        <tr>
+          <td class="text-muted small">{{ loop.index }}</td>
+          <td class="fw-semibold">{{ d.phase.name }}</td>
+          <td>
+            {% if d.used > 0 %}
+            <span class="badge state-badge state-idle">{{ d.used }} 个项目</span>
+            {% else %}
+            <span class="text-muted small">未使用</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if d.used > 0 %}
+            <button class="btn btn-sm btn-outline-secondary" disabled title="被项目使用中，无法删除">删除</button>
+            {% else %}
+            <form method="post" action="/phases/{{ d.phase.id }}/delete" class="d-inline"
+                  onsubmit="return confirm('确认删除阶段「{{ d.phase.name }}」？');">
+              <button class="btn btn-sm btn-outline-danger">删除</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center text-muted py-4">暂无阶段，在右上角添加</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-body py-2 small text-muted">
+    <i class="bi bi-info-circle me-1"></i>
+    新项目创建时自动复制该阶段序列；修改模板不影响已创建项目的既有阶段。删除被项目使用的阶段需先移除项目内对应阶段。
+  </div>
+</div>
+{% endblock %}

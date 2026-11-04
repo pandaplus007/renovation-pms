@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}审计日志{% endblock %}
+{% block page_title %}操作审计日志{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-body py-2">
+    <form method="get" action="/oa/audit" class="row g-2 align-items-center">
+      <div class="col-auto">
+        <select name="action" class="form-select form-select-sm">
+          <option value="">全部操作</option>
+          {% for a in ['新增', '修改', '删除', '导入', '批量删除', '批量修改'] %}
+          <option value="{{ a }}" {{ 'selected' if action == a else '' }}>{{ a }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <select name="entity_type" class="form-select form-select-sm">
+          <option value="">全部对象</option>
+          {% for t in types %}
+          <option value="{{ t }}" {{ 'selected' if entity_type == t else '' }}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <input type="text" name="username" class="form-control form-control-sm" value="{{ username }}" placeholder="操作人">
+      </div>
+      <div class="col-auto"><button class="btn btn-sm btn-primary">筛选</button></div>
+      <div class="col-auto"><a href="/oa/audit" class="btn btn-sm btn-outline-secondary">重置</a></div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr><th style="width:150px">时间</th><th>操作人</th><th>操作</th><th>对象</th><th>详情</th></tr></thead>
+      <tbody>
+        {% for l in logs %}
+        <tr>
+          <td class="small text-nowrap">{{ l.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td class="small">{{ l.username or '—' }}</td>
+          <td>
+            {# 审计动作色：删除类用红（真的改丢了东西），其余按「改动性质」分档。
+               映射内联在模板里是因为它只此一处用，抽到 state_colors
+               会让那个模块混入审计这种无关语义。 #}
+            {% set c = {'新增':'state-done', '修改':'state-active', '删除':'state-alert',
+                        '导入':'state-done', '批量删除':'state-alert', '批量修改':'state-watch'} %}
+            <span class="badge state-badge {{ c.get(l.action, 'state-idle') }}">{{ l.action }}</span>
+          </td>
+          <td class="small">{{ l.entity_type }}{% if l.entity_id %} #{{ l.entity_id }}{% endif %}</td>
+          <td class="small text-muted">{{ l.detail }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-4">暂无审计记录</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<div class="text-muted small mt-2">仅记录关键业务操作（合同/发票/付款/材料/采购单的增删改与导入），保留最近 {{ limit }} 条。</div>
+{% endblock %}

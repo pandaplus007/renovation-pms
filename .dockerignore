@@ -1,0 +1,11 @@
+data/
+uploads/
+__pycache__/
+*.pyc
+.venv/
+venv/
+server.log
+.git/
+.gitignore
+*.md.bak
+.env

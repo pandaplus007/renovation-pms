@@ -1,0 +1,1530 @@
+/* ============================================================
+   Basecamp 5 主题层 · basecamp.css
+   ------------------------------------------------------------
+   这一层只做“皮肤”，不改任何页面结构：
+     · 在 style.css 之后加载，靠加载顺序覆盖同名规则；
+     · 令牌（颜色 / 圆角 / 阴影 / 字体）集中在最上面两个块里，
+       改色只改这两块，不要往下散写十六进制值；
+     · 所有色值都经过对比度核算（正文 ≥ 7:1，次要文字 ≥ 4.5:1），
+       与项目里 test_contrast_wcag / test_dark_contrast 的口径一致。
+
+   视觉来源：Basecamp 5（37signals）
+     纸白底 #FEFAF6 · 米色面板 #F8F4F0 · 白卡片 · 1px 暖灰描边
+     近黑墨色文字 #2E373D · 蓝链接 #2F63B4 · 胶囊标签 · 无渐变
+
+   要回滚：删掉 base.html / login.html / screen.html 里
+   引用 basecamp.css 的那一行即可，其它文件都不用动。
+   ============================================================ */
+
+/* ============================================================
+   1. 令牌
+   ============================================================ */
+
+/* 注意选择器的特异度：style.css 末尾已经有一层
+   `:root:not([data-bs-theme="dark"])` 的 Basecamp 令牌（0,2,0）。
+   这里必须比它高（0,2,1）才能真正接管，否则本文件只有“组件级覆盖”生效、
+   令牌层被它盖住——症状是「侧栏暖了、画布还是蓝的」这种半套状态。 */
+html:root:not([data-bs-theme="dark"]) {
+  /* ---- 中性色阶：取 Basecamp 5 的实际色值 ----
+     画布 #FEFAF6（纸白，不是米黄）、面板 #F8F4F0、
+     描边 #E9E7E3（近似它的 #E4E5E5，略微暖一点以贴合纸白底）。 */
+  --gray-50:  #FEFAF6;   /* 画布：纸白 */
+  --gray-100: #F8F4F0;   /* 面板 / 次级表面 */
+  --gray-200: #EDEBE7;   /* 分隔线 */
+  --gray-300: #DAD8D3;   /* 输入框描边 */
+  --gray-400: #C4C2BE;
+  --gray-500: #9B9FA2;   /* Basecamp 的 muted，仅装饰 */
+  --gray-600: #6B7177;   /* 次要文字 4.75:1 */
+  --gray-700: #4A5055;
+  --gray-800: #383F44;
+  --gray-900: #2E373D;   /* 正文 11.7:1 */
+
+  /* ---- 表面 ---- */
+  --bg: #FEFAF6;
+  --surface: #FFFFFF;
+  --surface-2: #F8F4F0;
+  --surface-3: #FFFFFF;
+  --border: #E9E7E3;
+  --border-strong: #D9D6D0;
+  --card-border: #E9E7E3;
+
+  /* ---- 文字 ---- */
+  --text: #2E373D;
+  --text-2: #6B7177;
+  --text-3: #9B9FA2;
+  --text-muted: #6B7177;
+
+  /* ---- 主色：Basecamp 蓝 ----
+     #3D75CB 是它界面里的链接色，但对纸白只有 4.39:1，正文链接差一点；
+     所以文字用压深一档的 #3568BE（5.2:1），
+     图标、进度条、描边这类不承载文字的仍用原色 #3D75CB。 */
+  --primary: #3568BE;
+  --primary-2: #3D75CB;
+  --primary-ink: #3568BE;
+  --primary-text: #3568BE;
+  --primary-grad: #3D75CB;
+  --primary-grad-hover: #3568BE;
+  --accent: #3D75CB;
+  --accent-bar: #3D75CB;
+  --accent-deep: #3568BE;
+  --accent-full: #3D75CB;
+  --on-accent: #FFFFFF;
+  --on-accent-bright: #FFFFFF;
+  --on-active-grad: #FFFFFF;
+  --brand-light: #D2E8FD;
+  /* 项目详情顶部：Basecamp 里就是一张白卡，不要渐变 */
+  --proj-hero-bg: #FFFFFF;
+
+  /* ---- 语义色：底色用 Basecamp 原色，文字压深到 AA ---- */
+  --success: #24A148;
+  --warning: #E8A33D;
+  --danger: #EB455A;
+  --info: #3D75CB;
+  --success-ink: #2A7A4B;   /* 5.1:1 */
+  --warning-ink: #8A5A06;   /* 5.7:1 */
+  --danger-ink: #C8354B;    /* 5.0:1 */
+  --info-ink: #2A5DA8;      /* 5.2:1（压 #D2E8FD 也过） */
+  --success-bg: #EDF7F0;
+  --warning-bg: #FCF0DB;
+  --danger-bg: #FDECEF;
+  --info-bg: #EAF3FD;
+  --success-btn: #2A8A50;
+  --on-success-btn: #FFFFFF;
+  --danger-btn: #D13A4E;
+  --on-danger-btn: #FFFFFF;
+
+  /* ---- 标签 / 胶囊：直接对应 Basecamp 的浅蓝与奶油黄 chip ---- */
+  --tag-bg: #D2E8FD;
+  --tag-bg-hover: #C2DFFC;
+  --tag-fg: #2A5DA8;
+  --tag-border: #BBD9F8;
+  --tag2-bg: #FCF0DB;
+  --tag2-bg-hover: #F9E6C6;
+  --tag2-fg: #8A5A06;
+  --tag2-fg-hover: #6E4704;
+  --tag2-border: #F3E0B9;
+
+  /* ---- 输入框 ---- */
+  --input-bg: #FFFFFF;
+  --input-border: #D9D6D0;
+
+  /* ---- 侧栏 ---- */
+  --sidebar-bg: #F8F4F0;
+  --sidebar-text: #3A4248;
+  --sidebar-active: #FFFFFF;
+  --sidebar-group-fg: #6B7177;
+  --unassigned-fg: #8A5A06;
+
+  /* ---- 形状与投影：几乎不用投影，靠 1px 描边分层 ---- */
+  --radius: 12px;
+  --radius-sm: 9px;
+  --shadow-sm: 0 .2em 1.2em -.5em rgba(11, 21, 27, .07), 0 .3em .8em -.7em rgba(11, 21, 27, .05);
+  --shadow: 0 .2em 1.6em -.5em rgba(11, 21, 27, .08), 0 .3em 2em -.6em rgba(11, 21, 27, .06), 0 .5em 1.2em -.9em rgba(11, 21, 27, .05);
+  --shadow-lg: 0 .6em .8em -1em rgba(11, 21, 27, .10), 0 1.2em 1.6em -1.4em rgba(11, 21, 27, .14), 0 1.8em 2.4em -1.8em rgba(11, 21, 27, .16);
+
+  /* ---- Bootstrap 变量重绑定 ---- */
+  --bs-body-bg: var(--bg);
+  --bs-body-color: var(--text);
+  --bs-emphasis-color: var(--text);
+  --bs-emphasis-color-rgb: 46, 55, 61;
+  --bs-secondary-color: var(--text-2);
+  --bs-secondary-color-rgb: 107, 113, 119;
+  --bs-secondary-rgb: 107, 113, 119;
+  --bs-tertiary-color: var(--text-3);
+  --bs-tertiary-color-rgb: 155, 159, 162;
+  --bs-tertiary-bg: var(--surface-2);
+  --bs-secondary-bg: var(--surface-2);
+  --bs-secondary-bg-rgb: 248, 244, 240;
+  --bs-heading-color: var(--text);
+  --bs-border-color: var(--border);
+  --bs-border-color-translucent: rgba(46, 55, 61, .10);
+  --bs-border-color-translucent-rgb: 46, 55, 61;
+  --bs-link-color: var(--primary);
+  --bs-link-color-rgb: 53, 104, 190;
+  --bs-link-hover-color: #2A5DA8;
+  --bs-link-hover-color-rgb: 42, 93, 168;
+  --bs-primary: #2E373D;
+  --bs-primary-rgb: 46, 55, 61;
+  --bs-table-border-color: var(--border);
+  --bs-table-striped-bg: transparent;
+  --bs-table-hover-bg: #FAF5EE;
+  --bs-table-hover-color: var(--text);
+  --bs-form-control-focus-border-color: var(--primary);
+  --bs-form-control-focus-box-shadow: 0 0 0 3px rgba(47, 99, 180, .14);
+  --bs-form-control-disabled-bg: var(--surface-2);
+}
+
+html:root[data-bs-theme="dark"] {
+  --gray-50:  #1A1917;
+  --gray-100: #232220;
+  --gray-200: #33302A;
+  --gray-300: #4A463D;
+  --gray-400: #625C51;
+  --gray-500: #8E8779;
+  --gray-600: #B7B1A6;
+  --gray-700: #D3CDC2;
+  --gray-800: #E5E0D7;
+  --gray-900: #F1EDE6;
+
+  --bg: #1A1917;
+  --surface: #232220;
+  --surface-2: #2B2924;
+  --surface-3: #2E2B25;
+  --border: #3A362E;
+  --border-strong: #4C473D;
+  --card-border: #3A362E;
+
+  --text: #F1EDE6;
+  --text-2: #B7B1A6;
+  --text-3: #8E8779;
+  --text-muted: #B7B1A6;
+
+  --primary: #8CB4F0;
+  --primary-2: #6E9BD8;
+  --primary-ink: #8CB4F0;
+  --primary-text: #8CB4F0;
+  --primary-grad: #8CB4F0;
+  --primary-grad-hover: #A9C8F4;
+  --accent: #8CB4F0;
+  --accent-bar: #8CB4F0;
+  --accent-deep: #8CB4F0;
+  --accent-full: #8CB4F0;
+  --on-accent: #1B1A18;
+  --on-accent-bright: #1B1A18;
+  --on-active-grad: #1B1A18;
+  --brand-light: #2A2823;
+
+  --success: #5CC98A;
+  --warning: #F0B95C;
+  --danger: #FF7B8C;
+  --info: #8CB4F0;
+  --success-ink: #7FD3A3;
+  --warning-ink: #E5BC72;
+  --danger-ink: #F092A1;
+  --info-ink: #9CC0F2;
+  --success-bg: rgba(92, 201, 138, .14);
+  --warning-bg: rgba(240, 185, 92, .14);
+  --danger-bg: rgba(255, 123, 140, .14);
+  --info-bg: rgba(140, 180, 240, .14);
+  --success-btn: #2A7A4B;
+  --on-success-btn: #FFFFFF;
+  --danger-btn: #B33B4C;
+  --on-danger-btn: #FFFFFF;
+
+  --tag-bg: rgba(140, 180, 240, .14);
+  --tag-bg-hover: rgba(140, 180, 240, .22);
+  --tag-fg: #A9C8F4;
+  --tag-border: rgba(140, 180, 240, .26);
+  --tag2-bg: rgba(224, 178, 92, .12);
+  --tag2-bg-hover: rgba(224, 178, 92, .20);
+  --tag2-fg: #E0C08A;
+  --tag2-fg-hover: #EFD6AC;
+  --tag2-border: rgba(224, 178, 92, .22);
+
+  --input-bg: #2A2823;
+  --input-border: #4A463D;
+
+  --sidebar-bg: #1F1E1B;
+  --sidebar-text: #DCD7CC;
+  --sidebar-active: #2E2B25;
+  --sidebar-group-fg: #9C9589;
+  --unassigned-fg: #E0B25C;
+  --proj-hero-bg: #232220;
+
+  --shadow-sm: 0 .2em 1.2em -.5em rgba(0, 0, 0, .40), 0 .3em .8em -.7em rgba(0, 0, 0, .30);
+  --shadow: 0 .2em 1.6em -.5em rgba(0, 0, 0, .45), 0 .3em 2em -.6em rgba(0, 0, 0, .34), 0 .5em 1.2em -.9em rgba(0, 0, 0, .28);
+  --shadow-lg: 0 .6em 1em -1em rgba(0, 0, 0, .55), 0 1.2em 1.8em -1.4em rgba(0, 0, 0, .45), 0 1.8em 2.6em -1.8em rgba(0, 0, 0, .38);
+
+  --bs-body-bg: var(--bg);
+  --bs-body-color: var(--text);
+  --bs-emphasis-color: var(--text);
+  --bs-emphasis-color-rgb: 241, 237, 230;
+  --bs-secondary-color: var(--text-2);
+  --bs-secondary-color-rgb: 183, 177, 166;
+  --bs-secondary-rgb: 183, 177, 166;
+  --bs-tertiary-color: var(--text-3);
+  --bs-tertiary-color-rgb: 142, 135, 121;
+  --bs-tertiary-bg: var(--surface-2);
+  --bs-secondary-bg: var(--surface-2);
+  --bs-secondary-bg-rgb: 42, 40, 35;
+  --bs-heading-color: var(--text);
+  --bs-border-color: var(--border);
+  --bs-border-color-translucent: rgba(241, 237, 230, .12);
+  --bs-border-color-translucent-rgb: 241, 237, 230;
+  --bs-link-color: var(--primary);
+  --bs-link-color-rgb: 140, 180, 240;
+  --bs-link-hover-color: #B4CDEE;
+  --bs-link-hover-color-rgb: 180, 205, 238;
+  --bs-table-border-color: var(--border);
+  --bs-table-striped-bg: transparent;
+  --bs-table-hover-bg: #2A2823;
+  --bs-table-hover-color: var(--text);
+  --bs-form-control-disabled-bg: var(--surface-2);
+}
+
+/* ============================================================
+   2. 全局排版与画布
+   ============================================================ */
+
+html { background: var(--bg); }
+
+body {
+  background: var(--bg) !important;
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text);
+  font-weight: 700;
+  /* Basecamp 的标题是「紧」的：字号越大字距收得越多。
+     中文不像拉丁那样好挤，-.02em 是看着还舒服的边界。 */
+  letter-spacing: -.02em;
+}
+
+a { color: var(--primary); text-underline-offset: 2px; }
+a:hover { color: #2A5DA8; }
+[data-bs-theme="dark"] a:hover { color: #B4CDEE; }
+
+hr { border-color: var(--border); opacity: 1; }
+
+::selection { background: rgba(47, 99, 180, .16); }
+
+/* 数字：Basecamp 用无衬线等高数字，不用等宽字体 */
+.text-money,
+.tabular-nums,
+.stat-card .stat-num {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ============================================================
+   3. 壳层：侧栏 / 顶栏 / 内容区
+   ============================================================ */
+
+.sidebar {
+  width: 252px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  box-shadow: none;
+}
+
+.sidebar-brand {
+  padding: 22px 20px 16px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  gap: 10px;
+  border-bottom: 1px solid transparent;
+}
+
+.sidebar-brand .brand-logo,
+.sidebar-brand img {
+  height: 26px;
+  width: auto;
+  border-radius: 6px;
+}
+
+.sidebar-brand i {
+  font-size: 19px;
+  color: var(--primary);
+}
+
+.sidebar-nav { padding: 6px 10px 18px; }
+
+.sidebar-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  color: var(--sidebar-group-fg);
+  padding: 16px 10px 6px;
+  text-transform: none;
+  opacity: 1;
+}
+
+.sidebar-group-title:first-child { padding-top: 8px; }
+
+.sidebar-nav .nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  margin: 1px 0;
+  border-radius: 9px;
+  color: var(--sidebar-text);
+  font-size: 14px;
+  line-height: 20px;
+  transition: background .14s ease, color .14s ease;
+}
+
+.sidebar-nav .nav-item i {
+  width: 17px;
+  font-size: 15px;
+  opacity: .72;
+  color: inherit;
+}
+
+.sidebar-nav .nav-item:hover {
+  background: rgba(46, 55, 61, .055);
+  color: var(--text);
+}
+
+[data-bs-theme="dark"] .sidebar-nav .nav-item:hover {
+  background: rgba(241, 237, 230, .07);
+}
+
+.sidebar-nav .nav-item.active {
+  background: var(--sidebar-active);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebar-nav .nav-item.active::before { display: none; }
+
+.sidebar-nav .nav-item.active i {
+  opacity: 1;
+  color: var(--primary);
+}
+
+/* 项目树 / 附加导航 */
+.proj-tree { margin: 2px 0 6px; }
+
+.pt-item > summary,
+.pt-links a {
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--text-2);
+  padding: 5px 10px;
+}
+
+.pt-item > summary:hover,
+.pt-links a:hover {
+  background: rgba(46, 55, 61, .05);
+  color: var(--text);
+}
+
+[data-bs-theme="dark"] .pt-item > summary:hover,
+[data-bs-theme="dark"] .pt-links a:hover {
+  background: rgba(241, 237, 230, .06);
+}
+
+.pt-links a.active {
+  background: var(--sidebar-active);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.pt-unassigned > summary { color: var(--unassigned-fg); }
+
+.sidebar-footer {
+  border-top: 1px solid var(--border);
+  padding: 12px 18px;
+}
+
+.sidebar-footer a {
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+
+.sidebar-footer a:hover { color: var(--text); }
+
+.main { margin-left: 252px; }
+
+.topbar {
+  height: 68px;
+  padding: 0 32px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  gap: 16px;
+}
+
+.topbar h5 {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  color: var(--text);
+}
+
+.content {
+  padding: 32px 40px 64px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.page-title { font-size: 20px; font-weight: 700; }
+
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.page-head h5 {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+
+/* 顶栏搜索：胶囊输入框，去掉硬边框 */
+.topbar form .input-group {
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 3px 4px 3px 6px;
+  border: 1px solid transparent;
+  transition: border-color .15s ease, background .15s ease;
+}
+
+.topbar form .input-group:focus-within {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
+.topbar form .form-control,
+.topbar form .btn {
+  background: transparent;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.topbar form .form-control { font-size: 13.5px; padding-left: 10px; }
+
+.topbar form .btn { color: var(--text-3); padding: 2px 9px; }
+.topbar form .btn:hover { color: var(--text); }
+
+.mobile-topbar {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 14px;
+}
+
+/* ============================================================
+   4. 卡片 / 统计卡
+   ============================================================ */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow .16s ease;
+}
+
+.card:hover { box-shadow: var(--shadow); }
+
+.card-header {
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  padding: 18px 22px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  border-top-left-radius: var(--radius);
+  border-top-right-radius: var(--radius);
+}
+
+.card-header .small,
+.card-header small { font-weight: 400; }
+
+.card-body { padding: 22px; }
+
+.card-footer {
+  background: transparent;
+  border-top: 1px solid var(--border);
+  padding: 12px 20px;
+}
+
+.card-title { font-size: 15px; font-weight: 700; }
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 20px 17px;
+  min-height: 96px;
+  transition: box-shadow .16s ease, border-color .16s ease;
+}
+
+.stat-card:hover {
+  transform: none;
+  box-shadow: var(--shadow);
+  border-color: var(--border-strong);
+}
+
+.stat-card .stat-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* 原来的小圆点：改成 6px 的柔和色点，不做成“状态灯” */
+.stat-card .stat-label::before {
+  width: 6px;
+  height: 6px;
+  flex-basis: 6px;
+  border-radius: 999px;
+  background: var(--stat-accent, var(--primary));
+  opacity: .55;
+}
+
+.stat-card .stat-num {
+  font-size: 24px;
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  color: var(--text);
+  margin-top: 8px;
+}
+
+/* 六列密集排布（首页顶栏那排）用 20px：
+   再大一档，¥20,585,500 这种八位数就会吃到 text-overflow 的省略号。
+   20px 仍是六档刻度里的一档，不是临时造的值。 */
+.row > [class*="col-xl-2"] .stat-card .stat-num { font-size: 20px; }
+
+.stat-card .stat-sub {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+
+.stat-card.is-neg { --stat-accent: var(--danger); }
+.stat-card.is-neg .stat-num { color: var(--danger-ink); }
+.stat-card.is-pos { --stat-accent: var(--success); }
+.stat-card.is-pos .stat-num { color: var(--text); }
+.stat-card .stat-num.text-danger { color: var(--danger-ink); }
+.stat-card .stat-num.text-success { color: var(--text); }
+
+.stat-card.stat-sm { padding: 10px 13px 11px; min-height: 62px; }
+.stat-card.stat-sm .stat-num { font-size: 20px; }
+.stat-card.stat-sm .stat-label { font-size: 12px; }
+
+/* 首页六张指标卡的圆点：用 Basecamp 5 的“重启配色”六色轮转，
+   和它项目卡上的彩色标记是一个逻辑——靠颜色区分，不靠图标。 */
+.stat-row-tint > :nth-child(6n+1) .stat-label::before { background: #117AF3; }
+.stat-row-tint > :nth-child(6n+2) .stat-label::before { background: #1DB847; }
+.stat-row-tint > :nth-child(6n+3) .stat-label::before { background: #FF801F; }
+.stat-row-tint > :nth-child(6n+4) .stat-label::before { background: #FA423C; }
+.stat-row-tint > :nth-child(6n+5) .stat-label::before { background: #7A70FF; }
+.stat-row-tint > :nth-child(6n)   .stat-label::before { background: #EDB300; }
+
+/* ============================================================
+   5. 表格：去掉斑马纹与硬边框，只留细线与悬停
+   ============================================================ */
+
+.table {
+  font-size: 13.5px;
+  color: var(--text);
+  --bs-table-bg: transparent;
+  margin-bottom: 0;
+}
+
+.table > :not(caption) > * > * {
+  background: transparent;
+  box-shadow: none;
+}
+
+.table thead th {
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: none;
+  border-bottom: 1px solid var(--border);
+  padding: 11px 16px;
+  white-space: nowrap;
+}
+
+.table tbody td {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  vertical-align: middle;
+}
+
+.table tbody tr { background: transparent; }
+.table tbody tr:nth-child(even) { background: transparent; }
+
+.table-hover tbody tr:hover { background: var(--bs-table-hover-bg); }
+.table-hover tbody tr:nth-child(even):hover { background: var(--bs-table-hover-bg); }
+
+.table tbody tr:last-child td { border-bottom: none; }
+
+.table-responsive { border-radius: var(--radius); }
+
+.table a { color: var(--primary); }
+
+/* 表格里的“实体标签”（项目名 / 客户名）——Basecamp 用浅胶囊 */
+.table a.entity-tag,
+.table a[href^="/projects/"]:not(.btn):not([href*="#"]),
+.table a[href^="/materials/"]:not(.btn):not([href*="#"]),
+.table a[href^="/customers/"]:not(.btn):not([href*="#"]),
+.table a[href^="/suppliers/"]:not(.btn):not([href*="#"]) {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.table a[href^="/projects/"]:not(.btn):not([href*="#"]):hover,
+.table a[href^="/materials/"]:not(.btn):not([href*="#"]):hover,
+.table a[href^="/customers/"]:not(.btn):not([href*="#"]):hover,
+.table a[href^="/suppliers/"]:not(.btn):not([href*="#"]):hover {
+  color: var(--primary);
+  text-decoration: underline;
+  background: transparent;
+}
+
+.table tbody td.text-center.text-muted,
+.table tbody td[colspan].text-center.text-muted {
+  background: transparent;
+  color: var(--text-2) !important;
+}
+
+.table-sm > :not(caption) > * > * { padding: 8px 12px; }
+.table-sm thead th { font-size: 11.5px; }
+.table-sm tbody { font-size: 13px; }
+
+/* ============================================================
+   6. 按钮：白底描边为主，主操作是墨色实底
+   ============================================================ */
+
+.btn {
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 7px 14px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  letter-spacing: 0;
+  box-shadow: none;
+  white-space: nowrap;
+  transition: background .14s ease, border-color .14s ease, color .14s ease;
+}
+
+.btn:hover { box-shadow: none !important; transform: none !important; }
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(47, 99, 180, .18) !important;
+}
+
+/* 主按钮：Basecamp 蓝（白字 5.2:1），不用近黑——用户要的是它的配色 */
+.btn-primary,
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:active,
+.btn-primary:disabled {
+  background: var(--primary-grad) !important;
+  border-color: var(--primary-grad) !important;
+  color: #fff !important;
+  background-image: none !important;
+}
+
+.btn-primary:hover { background: var(--primary-grad-hover) !important; }
+
+[data-bs-theme="dark"] .btn-primary,
+[data-bs-theme="dark"] .btn-primary:hover {
+  background: #4C86D8 !important;
+  border-color: #4C86D8 !important;
+  color: #0E1620 !important;
+}
+
+.btn-outline-primary {
+  border-color: var(--border-strong);
+  color: var(--text);
+  background: var(--surface);
+}
+
+.btn-outline-primary:hover {
+  background: var(--surface-2);
+  border-color: var(--text-3);
+  color: var(--text);
+}
+
+.btn-outline-secondary {
+  border-color: var(--border-strong);
+  color: var(--text-2);
+  background: var(--surface);
+}
+
+.btn-outline-secondary:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.btn-outline-danger,
+.btn-outline-danger:hover {
+  border-color: var(--border-strong);
+  color: var(--danger-ink);
+  background: var(--surface);
+}
+
+.btn-outline-danger:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger-ink);
+}
+
+.btn-outline-success,
+.btn-outline-success:hover {
+  border-color: var(--border-strong);
+  color: var(--success-ink);
+  background: var(--surface);
+}
+
+.btn-outline-success:hover {
+  background: var(--success-bg);
+  border-color: var(--success);
+}
+
+.btn-danger {
+  background: var(--danger-btn) !important;
+  border-color: var(--danger-btn) !important;
+  color: #fff !important;
+  background-image: none !important;
+}
+
+.btn-success {
+  background: var(--success-btn) !important;
+  border-color: var(--success-btn) !important;
+  color: #fff !important;
+  background-image: none !important;
+}
+
+.btn-light {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-link {
+  color: var(--primary);
+  min-height: auto;
+  padding: 0;
+  font-weight: 600;
+}
+
+.btn-sm {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  border-radius: 8px;
+}
+
+.btn-lg { min-height: 44px; font-size: 15px; border-radius: 10px; }
+
+.btn-filter-active {
+  border-color: var(--text) !important;
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  box-shadow: inset 0 0 0 1px var(--text);
+}
+
+.btn-filter-active:hover {
+  background: var(--surface-2) !important;
+  color: var(--text) !important;
+}
+
+.btn-filter-active .flt-badge {
+  background: var(--text);
+  color: var(--surface);
+  border-radius: 999px;
+  min-width: 18px;
+  height: 18px;
+  font-size: 11px;
+}
+
+/* 表格里的行内操作：安静一点，别整行都是边框按钮 */
+.btn-group > .btn { border-radius: 0; }
+.btn-group > .btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.btn-group > .btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+
+.table .btn-outline-primary,
+.table .btn-outline-secondary {
+  border-color: transparent;
+  background: transparent;
+  color: var(--primary);
+  padding: 3px 8px;
+  min-height: 28px;
+  font-weight: 600;
+}
+
+.table .btn-outline-primary:hover,
+.table .btn-outline-secondary:hover {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--text);
+}
+
+/* 列表组（首页右侧提醒卡） */
+.list-group-item {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+  padding: 12px 20px;
+}
+
+.list-group-item:first-child { border-top: none; }
+
+/* 顶栏图标按钮：无边框幽灵按钮 */
+.topbar .btn-outline-secondary.btn-sm,
+.mobile-topbar .btn-outline-secondary {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+  min-height: 34px;
+  padding: 4px 8px;
+}
+
+.topbar .btn-outline-secondary.btn-sm:hover,
+.mobile-topbar .btn-outline-secondary:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.btn-group > .btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.btn-group > .btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+
+/* ============================================================
+   7. 表单
+   ============================================================ */
+
+.form-control,
+.form-select {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13.5px;
+  min-height: 38px;
+  padding: 7px 11px;
+  box-shadow: none;
+  transition: border-color .14s ease, box-shadow .14s ease;
+}
+
+.form-control:focus,
+.form-select:focus {
+  background: var(--input-bg);
+  border-color: var(--primary);
+  color: var(--text);
+  box-shadow: 0 0 0 3px rgba(47, 99, 180, .14);
+}
+
+.form-control::placeholder { color: var(--text-3); }
+
+.form-control:disabled,
+.form-select:disabled,
+.form-control[readonly] {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.form-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 5px;
+}
+
+.form-text { font-size: 12px; color: var(--text-3); }
+
+.form-check-input {
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  width: 16px;
+  height: 16px;
+  margin-top: .2em;
+}
+
+.form-check-input:checked {
+  background-color: var(--text);
+  border-color: var(--text);
+}
+
+.form-check-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(47, 99, 180, .16);
+}
+
+.form-check-label { font-size: 13.5px; }
+
+.input-group-text {
+  background: var(--surface-2);
+  border: 1px solid var(--input-border);
+  color: var(--text-2);
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+}
+
+/* 可搜索下拉（JS 生成）跟着一起换肤 */
+.ss-toggle {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  min-height: 38px;
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.ss-toggle:hover { border-color: var(--text-3); }
+
+.ss-toggle:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(47, 99, 180, .14);
+}
+
+.ss-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+}
+
+.ss-search { border-radius: 8px; font-size: 13.5px; }
+
+.ss-opt { border-radius: 8px; font-size: 13.5px; }
+
+.ss-opt:hover { background: var(--surface-2); }
+
+.ss-opt.is-active {
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--text);
+}
+
+/* ============================================================
+   8. 徽章 / 标签 / 状态
+   ============================================================ */
+
+.badge {
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 9px;
+  letter-spacing: .01em;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid transparent;
+}
+
+.badge-status {
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+
+.badge-category {
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+
+.badge-task { background: var(--text); color: var(--surface); }
+
+.badge.text-bg-primary { background: var(--info-bg); color: var(--info-ink); border-color: var(--tag-border); }
+.badge.text-bg-success { background: var(--success-bg); color: var(--success-ink); border-color: rgba(36, 161, 72, .28); }
+.badge.text-bg-danger  { background: var(--danger-bg); color: var(--danger-ink); border-color: rgba(235, 69, 90, .28); }
+.badge.text-bg-warning { background: var(--warning-bg); color: var(--warning-ink); border-color: rgba(232, 163, 61, .34); }
+.badge.text-bg-info    { background: var(--info-bg); color: var(--info-ink); border-color: var(--tag-border); }
+.badge.text-bg-secondary { background: var(--surface-2); color: var(--text-2); border-color: var(--border); }
+.badge.text-bg-light   { background: var(--surface); color: var(--text-2); border-color: var(--border); }
+.badge.text-bg-dark    { background: var(--text); color: var(--surface); }
+
+/* 实体胶囊（项目名等） */
+.entity-tag,
+.tag-info {
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--tag-bg);
+  color: var(--tag-fg);
+  border: 1px solid var(--tag-border);
+}
+
+/* ============================================================
+   9. 提示条 / 进度 / 分页 / Tab
+   ============================================================ */
+
+.alert {
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13.5px;
+  padding: 12px 14px;
+}
+
+.alert-danger  { background: var(--danger-bg);  border-color: rgba(235, 69, 90, .30);  color: var(--danger-ink); }
+.alert-warning { background: var(--warning-bg); border-color: rgba(232, 163, 61, .36); color: var(--warning-ink); }
+.alert-success { background: var(--success-bg); border-color: rgba(36, 161, 72, .28);  color: var(--success-ink); }
+.alert-info    { background: var(--info-bg);    border-color: var(--tag-border);        color: var(--info-ink); }
+
+.progress {
+  background: var(--surface-2);
+  border-radius: 999px;
+  height: 6px;
+  box-shadow: none;
+}
+
+.progress-bar {
+  background: var(--primary-grad);
+  border-radius: 999px;
+  background-image: none !important;
+  transition: width .3s ease;
+}
+
+.progress-bar.bg-success { background: var(--success) !important; }
+.progress-bar.bg-danger  { background: var(--danger) !important; }
+.progress-bar.bg-warning { background: var(--warning) !important; }
+
+.pagination .page-link {
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  border-radius: 8px;
+  margin: 0 2px;
+  font-size: 13px;
+  padding: 5px 10px;
+  background: var(--surface);
+}
+
+.pagination .page-link:hover { background: var(--surface-2); color: var(--text); }
+
+.pagination .page-item.active .page-link {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--surface);
+}
+
+/* Tab：Basecamp 用下划线，不用色块 */
+.nav-tabs {
+  border-bottom: 1px solid var(--border);
+  gap: 4px;
+}
+
+.nav-tabs .nav-link {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 9px 12px;
+  background: transparent;
+}
+
+.nav-tabs .nav-link:hover {
+  color: var(--text);
+  border-bottom-color: var(--border-strong);
+  background: transparent;
+}
+
+.nav-tabs .nav-link.active {
+  color: var(--text);
+  background: transparent;
+  border-bottom-color: var(--text);
+}
+
+.tab-card .nav-tabs { padding: 0 8px; }
+
+.nav-pills .nav-link {
+  border-radius: 999px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 6px 13px;
+}
+
+.nav-pills .nav-link.active {
+  background: var(--text);
+  color: var(--surface);
+}
+
+.dropdown-menu {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  font-size: 13.5px;
+  background: var(--surface);
+}
+
+.dropdown-item {
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: var(--text);
+}
+
+.dropdown-item:hover,
+.dropdown-item:focus { background: var(--surface-2); color: var(--text); }
+
+.dropdown-divider { border-color: var(--border); }
+
+.modal-content {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  background: var(--surface);
+}
+
+.modal-header,
+.modal-footer { border-color: var(--border); padding: 16px 20px; }
+
+.modal-body { padding: 18px 20px; }
+
+.offcanvas { background: var(--surface); }
+
+.tooltip-inner { background: var(--text); color: var(--surface); border-radius: 7px; font-size: 12px; }
+.tooltip .tooltip-arrow::before { border-top-color: var(--text); }
+
+/* ============================================================
+   10. 项目详情 / 业务专有块
+   ============================================================ */
+
+/* 首页抬头（Basecamp 的 Good morning 区块） */
+.bc-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 4px 2px 26px;
+}
+
+.bc-hero-title {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -.03em;
+  color: var(--text);
+}
+
+/* ---- 项目封面色块 + 星标（Basecamp 项目卡的标志元素） ----
+   表格里没有真正的卡片，用一枚 30px 的圆角色块代替封面：
+   颜色由项目 id 决定（同一项目永远同色），字是项目名首字。
+   星标是**真能点的**：状态存在 localStorage，不写后端，
+   所以换浏览器/清缓存会丢 —— 这是刻意的取舍，
+   为了一个收藏功能去加表和迁移不划算。 */
+.proj-swatch {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .07);
+  user-select: none;
+}
+
+.proj-cell {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+/* 项目名 + 星标一行，截止日期作第二行元信息（Basecamp 的卡就是
+   标题 + 一行灰字，不再单独占一列，窄屏也不会把表挤爆）。 */
+.proj-main { min-width: 0; }
+
+.proj-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.proj-line > a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proj-meta {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 1px;
+}
+
+/* 首页最近项目表：加了色块和星标以后，客户列被挤成三行。
+   这里给客户名一个上限，超出用省略号，行高保持一致。 */
+.cust-ellipsis {
+  display: inline-block;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.proj-star {
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  margin-left: 2px;
+  border-radius: 6px;
+  color: #C9C5BD;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: color .14s ease, background .14s ease;
+}
+
+.proj-star:hover { color: #EDB300; background: var(--surface-2); }
+.proj-star.is-on { color: #EDB300; }
+.proj-star:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(47, 99, 180, .25); }
+
+[data-bs-theme="dark"] .proj-star { color: #6C6659; }
+[data-bs-theme="dark"] .proj-star.is-on,
+[data-bs-theme="dark"] .proj-star:hover { color: #F5C518; }
+
+.bc-hero-sub {
+  margin-top: 6px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+
+.bc-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 2px;
+}
+
+@media (max-width: 575.98px) {
+  .bc-hero { padding-bottom: 18px; }
+  .bc-hero-title { font-size: 24px; }
+  .bc-hero-actions { width: 100%; }
+}
+
+/* 项目名 / 客户名这类“实体文字”：原来是品牌蓝，Basecamp 用墨色 */
+.text-pine {
+  color: var(--text) !important;
+}
+
+.text-pine-2 {
+  color: var(--text-2) !important;
+}
+
+.text-pine a,
+.text-pine-2 a {
+  color: var(--text) !important;
+  font-weight: 600;
+}
+
+/* 项目详情顶部：模板里是 .card > .proj-hero，白卡已经提供表面，
+   内层不再画渐变/描边，只保留留白。 */
+.proj-hero {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 24px 26px !important;
+  margin-bottom: 0;
+}
+
+.proj-hero h3,
+.proj-hero h4,
+.proj-hero .proj-title {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  color: var(--text);
+}
+
+.proj-hero .text-muted { color: var(--text-2) !important; }
+
+.proj-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text);
+  padding: 14px 0 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.proj-head i { color: var(--text-3); }
+
+/* 甘特 / 看板 / 时间线：统一到暖色系 */
+.gantt-bar { background: var(--text) !important; border-radius: 6px; }
+.gantt-today { background: var(--danger) !important; }
+.gantt-header { background: var(--surface-2); }
+
+.kanban-col {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.kanban-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+.kanban-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
+
+.timeline::before { background: var(--border); }
+.timeline-item::before { background: var(--surface); border: 2px solid var(--text-3); }
+
+/* 空状态 */
+.empty-state,
+.text-center.text-muted.py-5 { color: var(--text-2) !important; }
+
+/* ============================================================
+   11. 登录页
+   ============================================================ */
+
+/* 登录页：纸白底、无纹理、居中一张白卡。
+   ::before 的网格纹理是上一版设计语言的残留，Basecamp 不用。 */
+html body.login-body {
+  background: var(--bg) !important;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-body::before { display: none !important; }
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  border: 1px solid var(--border) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 24px 60px rgba(46, 55, 61, .10) !important;
+  background: var(--surface);
+}
+
+.login-card .card-body { padding: 34px 30px 30px !important; }
+
+.login-icon {
+  font-size: 34px;
+  color: var(--text);
+  opacity: .9;
+}
+
+.login-card h4 { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+
+.login-card .text-muted { color: var(--text-3) !important; font-size: 12.5px; }
+
+.login-card .btn-primary { margin-top: 4px; min-height: 40px; }
+
+/* ============================================================
+   12. 日期选择器 / 杂项
+   ============================================================ */
+
+.flatpickr-calendar {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  background: var(--surface);
+  font-size: 13px;
+}
+
+.flatpickr-day.selected,
+.flatpickr-day.selected:hover {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--surface);
+}
+
+.flatpickr-day:hover { background: var(--surface-2); }
+
+/* 滚动条：细一点，别抢注意力 */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 3px solid var(--bg);
+}
+::-webkit-scrollbar-track { background: transparent; }
+
+/* 顶栏铃铛 / 未读点 */
+.navbar .badge,
+.topbar .badge {
+  border-radius: 999px;
+}
+
+/* ============================================================
+   13. 深色模式下的组件修正
+   ------------------------------------------------------------
+   style.css 里有一整段 `[data-bs-theme="dark"] { … }` 嵌套规则，
+   编译后的特异度是 (0,3,0)，比本文件里的 (0,2,0) 高 —— 所以令牌层
+   虽然被本文件接管了，个别组件仍会被那段规则改写（典型症状：
+   侧栏选中项的文字变成 --on-accent 的深色，压在深色药丸上 = 看不见）。
+   这里统一用 html[data-bs-theme="dark"] 前缀，特异度 (0,3,1)，重新压回来。
+   ============================================================ */
+
+html[data-bs-theme="dark"] .sidebar-nav .nav-item { color: var(--sidebar-text); }
+html[data-bs-theme="dark"] .sidebar-nav .nav-item i { color: inherit; }
+html[data-bs-theme="dark"] .sidebar-nav .nav-item:hover,
+html[data-bs-theme="dark"] .sidebar-nav .nav-item:hover i { color: var(--text); }
+html[data-bs-theme="dark"] .sidebar-nav .nav-item.active,
+html[data-bs-theme="dark"] .sidebar-nav .nav-item.active i { color: var(--text); }
+
+html[data-bs-theme="dark"] .proj-tree .pt-links a,
+html[data-bs-theme="dark"] .proj-tree .pt-links a i,
+html[data-bs-theme="dark"] .proj-tree summary { color: var(--text-2); }
+html[data-bs-theme="dark"] .proj-tree .pt-links a:hover { color: var(--text); }
+html[data-bs-theme="dark"] .proj-tree .pt-links a.active { color: var(--text); }
+
+html[data-bs-theme="dark"] .btn-outline-primary {
+  border-color: var(--border-strong);
+  color: var(--text);
+  background: var(--surface);
+}
+html[data-bs-theme="dark"] .btn-outline-primary:hover {
+  background: var(--surface-2);
+  border-color: var(--text-3);
+  color: var(--text);
+}
+
+html[data-bs-theme="dark"] .main a:not(.btn):not(.nav-link) { color: var(--primary); }
+html[data-bs-theme="dark"] .main a:not(.btn):not(.nav-link):hover { color: #B4CDEE; }
+
+html[data-bs-theme="dark"] .card-header { color: var(--text); }
+html[data-bs-theme="dark"] .table thead th { color: var(--text-2); }
+html[data-bs-theme="dark"] .table a.entity-tag,
+html[data-bs-theme="dark"] .table a[href^="/projects/"]:not(.btn) { color: var(--text); }
+
+html[data-bs-theme="dark"] .nav-tabs .nav-link { color: var(--text-2); }
+html[data-bs-theme="dark"] .nav-tabs .nav-link.active { color: var(--text); }
+
+/* 打印：始终纸白黑字，不受主题影响 */
+@media print {
+  html, body { background: #fff !important; color: #000 !important; }
+  .card, .stat-card, .proj-hero { box-shadow: none !important; border-color: #ddd !important; }
+}

@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}供应商{% endblock %}
+{% block page_title %}供应商{% endblock %}
+{% block content %}
+
+{% if msg %}
+<div class="alert alert-info py-2 small">{{ msg }}</div>
+{% endif %}
+
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item"><a class="nav-link {{ 'active' if tab not in ['payments', 'recon'] else '' }}" href="/suppliers">供应商</a></li>
+  <li class="nav-item"><a class="nav-link {{ 'active' if tab == 'payments' else '' }}" href="/suppliers?tab=payments">供应商付款</a></li>
+  <li class="nav-item"><a class="nav-link {{ 'active' if tab == 'recon' else '' }}" href="/suppliers?tab=recon">供应商对账</a></li>
+</ul>
+
+<div class="tab-content">
+<div class="tab-pane fade {{ 'show active' if tab not in ['payments', 'recon'] else '' }}" id="sup-list">
+
+<div class="page-head">
+  {# 筛选条折叠：has-filter 告诉脚本「当前有筛选生效」，此时默认展开。
+     5 个筛选器展开要占 3 行，供应商一屏只能看到标题。 #}
+  <div class="filter-wrap" data-has-filter="{{ 1 if (q or category or brand or coop_level) else 0 }}">
+    <button type="button" class="filter-toggle" aria-expanded="true" title="展开 / 收起筛选条件">
+      <i class="bi bi-chevron-down"></i><span class="ft-label">收起筛选</span>
+      {% if q or category or brand or coop_level %}<span class="flt-active-dot">已筛</span>{% endif %}
+    </button>
+    <span class="filter-hint">当前显示全部供应商</span>
+  <form class="search-row flex-wrap" id="fltForm" method="get">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" style="width:160px" placeholder="搜索供应商 / 品类 / 品牌">
+    {% import "_multiselect.html" as ms %}
+    {{ ms.multiselect('category', '分类', categories, categories, category) }}
+    {{ ms.multiselect('brand', '品牌', brands, brands, brand) }}
+    {{ ms.multiselect('coop_level', '等级', coop_levels, coop_levels, coop_level) }}
+    <a href="/suppliers" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> 恢复原样</a>
+  </form>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="/suppliers/import" class="btn btn-outline-success btn-sm"><i class="bi bi-file-earmark-excel"></i> 导入</a>
+    <a href="/suppliers/new" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增供应商</a>
+  </div>
+</div>
+
+<div class="card" id="result-box">
+  <div class="table-responsive sup-scroll">
+    <table class="table table-hover align-middle mb-0 table-card table-wide" data-col-resizable data-col-key="suppliers" data-col-minor>
+      {# 次要列标 .col-minor：默认收起。判断依据是「查供应商时看不看」——
+         名称、材料数、采购单数是主列（决定了要不要下单）；品类/品牌/联系人/
+         电话/等级/操作是详情信息，需要时点「列」按钮展开。 #}
+      <thead><tr>
+        <th>供应商名称</th><th class="col-minor">供应品类</th><th class="col-minor">品牌</th>
+        <th class="col-minor">联系人</th><th class="col-minor">联系电话</th><th class="col-minor">合作等级</th>
+        <th class="text-end">材料数</th><th class="text-end">采购单数</th><th class="text-nowrap" style="width:120px">操作</th>
+      </tr></thead>
+      <tbody>
+        {% for d in data %}
+        <tr>
+          <td class="fw-semibold">
+            <a href="/suppliers/{{ d.supplier.id }}/edit">{{ d.supplier.name }}</a>
+            {% if d.supplier.tax_no %}<div class="small text-muted">{{ d.supplier.tax_no }}</div>{% endif %}
+          </td>
+          <td class="small col-minor">{{ d.supplier.category or '—' }}</td>
+          <td class="small col-minor">{{ d.supplier.brand or '—' }}</td>
+          <td class="small col-minor">{{ d.supplier.contact or '—' }}</td>
+          <td class="small col-minor">{{ d.supplier.phone or '—' }}</td>
+          <td class="col-minor">{% if d.supplier.coop_level %}<span class="badge text-bg-light">{{ d.supplier.coop_level }}</span>{% else %}—{% endif %}</td>
+          <td class="text-end small">{{ d.material_count }}</td>
+          <td class="text-end small">{{ d.po_count }}</td>
+          <td class="text-nowrap">
+            <a href="/suppliers/{{ d.supplier.id }}/edit" class="btn btn-sm btn-outline-secondary py-0 px-1" title="编辑"><i class="bi bi-pencil"></i></a>
+            <form method="post" action="/suppliers/{{ d.supplier.id }}/delete" class="d-inline" onsubmit="return confirm('删除该供应商？');">
+              <button class="btn btn-sm btn-outline-danger py-0 px-1" title="删除"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-muted py-4">暂无供应商</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+<div class="tab-pane fade {{ 'show active' if tab == 'payments' else '' }}" id="sup-payments">
+  <div class="page-head">
+    <form class="search-row flex-wrap" id="fltForm-pay" method="get" data-result="result-box-pay">
+      <input type="hidden" name="tab" value="payments">
+      {% import "_multiselect.html" as ms %}
+      {{ ms.multiselect('supplier_id', '供应商', suppliers|map(attribute='id')|list, suppliers|map(attribute='name')|list, supplier_id) }}
+      {{ ms.multiselect('project_id', '项目', projects|map(attribute='id')|list, projects|map(attribute='name')|list, project_id) }}
+      <a href="/suppliers?tab=payments" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> 恢复原样</a>
+    </form>
+    <div class="d-flex gap-2">
+      <a href="/supplier-payments/export" class="btn btn-outline-success btn-sm"><i class="bi bi-file-earmark-excel"></i> 导出对账</a>
+      <a href="/supplier-payments/new" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 登记付款</a>
+    </div>
+  </div>
+  <div class="card" id="result-box-pay">
+    <div class="card-header py-2 d-flex justify-content-between"><span>付款记录</span><span class="small text-muted">合计已付 ¥{{ total_paid|money }}{% if voided_count %}（不含 {{ voided_count }} 笔已作废）{% endif %}</span></div>
+    <div class="table-responsive sup-scroll">
+      <table class="table table-sm align-middle mb-0 table-card" data-sortable>
+        <thead><tr><th class="sortable" data-sort="date" data-type="date">日期</th><th class="sortable" data-sort="name">供应商</th><th class="text-end sortable" data-sort="amount" data-type="number">金额</th><th class="sortable" data-sort="method">方式</th><th class="sortable" data-sort="rel">关联</th><th>转账单</th></tr></thead>
+        <tbody>
+          {% for p in payments %}
+          {# 作废行保留在列表里（财务要能看见「这里有一笔作废」才能对账），
+             但压暗 + 标记，且不计入上方合计已付。 #}
+          <tr class="{{ 'row-voided' if p.status == '作废' else '' }}">
+            <td class="small text-nowrap" data-value="{{ p.pay_date or '' }}">{{ p.pay_date or '—' }}</td>
+            <td class="fw-semibold" data-value="{{ p.supplier.name }}">{{ p.supplier.name }}</td>
+            <td class="text-end text-danger" data-value="{{ p.amount or 0 }}">¥{{ p.amount|money }}</td>
+            <td data-value="{{ p.pay_method }}"><span class="badge text-bg-light">{{ p.pay_method }}</span>
+              {% if p.status == '作废' %}
+              <span class="badge state-badge state-idle ms-1">已作废</span>
+              {% if p.void_reason %}<div class="small text-muted">{{ p.void_reason }}</div>{% endif %}
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if p.subcontract_id %}分包{% elif p.contract_id %}采购{% else %}—{% endif %}
+            </td>
+            <td>
+              {% if p.status == '作废' %}
+              <form method="post" action="/supplier-payments/{{ p.id }}/restore" class="d-inline"
+                    onsubmit="return confirm('恢复该付款？将重新计入合计已付与超付判断。');">
+                <input type="hidden" name="back_url" value="/suppliers?tab=payments">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="已作废，点击恢复"><i class="bi bi-arrow-counterclockwise"></i></button>
+              </form>
+              {% else %}
+              <a href="/supplier-payments/{{ p.id }}/edit?back_url=/suppliers%3Ftab%3Dpayments" class="btn btn-sm btn-outline-primary py-0 px-1" title="编辑"><i class="bi bi-pencil"></i></a>
+              <form method="post" action="/supplier-payments/{{ p.id }}/void" class="d-inline"
+                    onsubmit="return confirm('作废该付款？\n\n记录会保留以便对账与审计，但不再计入合计已付与超付判断。');">
+                <input type="hidden" name="back_url" value="/suppliers?tab=payments">
+                <button class="btn btn-sm btn-outline-danger py-0 px-1" title="作废（保留记录，不计入已付）"><i class="bi bi-x-octagon"></i></button>
+              </form>
+              {% endif %}
+              {% if p.bank_file %}<a href="{{ p.bank_file }}" target="_blank" class="text-success ms-1" title="查看转账单"><i class="bi bi-bank"></i></a>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-muted py-4">暂无付款记录</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="tab-pane fade {{ 'show active' if tab == 'recon' else '' }}" id="sup-recon">
+  <div class="page-head">
+    <div class="d-flex gap-2">
+      <a href="/supplier-payments/export" class="btn btn-outline-success btn-sm"><i class="bi bi-file-earmark-excel"></i> 导出对账</a>
+    </div>
+  </div>
+  <div class="card">
+    <div class="table-responsive sup-scroll">
+      <table class="table table-sm align-middle mb-0 table-card" data-sortable>
+        <thead><tr><th class="sortable" data-sort="name">供应商</th><th class="text-end sortable" data-sort="payable" data-type="number">应付</th><th class="text-end sortable" data-sort="paid" data-type="number">已付</th><th class="text-end sortable" data-sort="balance" data-type="number">余额</th></tr></thead>
+        <tbody>
+          {% for r in reconciliation %}
+          <tr>
+            <td class="fw-semibold" data-value="{{ r.supplier.name }}">{{ r.supplier.name }}</td>
+            <td class="text-end" data-value="{{ r.payable or 0 }}">¥{{ r.payable|money }}</td>
+            <td class="text-end text-success" data-value="{{ r.paid or 0 }}">¥{{ r.paid|money }}</td>
+            <td class="text-end {{ 'text-danger' if r.balance > 0 else 'text-success' }}" data-value="{{ r.balance or 0 }}">¥{{ r.balance|money }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="text-center text-muted py-4">暂无对账数据</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+function fltSubmit(cb){
+  if(!cb) cb = document.querySelector('input.flt-cb');
+  if(!cb) return;
+  var form = cb.form;
+  if(!form) return;
+  var fd = new FormData(form);
+  var qs = new URLSearchParams(fd).toString();
+  var url = location.pathname + (qs ? '?' + qs : '');
+  var boxId = form.getAttribute('data-result') || 'result-box';
+  var box = document.getElementById(boxId);
+  if(!box){ form.submit(); return; }  // 无局部容器则整页提交
+  fetch(url, {headers:{'X-Requested-With':'fetch'}})
+    .then(function(r){ if(!r.ok) throw 0; return r.text(); })
+    .then(function(html){
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var nb = doc.getElementById(boxId);
+      if(nb) box.innerHTML = nb.innerHTML;   // 仅更新表格区，下拉/页面不刷新
+      history.replaceState(null, '', url);
+      syncAllChecks(form);
+      updateFilterBadges(form);
+    })
+    .catch(function(){ form.submit(); });    // 异常时退化为整页
+}
+function syncAllChecks(form){
+  form.querySelectorAll('input[id^="all-"]').forEach(function(all){
+    var g = all.id.replace('all-','');
+    var cbs = form.querySelectorAll('input[data-group="' + g + '"]');
+    var allc = cbs.length > 0 && [].every.call(cbs, function(c){ return c.checked; });
+    all.checked = allc;
+  });
+}
+function updateFilterBadges(form){
+  form.querySelectorAll('.dropdown').forEach(function(dd){
+    var cbs = dd.querySelectorAll('input.flt-cb');
+    if(cbs.length === 0) return;  // 仅处理筛选下拉
+    var n = [].filter.call(cbs, function(c){ return c.checked; }).length;
+    var filtered = n > 0 && n < cbs.length;  // 有勾选但未全选 = 筛选状态
+    var btn = dd.querySelector('.dropdown-toggle');
+    if(!btn) return;
+    var icon = btn.querySelector('.bi');
+    if(filtered){
+      btn.classList.add('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel-fill';
+      var b = btn.querySelector('.flt-badge');
+      if(!b){ b = document.createElement('span'); b.className='flt-badge'; btn.appendChild(b); }
+      b.textContent = n;
+    } else {
+      btn.classList.remove('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel';
+      var ob = btn.querySelector('.flt-badge');
+      if(ob) ob.remove();
+    }
+  });
+}
+function fltToggleAll(g, el){
+  var form = el.form;
+  if(!form) return;
+  var first = form.querySelector('input[data-group="' + g + '"]');
+  if(!first) return;
+  form.querySelectorAll('input[data-group="' + g + '"]').forEach(function(c){ c.checked = el.checked; });
+  if(el.checked){ fltSubmit(first); }  // 勾选全选：提交全部
+  else { updateFilterBadges(form); }  // 取消全选：清空并恢复按钮未筛选样式
+}
+</script>
+
+
+{% endblock %}

@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}业主查看链接{% endblock %}
+{% block page_title %}业主查看链接{% endblock %}
+{% block content %}
+
+{# 这个页面**不继承 base.html 的侧栏**：业主没有账号，侧栏那些链接对他
+   全部是 403，只会让人困惑还暴露系统结构。所以用独立布局，只留头部品牌。 #}
+
+<div class="card" style="max-width:760px;margin:0 auto">
+  <div class="card-header">
+    <span><i class="bi bi-link-45deg me-1"></i>业主查看链接</span>
+  </div>
+  <div class="card-body">
+
+    {% if saved %}
+    <div class="alert alert-success py-2 small"><i class="bi bi-check-circle me-1"></i>设置已保存。</div>
+    {% endif %}
+
+    {% if not link %}
+    <div class="alert alert-warning">该项目还没有创建业主链接。</div>
+    {% else %}
+
+    <div class="alert alert-warning small">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      <strong>这是一个免登录链接</strong>：拿到链接的人（不需要账号）就能看到下方
+      「业主可见」的那些内容。请只发给本项目的业主，不要发到业主群或朋友圈。
+    </div>
+
+    <form method="post" action="/projects/{{ project.id }}/portal" class="mb-3">
+      <div class="form-check form-switch mb-2">
+        <input class="form-check-input" type="checkbox" name="enabled" id="swEnabled"
+               {% if link.enabled %}checked{% endif %}>
+        <label class="form-check-label" for="swEnabled">
+          <strong>启用链接</strong>
+          <span class="form-text d-block">关闭后链接立即失效，业主再打开会看到「链接无效」。</span>
+        </label>
+      </div>
+
+      <div class="form-check form-switch mb-2">
+        <input class="form-check-input" type="checkbox" name="show_photos" id="swPhotos"
+               {% if link.show_photos %}checked{% endif %} {% if not link.enabled %}disabled{% endif %}>
+        <label class="form-check-label" for="swPhotos">
+          显示现场照片
+          <span class="form-text d-block">
+            默认关闭。现场照片常拍到业主的私人物品、邻居门牌或窗外，
+            确认过再开。
+          </span>
+        </label>
+      </div>
+
+      <div class="form-check form-switch mb-2">
+        <input class="form-check-input" type="checkbox" name="show_payment" id="swPay"
+               {% if link.show_payment %}checked{% endif %} {% if not link.enabled %}disabled{% endif %}>
+        <label class="form-check-label" for="swPay">
+          显示收款进度
+          <span class="form-text d-block">
+            只显示「已收 / 应收」汇总与各节点完成情况，<b>不含任何单价与供应商名称</b>。
+          </span>
+        </label>
+      </div>
+
+      <div class="mb-3" style="max-width:220px">
+        <label class="form-label small mb-1">有效期（天）</label>
+        <input type="number" name="expire_days" class="form-control form-control-sm"
+               value="{{ 180 }}" min="1" max="1095"
+               {% if not link.enabled %}disabled{% endif %}>
+        <div class="form-text">到期后链接自动失效。最长 1095 天（3 年）。</div>
+      </div>
+
+      <button class="btn btn-primary btn-sm"><i class="bi bi-check-lg"></i> 保存设置</button>
+    </form>
+
+    {% if link.enabled %}
+    <hr>
+    <div class="mb-3">
+      <label class="form-label small mb-1">链接地址</label>
+      <div class="input-group input-group-sm">
+        <input type="text" class="form-control" id="portalUrl" readonly
+               value="{{ full_url }}" onclick="this.select()">
+        <button class="btn btn-outline-secondary" type="button"
+                onclick="navigator.clipboard.writeText(document.getElementById('portalUrl').value);this.innerHTML='已复制'">
+          复制
+        </button>
+        <a class="btn btn-outline-primary" href="{{ full_url }}" target="_blank">打开</a>
+      </div>
+      <div class="form-text">
+        {% if portal_url_is_placeholder %}
+          <span class="text-danger"><i class="bi bi-exclamation-octagon me-1"></i>
+            <b><code>.env</code> 里的 <code>PORTAL_BASE_URL</code> 还是占位符</b>（看起来是直接抄了示例）。
+            现在生成出来的链接业主打不开。请改成真实地址后重启：
+            <code>PORTAL_BASE_URL=http://实际地址:8018</code></span>
+        {% elif localhost_only %}
+          <span class="text-warning"><i class="bi bi-exclamation-triangle me-1"></i>
+            当前推导出的地址是本机回环，发给业主是打不开的。请在 <code>.env</code> 里设置
+            <code>PORTAL_BASE_URL</code> 为业主能访问到的地址后重启。</span>
+        {% else %}
+          链接已启用。业主无需登录即可打开。
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="alert alert-secondary small mb-0">
+      链接当前未启用。勾选「启用链接」并保存后，把地址发给业主。
+    </div>
+    {% endif %}
+
+    <hr>
+    <div class="d-flex gap-2 flex-wrap">
+      <form method="post" action="/projects/{{ project.id }}/portal/reset" class="d-inline"
+            onsubmit="return confirm('更换链接？\n\n当前链接会立刻失效，已经发给业主的旧链接将无法打开。');">
+        <button class="btn btn-sm btn-outline-danger" {% if not link.token %}disabled{% endif %}>
+          <i class="bi bi-arrow-repeat"></i> 更换链接（旧地址立即失效）
+        </button>
+      </form>
+      <span class="small text-muted align-self-center">
+        发错人或怀疑被转发时用这个。当前已访问 {{ link.view_count or 0 }} 次{% if link.last_viewed_at %}，
+        最近一次 {{ link.last_viewed_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}。
+      </span>
+    </div>
+
+    <div class="alert alert-light small mt-3 mb-0">
+      <div class="mb-1"><strong>业主能看到什么</strong></div>
+      <div>项目名称、地址、面积、风格、施工状态、阶段完成情况
+        {% if link.show_photos %}、现场照片{% endif %}
+        {% if link.show_payment %}、收款进度{% endif %}。</div>
+      <div class="mt-1"><strong>业主看不到</strong>（任何内部账号都看不到的更敏感项也一并排除）：
+        合同额、成本、毛利、采购与分包金额、供应商名称、业主联系方式与账号。</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

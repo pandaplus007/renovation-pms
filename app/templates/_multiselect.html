@@ -1,0 +1,32 @@
+{% macro multiselect(name, label, values, labels, selected, form_id='fltForm') %}
+{# ⚠ 搜索框不在这里写死，而是由 static/js/flt-search.js 给 .dropdown-menu 动态插入。
+   原因：选项少于 4 个时不该出现输入框（那是噪音），
+   而「有没有搜索框」是**运行时**才知道的 —— 供应商 9 家要、分类 3 个不要。
+   写死在模板里就得给每个调用点手工决定，24 个筛选器一个一个标注，
+   必然有人漏，而且以后加减选项时没人会回来改这个标注。 #}
+<div class="dropdown">
+  {% set all_sel = selected and values|length > 0 and selected|length >= values|length %}
+  <button class="btn btn-outline-secondary dropdown-toggle {{ 'btn-filter-active' if selected and not all_sel else '' }}" type="button" data-bs-toggle="dropdown">
+    <i class="bi {{ 'bi-funnel-fill' if selected and not all_sel else 'bi-funnel' }}"></i> {{ label }}{% if selected and not all_sel %}<span class="flt-badge">{{ selected|length }}</span>{% endif %}</button>
+  {# 宽度/高度原来写在 inline style 上（min-width:170px;max-height:280px）。
+     加了搜索框之后 170px 明显不够 —— 选项文字被 overflow 切掉半个字，
+     而「切掉半个字」比「窄一点」更糟，因为看得出这里本该有内容。
+     收进 style.css 的 .ms-menu：宽度按**有没有搜索框**分两档，
+     由 .ms-searchable 区分，不在模板里判断。 #}
+  <div class="dropdown-menu p-2 ms-menu">
+    {# ms-all 是「全选」那一行，JS 靠这个类把它排除在过滤之外 ——
+       它是控制项不是数据项，跟着被滤掉会出现「我没勾它却显示未勾全」。 #}
+    <div class="form-check mb-1 ms-all">
+      {% set all_sel = selected and values|length > 0 and selected|length >= values|length %}
+      <input class="form-check-input" type="checkbox" id="all-{{ name }}" onchange="fltToggleAll('{{ name }}', this)" {{ 'checked' if (not selected) or all_sel else '' }}>
+      <label class="form-check-label small" for="all-{{ name }}">全选</label>
+    </div>
+    {% for v in values %}
+    <div class="form-check">
+      <input class="form-check-input flt-cb" type="checkbox" name="{{ name }}" value="{{ v }}" data-group="{{ name }}" onchange="fltSubmit(this)" {{ 'checked' if (selected and v|string in selected|map('string')|list) else '' }}>
+      <label class="form-check-label small">{{ labels[loop.index0] }}</label>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endmacro %}

@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% import "_progress.html" as pg %}
+{% block page_title %}项目总览{% endblock %}
+{% block content %}
+
+{# Basecamp 式首页抬头：一句问候 + 今日概览 + 两个主操作。
+   纯增量，不动下面的统计卡与列表 —— 那两块被 test_recv_runtime 等
+   回归测试按表头/列读着，改结构会误伤。 #}
+<div class="bc-hero">
+  <div class="bc-hero-main">
+    <h1 class="bc-hero-title">你好，{{ user.display_name or user.username }}</h1>
+    <div class="bc-hero-sub">
+      {{ today }} · 在建 {{ stats.building }} 个项目 · 应收余额 ¥{{ stats.receivable|money }}
+    </div>
+  </div>
+  <div class="bc-hero-actions">
+    <a href="/projects/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i>新建项目</a>
+    <a href="/dashboard/screen" class="btn btn-outline-secondary"><i class="bi bi-tv"></i>经营大屏</a>
+  </div>
+</div>
+
+<div class="row g-3 stat-row-tint">
+  <div class="col-md-6 col-xl-2">
+    <div class="stat-card grad-pine">
+      <div class="stat-num">{{ stats.building }}</div>
+      <div class="stat-label">在建项目</div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl-2">
+    <div class="stat-card grad-oat">
+      <div class="stat-num">{{ stats.pending }}</div>
+      <div class="stat-label">待签约 / 待开工</div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl-2">
+    <div class="stat-card grad-bean">
+      <div class="stat-num">{{ stats.customers }}</div>
+      <div class="stat-label">客户总数</div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl-2">
+    <div class="stat-card grad-lotus">
+      <div class="stat-num">¥{{ stats.contract_total|money }}</div>
+      <div class="stat-label">合同总额</div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl-2">
+    <div class="stat-card grad-terra">
+      <div class="stat-num">¥{{ stats.receivable|money }}</div>
+      <div class="stat-label">应收余额</div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl-2">
+    <div class="stat-card grad-sage">
+      <div class="stat-num">{{ stats.month_contract }}</div>
+      <div class="stat-label">本月签约</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>最近项目</span>
+        <a href="/projects" class="btn btn-sm btn-outline-primary">全部项目</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 table-card">
+          <thead><tr>
+            <th>项目</th><th>客户</th><th>状态</th><th>回款</th>
+          </tr></thead>
+          <tbody>
+            {% for p in recent_projects %}
+            <tr>
+              <td>
+                <div class="proj-cell">
+                  {# 封面色块：颜色只由 id 决定，同一项目永远同色 #}
+                  {% set swatch = ['#117AF3','#1DB847','#FF801F','#FA423C','#7A70FF','#EDB300'] %}
+                  <span class="proj-swatch" style="--sw:{{ swatch[p.id % 6] }}" aria-hidden="true">{{ p.name[:1] }}</span>
+                  <div class="proj-main">
+                    <div class="proj-line">
+                      <a href="/projects/{{ p.id }}">{{ p.name }}</a>
+                      {# 星标：前端 localStorage 记录，不落库 #}
+                      <button class="proj-star" type="button" data-pid="{{ p.id }}"
+                              aria-label="星标 {{ p.name }}" aria-pressed="false"><i class="bi bi-star"></i></button>
+                    </div>
+                    <div class="proj-meta">截止 {{ p.end_date or '—' }}</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="cust-ellipsis">{{ p.customer.name }}</span></td>
+              <td><span class="badge badge-status {{ p.status | state_badge }}">{{ p.status }}</span>
+                {% if p.phase_never_started %}<div class="mt-1">{{ pg.phase_flag(p) }}</div>{% endif %}
+              </td>
+              <td style="min-width:120px;">{{ pg.recv_bar(p, width=80) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center text-muted py-4">暂无项目</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-cash-stack me-1"></i>收款提醒</div>
+      <ul class="list-group list-group-flush">
+        {% for p in payment_alerts %}
+        <li class="list-group-item py-2 small">
+          <div class="d-flex justify-content-between">
+            <span>{{ p.project.name }} · {{ p.name }}</span>
+            <span class="text-danger">¥{{ p.balance|money }}</span>
+          </div>
+          <div class="text-muted">计划 {{ p.plan_date }}<span class="text-warning ms-2">{{ '已到期' if p.plan_date <= today else '即将到期' }}</span></div>
+        </li>
+        {% else %}
+        <li class="list-group-item empty-state-sm"><i class="bi bi-check2-circle"></i>近期没有待收款项</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-alarm me-1"></i>工期预警</div>
+      <ul class="list-group list-group-flush">
+        {% for p in deadline_alerts %}
+        <li class="list-group-item py-2 small">
+          <div class="d-flex justify-content-between">
+            <a href="/projects/{{ p.id }}">{{ p.name }}</a>
+            <span class="text-danger">{{ p.end_date }}</span>
+          </div>
+          <div class="text-muted">状态：{{ p.status }}</div>
+        </li>
+        {% else %}
+        <li class="list-group-item empty-state-sm"><i class="bi bi-check2-circle"></i>近期没有工期风险</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-exclamation-triangle me-1"></i>成本超支</div>
+      <ul class="list-group list-group-flush">
+        {% for p, budget_total, cost_total in cost_over_projects %}
+        <li class="list-group-item py-2 small">
+          <a href="/projects/{{ p.id }}">{{ p.name }}</a>
+          <span class="text-danger">超支 ¥{{ (cost_total - budget_total)|money }}</span>
+          <div class="text-muted">预算 ¥{{ budget_total|money }} / 实际 ¥{{ cost_total|money }}</div>
+        </li>
+        {% else %}
+        <li class="list-group-item empty-state-sm"><i class="bi bi-check2-circle"></i>暂无成本超支项目</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-box-seam me-1"></i>库存不足</div>
+      <ul class="list-group list-group-flush">
+        {% for m in low_stock_materials %}
+        <li class="list-group-item py-2 small">
+          <div class="d-flex justify-content-between">
+            <span>{{ m.name }} {{ m.spec }}</span>
+            <span class="text-danger">库存 {{ m.stock }} {{ m.unit }}</span>
+          </div>
+          <div class="text-muted">低于预警线 {{ m.low_stock }}</div>
+        </li>
+        {% else %}
+        <li class="list-group-item empty-state-sm"><i class="bi bi-check2-circle"></i>库存充足</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

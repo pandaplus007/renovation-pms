@@ -1,0 +1,364 @@
+{% extends "base.html" %}
+{% block title %}导入材料清单{% endblock %}
+{% block page_title %}导入材料清单{% endblock %}
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-upload me-1"></i>从 Excel 导入材料清单</div>
+      <div class="card-body">
+        {% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
+        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        <form method="post" action="/materials/import" enctype="multipart/form-data" id="imp-form">
+          <div class="mb-3">
+            <label class="form-label">选择文件（Excel / Word）</label>
+            <input type="file" name="file" class="form-control" id="imp-file" accept=".xlsx,.xlsm,.xls,.docx,.doc" required onchange="previewExcel(this)">
+            <div class="form-text">支持 .xlsx / .xls / .docx / .doc（Word 表格），选择后自动预览清单与合计金额</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">目标项目（预算明细写入该项目；不选则仅扩充材料库）</label>
+            <input type="text" class="form-control" id="imp-proj" placeholder="输入搜索并选择项目…" list="impProjList" autocomplete="off" value="{{ preselected_project_name }}">
+            <datalist id="impProjList">
+              {% for p in projects %}<option value="{{ p.name }}" data-id="{{ p.id }}"></option>{% endfor %}
+            </datalist>
+            <input type="hidden" name="project_id" id="imp-proj-id" value="{{ preselected_project_id or 0 }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">关联合同（选合同自动带出总价与供应商）</label>
+            <input type="text" class="form-control" id="imp-contract" placeholder="搜索合同名称或编号…" list="impContractList" autocomplete="off" value="{{ preselected_contract_name }}">
+            <datalist id="impContractList">
+              {% for c in contracts %}<option value="{{ c.name }}{% if c.contract_no %}（{{ c.contract_no }}）{% endif %}" data-id="{{ c.id }}" data-amount="{{ c.amount or 0 }}" data-supplier-id="{{ c.supplier_id or 0 }}" data-supplier-name="{{ c.supplier.name if c.supplier else '' }}"></option>{% endfor %}
+            </datalist>
+            <input type="hidden" name="contract_id" id="imp-contract-id" value="{{ preselected_contract_id or 0 }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">关联供应商（选合同后自动带出，可手动改）</label>
+            <input type="text" class="form-control" id="imp-supplier" placeholder="搜索并选择供应商…" list="impSupplierList" autocomplete="off">
+            <datalist id="impSupplierList">
+              {% for s in suppliers %}<option value="{{ s.name }}" data-id="{{ s.id }}"></option>{% endfor %}
+            </datalist>
+            <input type="hidden" name="supplier_id" id="imp-supplier-id" value="0">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">合同总金额（自动带出所选合同）</label>
+            <input type="text" class="form-control" id="imp-contract-amount" readonly placeholder="选择合同后自动填入">
+          </div>
+          <button class="btn btn-primary"><i class="bi bi-upload"></i> 开始导入</button>
+          <div id="imp-extra"></div>
+          <script>
+          (function(){
+            var amtInput = document.getElementById('imp-contract-amount');
+            var supInput = document.getElementById('imp-supplier');
+            var supHidden = document.getElementById('imp-supplier-id');
+            function fillSupplierById(sid, sname){
+              if(!supInput || !supHidden) return;
+              if(sid && sid !== '0'){
+                supHidden.value = sid;
+                if(sname) supInput.value = sname;
+              }
+            }
+            function onContractPick(opt){
+              if(!amtInput) return;
+              if(opt){
+                var a = parseFloat(opt.getAttribute('data-amount') || '0');
+                amtInput.value = '¥' + (a ? a.toLocaleString('zh-CN', {minimumFractionDigits:2, maximumFractionDigits:2}) : '0');
+                fillSupplierById(opt.getAttribute('data-supplier-id'), opt.getAttribute('data-supplier-name'));
+              } else {
+                amtInput.value = '';
+              }
+            }
+            function bindPicker(inputId, hiddenId, onPick){
+              var inp = document.getElementById(inputId);
+              var hidden = document.getElementById(hiddenId);
+              if(!inp || !hidden) return;
+              inp.addEventListener('input', function(){
+                var v = inp.value.trim();
+                var list = document.getElementById(inp.getAttribute('list'));
+                var matched = null;
+                if(list){
+                  [].forEach.call(list.options, function(o){ if(o.value === v) matched = o; });
+                }
+                hidden.value = matched ? (matched.getAttribute('data-id') || '0') : '0';
+                if(onPick) onPick(matched);
+              });
+            }
+            bindPicker('imp-proj', 'imp-proj-id');
+            bindPicker('imp-contract', 'imp-contract-id', onContractPick);
+            bindPicker('imp-supplier', 'imp-supplier-id');
+            // 初始回显预选合同的金额/供应商
+            var cidEl = document.getElementById('imp-contract-id');
+            if(amtInput && cidEl && cidEl.value !== '0'){
+              var list = document.getElementById('impContractList');
+              [].forEach.call(list.options, function(o){
+                if(o.getAttribute('data-id') === cidEl.value) onContractPick(o);
+              });
+            }
+          })();
+          var previewRows = [];
+          function renderPreview(rows){
+            var preview = document.getElementById('imp-preview');
+            var body = document.getElementById('imp-preview-body');
+            var totalEl = document.getElementById('imp-preview-total');
+            if(!preview || !body || !totalEl) return;
+            previewRows = [];
+            body.innerHTML = '';
+            var total = 0, n = 0;
+            (rows || []).forEach(function(r){
+              var name = String(r.name || '').trim();
+              if(!name) return;
+              var qty = parseFloat(String(r.quantity).replace(/[^0-9.\-]/g,'')) || 0;
+              if(qty <= 0) return;
+              var price = parseFloat(String(r.price).replace(/[^0-9.\-]/g,'')) || 0;
+              var taxRate = parseFloat(String(r.tax_rate || '').replace(/[^0-9.\-]/g,'')) || 0;
+              if(taxRate > 0 && taxRate <= 1) taxRate = taxRate * 100;  // Excel 百分比小数 → %
+              var netPrice = parseFloat(String(r.net_price || '').replace(/[^0-9.\-]/g,'')) || 0;
+              if(!netPrice && taxRate > 0 && price > 0) netPrice = price / (1 + taxRate / 100);  // 自动算不含税
+              var item = { name: name, price: price, tax_rate: taxRate, net_price: netPrice, unit: r.unit || '', note: r.note || '', spec: r.spec || '' };
+              previewRows.push(item);
+              var amt = qty * price;
+              total += amt;
+              var tr = document.createElement('tr');
+              tr.dataset.idx = previewRows.length - 1;
+              tr.innerHTML = '<td class="fw-semibold">' + name + '</td>'
+                + '<td class="small">' + (r.spec || '—') + '</td>'
+                + '<td class="small">' + (r.brand || '—') + '</td>'
+                + '<td>' + (r.unit || '') + '</td>'
+                + '<td class="text-money">' + qty + '</td>'
+                + '<td class="text-money">¥' + price.toFixed(2) + '</td>'
+                + '<td class="text-money"><input type="number" step="any" class="pv-net form-control form-control-sm" style="width:90px;font-size:12px;padding:1px 4px;height:auto" value="' + (netPrice ? netPrice.toFixed(2) : '') + '" placeholder="自动"></td>'
+                + '<td><input type="number" step="any" class="pv-tax form-control form-control-sm" style="width:80px;font-size:12px;padding:1px 4px;height:auto" value="' + (taxRate ? taxRate : '') + '" placeholder="%"></td>'
+                + '<td class="small">' + (r.note ? String(r.note).substring(0, 20) : '—') + '</td>'
+                + '<td class="text-money">¥' + amt.toFixed(2) + '</td>';
+              body.appendChild(tr);
+              n++;
+            });
+            if(!n){ alert('未识别到有效材料数据'); return; }
+            totalEl.textContent = '¥' + total.toLocaleString('zh-CN', {minimumFractionDigits:2, maximumFractionDigits:2}) + '（' + n + ' 行）';
+            preview.style.display = '';
+            bindPreviewEditors();
+          }
+          function bindPreviewEditors(){
+            var body = document.getElementById('imp-preview-body');
+            if(!body) return;
+            body.querySelectorAll('.pv-tax').forEach(function(inp){
+              inp.addEventListener('input', function(){
+                var tr = inp.closest('tr');
+                var idx = parseInt(tr.dataset.idx, 10);
+                var rate = parseFloat(inp.value) || 0;
+                previewRows[idx].tax_rate = rate;
+                var row = previewRows[idx];
+                if(rate > 0 && row.price > 0){
+                  row.net_price = row.price / (1 + rate / 100);
+                  var net = tr.querySelector('.pv-net');
+                  if(net) net.value = row.net_price.toFixed(2);
+                }
+              });
+            });
+            body.querySelectorAll('.pv-net').forEach(function(inp){
+              inp.addEventListener('input', function(){
+                var tr = inp.closest('tr');
+                var idx = parseInt(tr.dataset.idx, 10);
+                previewRows[idx].net_price = parseFloat(inp.value) || 0;
+              });
+            });
+          }
+          function applyBatchTax(){
+            var rate = parseFloat(document.getElementById('pv-batch-tax').value) || 0;
+            previewRows.forEach(function(row){
+              row.tax_rate = rate;
+              if(rate > 0 && row.price > 0) row.net_price = row.price / (1 + rate / 100);
+            });
+            var body = document.getElementById('imp-preview-body');
+            if(body){
+              body.querySelectorAll('tr').forEach(function(tr){
+                var idx = parseInt(tr.dataset.idx, 10);
+                if(isNaN(idx)) return;
+                var row = previewRows[idx];
+                var t = tr.querySelector('.pv-tax'); if(t) t.value = row.tax_rate || '';
+                var n = tr.querySelector('.pv-net'); if(n) n.value = row.net_price ? row.net_price.toFixed(2) : '';
+              });
+            }
+          }
+          function syncPreviewFields(){
+            var box = document.getElementById('imp-extra');
+            if(!box) return;
+            box.innerHTML = '';
+            previewRows.forEach(function(row){
+              var t = document.createElement('input');
+              t.type = 'hidden'; t.name = 'tax_rates'; t.value = row.tax_rate || '';
+              box.appendChild(t);
+              var n = document.createElement('input');
+              n.type = 'hidden'; n.name = 'net_prices'; n.value = row.net_price || '';
+              box.appendChild(n);
+            });
+          }
+          var impForm = document.getElementById('imp-form');
+          if(impForm) impForm.addEventListener('submit', syncPreviewFields);
+          function previewExcel(input){
+            var preview = document.getElementById('imp-preview');
+            if(!input.files || !input.files[0]) return;
+            var fname = input.files[0].name.toLowerCase();
+            if(/\.(docx|doc)$/.test(fname)){
+              // Word：后端解析后预览
+              var fd = new FormData();
+              fd.append('file', input.files[0]);
+              fetch('/materials/preview', {method:'POST', body:fd})
+                .then(function(r){ return r.json(); })
+                .then(function(res){
+                  if(res && res.ok){ renderPreview(res.rows); }
+                  else { alert((res && res.error) || '预览失败'); }
+                })
+                .catch(function(err){ alert('预览失败：' + err.message); });
+              return;
+            }
+            if(typeof XLSX === 'undefined'){
+              console.warn('SheetJS 预览库不可用，跳过预览（可直接开始导入）');
+              return;
+            }
+            var file = input.files[0];
+            var reader = new FileReader();
+            reader.onload = function(e){
+              try{
+                var wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+                var ws = wb.Sheets[wb.SheetNames[0]];
+                var rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+                if(!rows.length){ alert('Excel 为空'); return; }
+                var header = rows[0].map(String);
+                function colMatch(names){ return header.findIndex(h => names.some(n => String(h).indexOf(n) >= 0)); }
+                var iName = colMatch(['材料名称','材料名','名称','材料','品名','物料名称']);
+                var iSpec = colMatch(['规格','型号','尺寸']);
+                var iBrand = colMatch(['品牌','厂家','厂商','牌子']);
+                var iUnit = colMatch(['单位']);
+                var iQty = colMatch(['数量','用量','工程量','需求数量']);
+                function findPriceCol(){
+                  var idx = -1;
+                  for(var i=0; i<header.length; i++){
+                    var h = String(header[i] || '');
+                    if(h.indexOf('单价') >= 0 && h.indexOf('不含税') < 0 && h.indexOf('未税') < 0 && h.indexOf('税率') < 0){
+                      idx = i; break;
+                    }
+                  }
+                  return idx;
+                }
+                var iNetPrice = -1;
+                for(var i=0; i<header.length; i++){
+                  var hh = String(header[i] || '');
+                  if(hh.indexOf('不含税') >= 0 || hh.indexOf('未税') >= 0 || hh.indexOf('净价') >= 0){ iNetPrice = i; break; }
+                }
+                var iTaxRate = -1;
+                for(var i=0; i<header.length; i++){
+                  var hh2 = String(header[i] || '');
+                  if(hh2.indexOf('税率') >= 0){ iTaxRate = i; break; }
+                }
+                var iNote = colMatch(['备注','说明','注释','附注']);
+                var iPrice = findPriceCol();
+                if(iName < 0 || iQty < 0){ alert('未识别到「材料名称/数量」列'); return; }
+                var parsed = [];
+                for(var r=1; r<rows.length; r++){
+                  var row = rows[r];
+                  var name = String(row[iName] || '').trim();
+                  if(!name) continue;
+                  if(['合计','小计','总计','汇总'].indexOf(name) >= 0) continue;
+                  parsed.push({
+                    name: name,
+                    spec: (iSpec>=0 ? row[iSpec] : ''),
+                    brand: (iBrand>=0 ? row[iBrand] : ''),
+                    unit: (iUnit>=0 ? row[iUnit] : ''),
+                    quantity: String(row[iQty]),
+                    price: (iPrice>=0 ? row[iPrice] : 0),
+                    net_price: (iNetPrice>=0 ? row[iNetPrice] : 0),
+                    tax_rate: (iTaxRate>=0 ? row[iTaxRate] : 0),
+                    note: (iNote>=0 ? row[iNote] : '')
+                  });
+                }
+                renderPreview(parsed);
+              }catch(err){ alert('预览失败：' + err.message); }
+            };
+            reader.readAsArrayBuffer(file);
+          }
+          </script>
+          <a href="/materials" class="btn btn-outline-secondary ms-2">返回材料管理</a>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-info-circle me-1"></i>格式说明</div>
+      <div class="card-body small">
+        <p class="mb-2">表格需包含表头，系统自动识别常见列名：</p>
+        <ul class="mb-2">
+          <li><strong>材料名称</strong>（名称 / 材料 / 品名）</li>
+          <li><strong>规格型号</strong>（规格 / 型号，可选）</li>
+          <li><strong>品牌</strong>（厂家 / 厂商，可选）</li>
+          <li><strong>单位</strong>（袋 / 桶 / ㎡ / 张…）</li>
+          <li><strong>数量</strong>（用量 / 预算用量 / 工程量）</li>
+          <li><strong>单价</strong>（预算单价 / 价格，可选；未填不含税单价时默认为含税单价）</li>
+          <li><strong>不含税单价</strong>（未税单价 / 净价，可选；不填时按含税单价与税率反算）</li>
+          <li><strong>税率%</strong>（13 / 9 / 3…，可选）</li>
+          <li><strong>备注</strong>（说明 / 注释，可选）</li>
+        </ul>
+        <ul class="mb-2 text-muted">
+          <li>自动跳过合计 / 小计等汇总行</li>
+          <li>重复材料自动合并数量</li>
+          <li>自动匹配材料库（名称+规格），匹配不到自动创建新材料</li>
+          <li>导入到项目后，可在「预算 vs 采购」中与采购到货对比</li>
+        </ul>
+        <a href="/materials/template" class="btn btn-sm btn-outline-success">
+          <i class="bi bi-file-earmark-excel"></i> 下载导入模板
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3" id="imp-preview" style="display:none">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-table me-1"></i>导入预览 <span class="text-muted small fw-normal">未填不含税单价时自动按 含税÷(1+税率) 计算</span></span>
+    <span class="d-flex align-items-center gap-2">
+      <label class="small text-muted mb-0">统一税率%</label>
+      <input type="number" step="any" id="pv-batch-tax" class="form-control form-control-sm" style="width:90px" placeholder="如 13">
+      <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBatchTax()"><i class="bi bi-arrow-repeat me-1"></i>应用到全部</button>
+      <span class="fw-bold">清单合计 <span id="imp-preview-total" class="text-primary">¥0</span></span>
+    </span>
+  </div>
+  <div class="table-responsive" style="max-height:50vh;overflow:auto">
+    <table class="table table-sm align-middle mb-0">
+      <thead class="sticky-top" style="top:0;background:#fff;z-index:5"><tr><th>材料名称</th><th>规格</th><th>品牌</th><th>单位</th><th>数量</th><th>单价(含税)</th><th>不含税单价</th><th>税率</th><th>备注</th><th>金额</th></tr></thead>
+      <tbody id="imp-preview-body"></tbody>
+    </table>
+  </div>
+</div>
+
+{% if result_rows %}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-table me-1"></i>已导入材料（{{ result_rows | length }} 行）</span>
+    <a href="/materials" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-seam"></i> 去材料管理查看</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead><tr><th>材料名称</th><th>规格</th><th>品牌</th><th>单位</th><th>数量</th><th>单价(含税)</th><th>不含税单价</th><th>税率</th><th>备注</th><th>状态</th></tr></thead>
+      <tbody>
+        {% for r in result_rows %}
+        <tr>
+          <td class="fw-semibold">{{ r.name }}</td>
+          <td class="small">{{ r.spec or '—' }}</td>
+          <td class="small">{{ r.brand or '—' }}</td>
+          <td>{{ r.unit }}</td>
+          <td class="text-money">{{ r.quantity }}</td>
+          <td class="text-money">{% if r.price %}¥{{ r.price|money }}{% else %}—{% endif %}</td>
+          <td class="text-money">{% if r.net_price %}¥{{ r.net_price|money }}{% else %}—{% endif %}</td>
+          <td>{% if r.tax_rate %}{{ r.tax_rate }}%{% else %}—{% endif %}</td>
+          <td class="small text-muted">{% if r.note %}{{ r.note }}{% else %}—{% endif %}</td>
+          <td><span class="badge {{ r.status | state_badge }}">{{ r.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

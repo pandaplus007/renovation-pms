@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ material.name }}{% endblock %}
+{% block page_title %}材料详情{% endblock %}
+{% block content %}
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>{{ material.name }}</span>
+        <div>
+          <a href="/materials/{{ material.id }}/edit" class="btn btn-sm btn-outline-primary">编辑</a>
+          <form method="post" action="/materials/{{ material.id }}/delete" class="d-inline"
+                onsubmit="return confirm('确定删除该材料？');">
+            <button class="btn btn-sm btn-outline-danger">删除</button>
+          </form>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted">规格</span><span>{{ material.spec or '—' }}</span></div>
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted">型号</span><span>{{ material.model_no or '—' }}</span></div>
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted">品牌</span><span>{{ material.brand or '—' }}</span></div>
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted">单位</span><span>{{ material.unit }}</span></div>
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted">含税单价</span><span>¥{{ material.ref_price|money }}</span></div>
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted">不含税单价</span><span>{% if material.net_price %}¥{{ material.net_price|money }}{% else %}—{% endif %}</span></div>
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted">税率</span><span>{% if material.tax_rate %}{{ material.tax_rate }}%{% else %}—{% endif %}</span></div>
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted">供应商</span><span>{{ material.supplier.name if material.supplier else '—' }}</span></div>
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted">库存预警线</span><span>{{ material.low_stock or 0 }}</span></div>
+        <hr>
+        <div class="d-flex justify-content-between">
+          <span class="text-muted">当前库存</span>
+          <span class="fw-bold {% if material.low_stock_flag %}text-danger{% endif %}">{{ material.stock }} {{ material.unit }}</span>
+        </div>
+        {% if material.note %}<div class="text-muted small mt-2">{{ material.note }}</div>{% endif %}
+      </div>
+    </div>
+    <a href="/inventory" class="btn btn-outline-primary w-100"><i class="bi bi-archive"></i> 去库存管理</a>
+  </div>
+
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header">库存流水</div>
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead><tr><th>时间</th><th>类型</th><th>数量</th><th>项目</th><th>备注</th></tr></thead>
+          <tbody>
+            {% for r in material.inventory_records %}
+            <tr>
+              <td class="small">{{ r.occurred_at.strftime('%m-%d %H:%M') }}</td>
+              <td><span class="badge {{ r.record_type | state_badge }}">{{ r.record_type }}</span></td>
+              <td class="text-money">{{ r.quantity }} {{ material.unit }}</td>
+              <td class="small">{{ r.project.name if r.project else '—' }}</td>
+              <td class="small text-muted">{{ r.note or '' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-3">暂无库存流水</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

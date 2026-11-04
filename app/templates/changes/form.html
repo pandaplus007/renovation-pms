@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑变更' if obj else '新增变更' }} {% endblock %}
+
+{% block page_title %}{{ '编辑变更签证' if obj else '新增变更签证' }}{% endblock %}
+{% block content %}
+
+<form method="post" action="/changes/save">
+  <input type="hidden" name="cid" value="{{ obj.id if obj else 0 }}">
+  <div class="d-flex justify-content-between align-items-center mb-3 no-print">
+    <a href="{{ '/projects/%d/changes' % project.id if project else '/changes' }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left"></i> 返回
+    </a>
+    <button class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="bi bi-info-circle me-1"></i>基本信息</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small">所属项目 <span class="text-danger">*</span></label>
+          <select name="project_id" class="form-select form-select-sm" required onchange="location.href='/changes/new?project_id='+this.value">
+            {% for p in projects %}
+            <option value="{{ p.id }}" {{ 'selected' if (obj and obj.project_id == p.id) or (not obj and project and project.id == p.id) else '' }}>
+              {{ p.name }}
+            </option>
+            {% endfor %}
+          </select>
+          {% if not obj and project %}<div class="form-text">切换项目会清空当前输入</div>{% endif %}
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small">签证单号</label>
+          <input type="text" name="change_no" class="form-control form-control-sm"
+                 value="{{ obj.change_no if obj else '' }}" placeholder="如 BG-2026-001">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small">类别</label>
+          <select name="category" class="form-select form-select-sm">
+            {% for c in categories %}
+            <option value="{{ c }}" {{ 'selected' if obj and obj.category == c else '' }}>{{ c }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12">
+          <label class="form-label small">变更事项 <span class="text-danger">*</span></label>
+          <input type="text" name="title" class="form-control form-control-sm" required
+                 value="{{ obj.title if obj else '' }}" placeholder="如：业主要求增加两间房吊顶造型">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="bi bi-cash-coin me-1"></i>金额</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label small">变更金额（元）</label>
+          <input type="number" name="amount" step="0.01" class="form-control form-control-sm"
+                 value="{{ obj.amount if obj else '0' }}">
+          <div class="form-text">
+            <strong>增项填正数</strong>，减项（如取消卫生间）填<strong>负数</strong>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">对应成本（元）</label>
+          <input type="number" name="cost" step="0.01" class="form-control form-control-sm"
+                 value="{{ obj.cost if obj else '0' }}">
+          <div class="form-text">为这笔变更实际花的钱。填 0 或留空则不算变更毛利</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">状态</label>
+          <select name="status" class="form-select form-select-sm"
+                  {% if obj %}id="statusSel"{% endif %}>
+            {% for s in statuses %}
+            <option value="{{ s }}" {{ 'selected' if obj and obj.status == s else '' }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">
+            只有<strong>已确认 / 已结算</strong>计入结算金额与毛利。
+            <strong>已定价待业主审</strong>是「已报给业主、等签字」——钱能拿去催，
+            但业主没签字就不算收入。
+          </div>
+          {# 状态机是有方向的：非法流转后端会拒绝并把原因带回来。
+             这里提前把「当前状态能去的下一步」标出来，避免用户填了才被拒。 #}
+          {% if obj and transitions.get(obj.status) is not none %}
+          <div class="form-text text-muted">
+            当前可流转到：{% if transitions.get(obj.status) %}
+              {{ transitions.get(obj.status)|join(' / ') }}
+            {% else %}无（已是终态）{% endif %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="bi bi-calendar-check me-1"></i>日期与签字</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label small">提出日期</label>
+          <input type="date" name="raise_date" class="form-control form-control-sm"
+                 value="{{ obj.raise_date if obj and obj.raise_date else today }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">甲方确认日期</label>
+          <input type="date" name="confirm_date" class="form-control form-control-sm"
+                 value="{{ obj.confirm_date if obj and obj.confirm_date else '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">甲方签字人</label>
+          <input type="text" name="signer" class="form-control form-control-sm"
+                 value="{{ obj.signer if obj else '' }}" placeholder="业主/项目经理姓名">
+        </div>
+        <div class="col-12">
+          <label class="form-label small">变更原因</label>
+          <textarea name="reason" rows="2" class="form-control form-control-sm"
+                    placeholder="如：业主要求变更设计风格">{{ obj.reason if obj else '' }}</textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label small">备注</label>
+          <textarea name="note" rows="2" class="form-control form-control-sm">{{ obj.note if obj else '' }}</textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ---------- 审批留痕 ---------- #}
+  {# 原来「已确认」只是一个按钮，事后只知道状态变了，不知道谁批的、什么时候批的、
+     为什么批。签字单本身就是法律凭据，这几个字段是它的数字化对应物。 #}
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="bi bi-person-check me-1"></i>审批留痕</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small">定价依据（一句话）</label>
+          <input type="text" name="pricing_note" class="form-control form-control-sm"
+                 value="{{ obj.pricing_note if obj else '' }}"
+                 placeholder="如：业主要求主卧加装衣帽间，按实际用量计价">
+          <div class="form-text">金额是怎么算出来的。业主问起来时这一句能顶用</div>
+        </div>
+        <div class="col-md-6" id="rejectWrap" {{ 'hidden' if not (obj and obj.status == '已驳回') else '' }}>
+          <label class="form-label small">驳回理由</label>
+          <input type="text" name="reject_reason" class="form-control form-control-sm"
+                 value="{{ obj.reject_reason if obj else '' }}"
+                 placeholder="如：业主不同意增加此项费用">
+          <div class="form-text">
+            状态选「已驳回」时必填。没有理由的驳回过三个月没人记得为什么否，
+            下次很可能重犯
+          </div>
+        </div>
+      </div>
+
+      {% if obj %}
+      <div class="row g-2 mt-1 small text-muted">
+        <div class="col-auto">报给人：<strong>{{ obj.submitted_by or '—' }}</strong>
+          {% if obj.submitted_at %}<span class="num">{{ obj.submitted_at.strftime('%Y-%m-%d %H:%M') }}</span>{% endif %}
+        </div>
+        <div class="col-auto">批准人：<strong>{{ obj.approved_by or '—' }}</strong></div>
+        <div class="col-auto">结算确认：<strong>{{ obj.settled_by or '—' }}</strong></div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---------- 执行关联 ---------- #}
+  {# 这笔变更引发的采购单/分包合同/成本项。转「已结算」时用它做前置校验——
+     没有关联就没有「钱花在哪」的答案，结算金额会和实际支出对不上。
+
+     候选**只列本项目**的单据：跨项目关联几乎一定是挂错了。 #}
+  {% if obj %}
+  <div class="card mb-3">
+    <div class="card-header py-2">
+      <i class="bi bi-link-45deg me-1"></i>执行关联
+      <span class="small text-muted ms-1">这笔变更引发的采购 / 分包 / 费用</span>
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+        {# 关联选择器用原生 listbox（.link-picker），**不加** Bootstrap 的
+           .form-select。.form-select 会设 appearance:none 并按行高算 padding，
+           套在 multiple 上时最后一行被切掉半截——而「哪几项可选」正是
+           这里要看清的东西，截断一行就等于藏了一个选项。 #}
+        <div class="col-md-4">
+          <label class="form-label small">采购单</label>
+          <select name="linked_po" multiple size="6" class="link-picker">
+            {% for c in cand_po %}
+            <option value="{{ c.id }}" {{ 'selected' if c.id in obj.linked_purchase_orders }}>{{ c.label }}</option>
+            {% endfor %}
+          </select>
+          {% if not cand_po %}<div class="form-text">本项目还没有采购单</div>{% endif %}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">分包合同</label>
+          <select name="linked_sc" multiple size="6" class="link-picker">
+            {% for c in cand_sc %}
+            <option value="{{ c.id }}" {{ 'selected' if c.id in obj.linked_subcontracts }}>{{ c.label }}</option>
+            {% endfor %}
+          </select>
+          {% if not cand_sc %}<div class="form-text">本项目还没有分包合同</div>{% endif %}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">成本项</label>
+          <select name="linked_cost" multiple size="6" class="link-picker">
+            {% for c in cand_cost %}
+            <option value="{{ c.id }}" {{ 'selected' if c.id in obj.linked_costs }}>{{ c.label }}</option>
+            {% endfor %}
+          </select>
+          {% if not cand_cost %}<div class="form-text">本项目还没有成本项</div>{% endif %}
+        </div>
+      </div>
+      <div class="form-text mt-2">
+        按住 Ctrl（Mac 是 Cmd）可多选。这些关联只用于「转已结算」时核对，
+        不改变采购单本身的任何字段。
+      </div>
+
+      {# ---- 结算前检查的即时预览 ---- #}
+      {# settle_checks 只在当前状态是「已确认」时才算（别的状态转不了结算），
+         避免每次打开编辑页都跑一遍跨表查询。 #}
+      {% if obj.status == '已确认' %}
+      <div class="mt-3 pt-3 border-top">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+          <span class="small fw-semibold">结算前检查</span>
+          <a class="btn btn-sm btn-outline-secondary"
+             href="/changes/{{ obj.id }}/settle-check">
+            <i class="bi bi-clipboard-check me-1"></i>查看完整检查
+          </a>
+        </div>
+        <div class="small text-muted">
+          转「已结算」时会检查：关联单据是否付清、成本是否录入、扫描件是否归档。
+          缺项会提示，可以先补齐也可以强制放行（强制会记审计日志）。
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+
+  <div class="text-end no-print">
+    <button class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+  </div>
+</form>
+  {# ---------- 以下区块在主 form 之外 ----------
+     上传与解除关联是独立动作，各自带自己的 form。HTML 不允许
+     form 嵌套：把它们留在保存表单里，浏览器会直接丢弃内层 form，
+     表现为「上传按钮点了没反应」，而且服务端测试完全测不出来。 #}
+  {# ---------- 纸质签字单 + 扫描件 ----------
+     分两件事，各管一段流程：
+       打印签字单  系统出纸质多联，甲乙双方签字盖章 → 这是**单据的产出**
+       上传扫描件  把签好的那份扫描回系统 → 这是**留痕，供日后回溯**
+     只做上传不做打印，等于让用户自己拿 Word 排版，口径必然不统一。
+     #}
+  <div class="card mb-3 no-print">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-file-earmark-text me-1"></i>纸质签字单与扫描件</span>
+      {% if obj %}
+      <span class="small text-muted">
+        {% if obj.has_scan %}
+          <span class="badge state-badge state-done">已有扫描件</span>
+        {% else %}
+          <span class="badge state-badge state-idle">未上传扫描件</span>
+        {% endif %}
+      </span>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      {% if request.query_params.get('err') %}
+      <div class="alert alert-warning py-2 small">{{ request.query_params.get('err') }}</div>
+      {% endif %}
+      {% if request.query_params.get('ok') %}
+      <div class="alert alert-success py-2 small">扫描件已上传并留痕。</div>
+      {% endif %}
+
+      {% if not obj %}
+        <div class="text-muted small">先保存这张签证单，才能打印与上传扫描件。</div>
+      {% else %}
+        {# ---- 打印多联单 ---- #}
+        <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+          <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener"
+             href="/changes/{{ obj.id }}/print?copies=3">
+            <i class="bi bi-printer me-1"></i>打印签字单（3 联）
+          </a>
+          <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+             href="/changes/{{ obj.id }}/print?copies=1">
+            <i class="bi bi-printer me-1"></i>只打 1 联
+          </a>
+          <span class="small text-muted">
+            甲方留存 / 乙方留存 / 现场存档，打印后沿线裁开。金额自动带中文大写。
+          </span>
+        </div>
+
+        {# ---- 当前扫描件 ---- #}
+        {% if obj.has_scan %}
+        {# 底色走 var(--surface-2) 而不是写死 #f7f9f7：
+   内联字面值优先级高于任何样式表，深色主题的覆盖会被它静默压掉 ——
+   这正是 procurement.html 注释里记着的那个坑。原来这里在深色下
+   就是一个白盒子。 #}
+        <div class="border rounded p-3 mb-3" style="background:var(--surface-2);">
+          <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+            <div class="flex-grow-1" style="min-width:220px;">
+              <div class="fw-semibold">
+                <i class="bi bi-paperclip me-1"></i>{{ obj.file_name or '扫描件' }}
+              </div>
+              <div class="small text-muted mt-1">
+                {% if obj.file_uploaded_at %}
+                  {{ obj.file_uploaded_at.strftime('%Y-%m-%d %H:%M') }}
+                  由 {{ obj.file_uploaded_by or '（未记录）' }} 上传
+                {% else %}
+                  <span class="text-warning">这份扫描件没有上传人/时间记录（早于本功能上线）</span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="d-flex gap-2">
+              <a class="btn btn-sm btn-outline-primary" href="{{ obj.file_path }}"
+                 target="_blank" rel="noopener">
+                <i class="bi bi-eye me-1"></i>查看
+              </a>
+              <form method="post" action="/changes/{{ obj.id }}/scan-delete"
+                    onsubmit="return confirm('解除扫描件关联？磁盘文件会保留，只是不再关联到这张单子。')">
+                <button class="btn btn-sm btn-outline-danger">
+                  <i class="bi bi-trash me-1"></i>解除关联
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% else %}
+          <div class="small text-muted mb-2">
+            还没上传扫描件。
+            {% if obj.status in ('已确认', '已结算') %}
+              <span class="badge state-badge state-watch">已确认的签证建议补传扫描件</span>
+            {% endif %}
+          </div>
+        {% endif %}
+
+        {# ---- 上传 ---- #}
+        <form method="post" action="/changes/{{ obj.id }}/upload"
+              enctype="multipart/form-data" class="d-flex gap-2 align-items-end flex-wrap">
+          <div class="flex-grow-1" style="min-width:220px;">
+            <label class="form-label small mb-1">
+              {{ '换传签字扫描件' if obj.has_scan else '上传签字扫描件' }}
+            </label>
+            <input type="file" name="file" class="form-control form-control-sm"
+                   accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tif,.tiff" required>
+            <div class="form-text">
+              PDF 或图片。每次上传都会记录「谁传的、什么时候、哪个文件」到审计日志；
+              换传不会删掉旧文件，只改关联。
+            </div>
+          </div>
+          <button class="btn btn-sm btn-primary" style="height:31px;">
+            <i class="bi bi-upload me-1"></i>上传
+          </button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 驳回理由只在状态为「已驳回」时显示。
+// 它是那个状态的必填项——一直占着位置会让其它状态的用户以为是通用备注，
+// 而它其实是「为什么否掉」的正式结论。
+(function () {
+  var sel = document.getElementById('statusSel');
+  var wrap = document.getElementById('rejectWrap');
+  if (!sel || !wrap) return;
+  function sync() {
+    var isReject = sel.value === '已驳回';
+    wrap.hidden = !isReject;
+    var input = wrap.querySelector('input[name=reject_reason]');
+    if (input) input.required = isReject;
+  }
+  sel.addEventListener('change', sync);
+  sync();
+})();
+</script>
+{% endblock %}

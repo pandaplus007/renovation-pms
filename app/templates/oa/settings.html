@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}公司设置{% endblock %}
+{% block page_title %}公司设置{% endblock %}
+{% block content %}
+
+{# ---- 结果提示条 ----
+   msg 由 /oa/notify-test 与保存动作带回。用 query string 回显而不是
+   session flash：省一层状态，且刷新时结果还在（用户常刷新确认）。 ---- #}
+{% if msg %}
+<div class="alert {{ 'alert-success' if '失败' not in msg and '未启用' not in msg else 'alert-warning' }} py-2" style="max-width:640px">
+  <i class="bi bi-info-circle me-1"></i>{{ msg }}
+</div>
+{% endif %}
+
+{# ---- 外观 ----
+   浅色的底色有两档（蓝底 / 冷纸白），加上深色正好三档。
+   存 localStorage（和右上角月亮同一个键体系），只对本设备生效：
+   服务器端没有「用户偏好」表，为一个底色去加表 + 迁移不划算。 #}
+<div class="card" style="max-width:640px">
+  <div class="card-header"><i class="bi bi-palette me-1"></i>界面外观</div>
+  <div class="card-body">
+    <div class="appearance-grid" id="appearanceGrid">
+      <button type="button" class="appearance-opt" data-theme="light" data-canvas="blue">
+        <span class="appearance-preview prev-blue"><i></i><b></b></span>
+        <span class="appearance-name">浅色 · 蓝底</span>
+        <span class="appearance-desc">画布带一点天光蓝，白卡片浮起来</span>
+      </button>
+      <button type="button" class="appearance-opt" data-theme="light" data-canvas="paper">
+        <span class="appearance-preview prev-paper"><i></i><b></b></span>
+        <span class="appearance-name">浅色 · 冷纸白</span>
+        <span class="appearance-desc">几乎无蓝，长时间录入更省眼</span>
+      </button>
+      <button type="button" class="appearance-opt" data-theme="dark" data-canvas="blue">
+        <span class="appearance-preview prev-dark"><i></i><b></b></span>
+        <span class="appearance-name">深色</span>
+        <span class="appearance-desc">夜间与大屏，冷灰蓝底</span>
+      </button>
+    </div>
+    <div class="form-text mt-2">
+      只对本设备生效；右上角的月亮按钮仍可快速切明暗，选中的底色会保留。
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3" style="max-width:640px">
+  <div class="card-header"><i class="bi bi-building me-1"></i>品牌信息（LOGO / 名称）</div>
+  <div class="card-body">
+    {# 这里原本有个「移除 LOGO」的 form 嵌在本 form 里，浏览器会**直接丢弃内层
+       form**（连同内容一起不提交），表现为「移除 LOGO 点了没反应」，服务端
+       测试测不出来。现已改成把文件输入放在本 form 内、移除按钮移到 form 外，
+       页面实测嵌套 form 数 = 0。见 AGENTS.md 的「HTML 不允许 form 嵌套」。 #}
+    <form method="post" action="/oa/settings" enctype="multipart/form-data">
+      <div class="mb-3">
+        <label class="form-label">系统名称 / 公司名称</label>
+        <input type="text" name="name" class="form-control" value="{{ company_name }}" placeholder="装修项目管家">
+        <div class="form-text">显示在左侧导航、顶部标题与登录页。</div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">公司 LOGO（可选，图片格式）</label>
+        <div class="d-flex align-items-center gap-3">
+          {% if company_logo %}
+          <img src="{{ company_logo }}" alt="LOGO" class="brand-preview">
+          <input type="file" name="file" class="form-control" style="max-width:260px" accept="image/*">
+          {% else %}
+          <div class="brand-preview d-flex align-items-center justify-content-center text-muted bg-light">无</div>
+          <input type="file" name="file" class="form-control" style="max-width:260px" accept="image/*">
+          {% endif %}
+        </div>
+        <div class="form-text">上传后全局生效（侧边栏 / 移动顶栏 / 登录页）。</div>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+        <a href="/" class="btn btn-outline-secondary">返回首页</a>
+      </div>
+    </form>
+
+    {# 「移除 LOGO」必须与上面的表单**平级**、不能嵌在里面：
+       1) 浏览器会静默丢弃嵌套的 form，连同按钮一起失效；
+       2) 即使没被丢弃，一个 form 只能提交一次，混在一起会把
+          name / file 一起带去 /oa/settings/logo-remove，语义也是错的。
+       见 AGENTS.md 的「HTML 不允许 form 嵌套」。 #}
+    {% if company_logo %}
+    <form method="post" action="/oa/settings/logo-remove" class="mt-2"
+          onsubmit="return confirm('移除当前 LOGO？');">
+      <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> 移除 LOGO</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mt-3" style="max-width:640px">
+  <div class="card-header"><i class="bi bi-list-nested me-1"></i>导航栏文字（自定义）</div>
+  <div class="card-body">
+    <form method="post" action="/oa/settings/nav">
+      {% for key, default in nav_modules %}
+      <div class="mb-2">
+        <label class="form-label small mb-1">{{ default }}（留空用默认）</label>
+        <input type="hidden" name="keys" value="{{ key }}">
+        <input type="text" name="labels" class="form-control form-control-sm" value="{{ nav_labels.get(key, '') }}" placeholder="{{ default }}">
+      </div>
+      {% endfor %}
+      <button class="btn btn-primary btn-sm"><i class="bi bi-check-lg"></i> 保存导航文字</button>
+      <a href="/" class="btn btn-outline-secondary btn-sm">查看效果</a>
+    </form>
+  </div>
+</div>
+
+{# ---- 企微推送 ----
+   放在这里而不是新建一个菜单项：它是「公司设置」的一部分，
+   而且没人会为了改一个 webhook 专门去找一个叫「通知」的菜单。
+
+   ⚠ 整张卡片由 `notify_deployed` 守卫：该部署若没有 app/notify.py
+   （精简生产部署，打包时排除），就**整块不渲染**。
+   不这么做的话，页面会显示一个「测试推送」按钮，
+   点了必然跳到「本部署未包含推送功能」——一个注定失败的按钮
+   比没有这个功能更让人困惑。 #}
+{% if notify_deployed %}
+<div class="card mt-3" style="max-width:640px">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-send me-1"></i>待办推送（企业微信群机器人）</span>
+    <span class="badge state-badge {{ 'state-done' if notify_enabled else 'state-idle' }}">
+      {{ '已启用' if notify_enabled else '未配置' }}</span>
+  </div>
+  <div class="card-body">
+    <p class="small text-muted">
+      把「待办总览」里的紧急项每天推到群里——工地上的师傅和在外地的业主
+      不会主动打开电脑看提醒，而待办做得再好，没人被喊一声就等于不存在。
+    </p>
+    <div class="alert alert-light small mb-3" style="border:1px solid var(--border-color, #ddd)">
+      <div class="mb-1"><strong>配置方法</strong></div>
+      在目标群里点「⋯」→「群机器人」→「企业微信群机器人」，复制 webhook 地址，
+      写进项目的 <code>.env</code>：
+      <pre class="mb-1 mt-1" style="white-space:pre-wrap">WECOM_WEBHOOK=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的KEY
+WECOM_BASE_URL=http://192.168.1.100:8018</pre>
+      <div class="text-muted">第二行是消息里「打开待办总览」的链接地址，填手机能访问到的地址；留空则消息里不带链接。改完需重启服务。</div>
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+      <a href="/oa/notify-test" class="btn btn-sm {{ 'btn-primary' if notify_enabled else 'btn-outline-secondary' }}">
+        <i class="bi bi-send"></i> 测试推送</a>
+      <span class="small text-muted">
+        {% if notify_enabled %}会真的往群里发一条测试消息{% else %}未配置，点了会提示配置方法{% endif %}
+      </span>
+    </div>
+    <div class="form-text mt-2">
+      推送失败不会影响系统，记在 <code>data/notify.log</code>。
+      每天 08:00 由 NAS 定时任务自动发送（见 deploy 脚本）。
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 外观三选一：立即生效，不刷新页面。
+// 深色项不写 pms-canvas —— 用户从「冷纸白」切到深色再切回来，
+// 应该还是冷纸白，而不是被悄悄改成蓝底。
+(function () {
+  var root = document.documentElement;
+  var grid = document.getElementById('appearanceGrid');
+  if (!grid) return;
+
+  function state() {
+    return {
+      theme: root.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light',
+      canvas: root.getAttribute('data-canvas') === 'paper' ? 'paper' : 'blue'
+    };
+  }
+  function paint() {
+    var s = state();
+    Array.prototype.forEach.call(grid.querySelectorAll('.appearance-opt'), function (b) {
+      var on = b.dataset.theme === s.theme &&
+        (s.theme === 'dark' || b.dataset.canvas === s.canvas);
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  grid.addEventListener('click', function (ev) {
+    var b = ev.target.closest('.appearance-opt');
+    if (!b) return;
+    root.setAttribute('data-bs-theme', b.dataset.theme);
+    try { localStorage.setItem('pms-theme', b.dataset.theme); } catch (e) {}
+    if (b.dataset.theme === 'light') {
+      if (b.dataset.canvas === 'paper') root.setAttribute('data-canvas', 'paper');
+      else root.removeAttribute('data-canvas');
+      try { localStorage.setItem('pms-canvas', b.dataset.canvas); } catch (e) {}
+    }
+    paint();
+    document.dispatchEvent(new CustomEvent('pms-theme-change'));
+  });
+
+  paint();
+  document.addEventListener('pms-theme-change', paint);
+})();
+</script>
+{% endblock %}

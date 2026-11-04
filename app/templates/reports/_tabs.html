@@ -1,0 +1,42 @@
+{# ============================================================================
+   项目台账 / 毛利报表 两个页面之间的切换。
+
+   ## 为什么用 Tab 而不是两个侧栏项
+
+   侧栏一个模块只能有一个 nav_url（ModuleDef.nav_url，理由见
+   app/permissions.py 里 prefixes 与 nav_url 那段注释）。reports 模块
+   现在指向 /reports/ledger，而 /reports/profit 在整个 UI 里**没有任何入口**
+   ——侧栏没有、页面上也没有链接。以前只有 _sidebar.html 的一句帮助文案
+   写着「项目毛利报表见项目台账页」，而台账页上并没有那个链接，
+   等于指着一个不存在的东西。
+
+   两条路可选：(a) 让侧栏出现两项、(b) 在两个页面之间加 Tab。
+   选 (b) 的理由：这两个页面本来就都属于「项目台账」这个模块、同一个 view
+   权限，分成两个侧栏项反而会让人以为是两个模块；而 Tab 不动导航数据结构，
+   不影响其余 20 个模块。
+
+   ## 复用现有样式，不新增 CSS
+
+   这里的 class 抄自 templates/suppliers/list.html 的那组 Tab —— Bootstrap
+   .nav-tabs + .nav-link，已在三个页面验证过。新写一套 `.page-tabs` 只会
+   多一份要维护的样式，而 test_type_scale / test_dark_contrast 都要重新扫一遍。
+
+   ## 权限
+
+   两个页面同属 reports 模块、共用 view 动作，所以这里**不需要**再判权限。
+   如果将来两个页面要分开授权，这个 Tab 就必须跟着拆。
+   ========================================================================= #}
+<ul class="nav nav-tabs mb-3">
+  {# 保留当前选中的项目：台账 → 毛利报表 → 切回台账，不该回到默认项目。
+     project 在毛利报表页是 Undefined（falsy），此时不带参数，
+     切回去就是台账的默认项目，符合预期。 #}
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if active_sub != 'profit' else '' }}"
+       href="/reports/ledger{% if project %}?project_id={{ project.id }}{% endif %}">
+      <i class="bi bi-journal-text"></i> 项目台账</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if active_sub == 'profit' else '' }}" href="/reports/profit">
+      <i class="bi bi-graph-up"></i> 毛利报表</a>
+  </li>
+</ul>

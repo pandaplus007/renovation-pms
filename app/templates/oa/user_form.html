@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑账号' if target else '新建账号' }}{% endblock %}
+{% block page_title %}{{ '编辑账号' if target else '新建账号' }}{% endblock %}
+{% block content %}
+
+<div class="card" style="max-width:600px;">
+  <div class="card-body p-4">
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="{{ '/oa/users/%d/edit' % target.id if target else '/oa/users/new' }}">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">用户名 *</label>
+          {% if target %}
+          <input type="text" class="form-control" value="{{ target.username }}" disabled>
+          {% else %}
+          <input type="text" name="username" class="form-control" required>
+          {% endif %}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">姓名</label>
+          <input type="text" name="display_name" class="form-control" value="{{ target.display_name if target else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">岗位 *</label>
+          <select name="role" class="form-select">
+            {% for r in roles %}
+            <option value="{{ r.name }}" {{ 'selected' if target and target.role == r.name else '' }}>{{ r.name }}{{ '（内置）' if r.builtin else '' }}</option>
+            {% endfor %}
+          </select>
+          {% if not roles %}<div class="form-text">尚未建立岗位，将使用「员工」默认值。</div>{% endif %}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">密码{% if target %}（留空不修改）{% endif %} *</label>
+          <input type="password" name="password" class="form-control" {{ 'required' if not target else '' }}>
+        </div>
+        {% if target %}
+        <div class="col-md-6">
+          <label class="form-label">状态</label>
+          <select name="is_active" class="form-select">
+            <option value="1" {{ 'selected' if target.is_active else '' }}>启用</option>
+            <option value="0" {{ 'selected' if not target.is_active else '' }}>停用</option>
+          </select>
+        </div>
+        {% endif %}
+        {# ---- 数据可见范围（行级权限）----
+           放在最后、单独一块：它是「能看哪些数据」而不是「能做什么操作」，
+           与岗位权限是**并列**关系，混在同一排会让人以为设置岗位就够了。 #}
+        <div class="col-12">
+          <label class="form-label">数据可见范围</label>
+          <select name="data_scope" class="form-select">
+            {# 编辑时给一个「（不修改）」选项：留空提交不该重置范围 #}
+            {% if target %}<option value="" {{ 'selected' if not (target.data_scope or 'all') in SCOPE_LABELS else '' }}>（不修改，保持当前）</option>{% endif %}
+            {% for s in SCOPES %}
+            <option value="{{ s }}" {{ 'selected' if target and (target.data_scope or 'all') == s else ('' if target else ('selected' if s == 'all' else '')) }}>{{ SCOPE_LABELS[s] }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">
+            决定他能<b>看到哪些项目</b>的数据，与「岗位权限」（能做什么操作）是两件事。
+            {% if target and target.role in ['老板', 'admin'] %}
+            <br><span class="text-warning"><i class="bi bi-exclamation-triangle me-1"></i>老板/admin 账号恒为「全部项目」，此设置对其无效。</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="alert alert-light mt-3 mb-0 small">
+        <div class="mb-1"><strong>各范围的含义</strong></div>
+        {% for s in SCOPES %}
+        <div><code>{{ s }}</code> — {{ SCOPE_LABELS[s] }}：{{ SCOPE_HELP[s] }}</div>
+        {% endfor %}
+        <div class="text-muted mt-2">
+          注意：「我负责的项目」按<b>姓名文本</b>匹配项目里的设计/工长/监理字段。
+          所以在项目里填负责人时要写全名，否则只写「李」会匹配不到「李工」。
+        </div>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">保存</button>
+        <a href="/oa/users" class="btn btn-outline-secondary">取消</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

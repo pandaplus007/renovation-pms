@@ -1,0 +1,648 @@
+{% extends "base.html" %}
+{% block title %}采购
+{% endblock %}
+{# 标题只写「采购」。原来的「采购（合同 + 采购单）」是在向用户解释
+   这个页面的数据模型——合同和采购单是两个实体，所以要放在一起。
+   但那是开发者的视角：侧栏已经写着「采购」，用户点进来看到括号里
+   再被解释一遍，等于每进一次页面就被提醒一次内部结构。
+   页内每张卡片自己就说明了层级（合同 → 下面的采购单表），不用标题代劳。 #}
+{% block page_title %}采购{% endblock %}
+{% block content %}
+<style>
+/* 采购合同指标：6 个数据块，中性底 + 垂直分割线。
+
+   上一版这里是 6 块莫兰迪底色（燕麦 / 藕粉 / 陶土 / 灰蓝）。
+   问题是它们把整屏切成了彩色块——一屏十几张卡片连起来像一条斑马街，
+   而这 6 个数字里**只有一个**真正需要引起注意（剩余未付）。
+   用颜色承载 6 个同级的财务指标，等于把「重要」稀释成了「到处都是」。
+
+   改法：全部底色去掉，靠**垂直分割线**分块（数据块之间是同级的，
+   线性排列，横向分割线比分隔更自然）；
+   只有「剩余未付」保留一层极浅的琥珀底，用来把唯一的警示挑出来。
+
+   数字用 --fs-3（20px）+ tabular-nums：金额是这页的主角，
+   而且等宽数字才能让「¥31,334.40」的小数点对齐成一条竖线，
+   逐行对账时不用重新找位置。
+
+   ⚠ 注释里**绝对不能出现 Jinja 定界符**。就算写的是注释、
+     内容是想举例说明，Jinja 也会照样去编译它——
+     曾经在这段注释里写了双大括号包一个省略号，整页直接 500，
+     而且只在**请求这个页面**时才炸，表现是「这个页面坏了」。 */
+.metric-box{
+  border-radius:0;
+  padding:4px 16px;
+  color:var(--text);
+  height:100%;
+  display:flex; flex-direction:column; justify-content:center;
+}
+/* 分割线只画在「同属一行」的相邻块之间。
+   用 first-child 排除首项是不行的：窄屏下 6 个块排成 3 行，
+   每行的第一个都是 first-child 之外的位置——真正的判据是
+   「这一项是不是所在行的第一项」，而 CSS 不知道行是怎么折的。
+   所以只在 md 以上（6 个块保证排成一行）才画分割线，
+   窄屏退回无分割线的堆叠布局。 */
+@media (min-width:768px){
+  .metric-row > [class*="col-"]:not(:first-child) .metric-box{
+    border-left:1px solid var(--gray-100);
+  }
+  /* 首列去掉左内边距，让第一个数字与卡片左缘对齐 */
+  .metric-row > [class*="col-"]:first-child .metric-box{padding-left:0}
+}
+.metric-box .m-label{font-size:12px;color:var(--text-muted);line-height:1.2;letter-spacing:var(--ls-0)}
+.metric-box .m-row{display:flex;align-items:baseline;flex-wrap:wrap;column-gap:6px}
+.metric-box .m-val{
+  font-size:20px;font-weight:var(--fw-strong);color:var(--text);white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.metric-box .m-pct{font-size:12px;color:var(--text-muted);letter-spacing:var(--ls-0)}
+
+/* 窄屏下百分比统一竖排到金额下面。
+   ------------------------------------------------------------------
+   原来 .m-row 是 flex + flex-wrap: 放得下就并排，放不下就折行。
+   听着很合理，实际的问题是「放不放得下」由**这一份合同的具体金额**决定，
+   而不是由布局决定。实测（1440 / 1280 / 1024 三档逐个量过）：
+
+     1600–1366px  6 个块全部并排，块高 45px
+     1340–1200px  只有「剩余未付」折行（它的 ¥1,800 比别处的 ¥0 宽），块高 62px
+     1024px       「进项票 / 已付 / 剩余未付」三个折行，另外三个还并排
+
+   于是同一行里有的块两行、有的块一行，琥珀块看起来比邻居高出一截；
+   一屏十几张卡时这种参差会重复十几次，读数字时视线每次都要重新找基线。
+   更糟的是它还会随数据漂移：合同额一旦到六位数，1440 下也会突然开始折行。
+
+   所以窄屏下干脆全部竖排：6 个块行数一致，高度由 flex 的 height:100%
+   拉齐，长相不再由数据决定。1366 以上仍并排——那里 6 个块都放得下，
+   并排更省一行高度（45px vs 62px）。
+   ⚠ 阈值 1365.98 是实测出来的边界：1366 全部并排，1340 开始折行。 */
+@media (max-width: 1365.98px){
+  .metric-box .m-row{flex-direction:column;align-items:flex-start;row-gap:1px}
+  /* 竖排之后，6 个块的行数不再一样：合同额 / 已下单没有百分比，只有 2 行；
+     其余 3 行。而 .metric-box 是 justify-content:center，会把「2 行的块」
+     整体往下推——实测标签顶边分别是 499 / 489 / 483，同排差出 16px，
+     一眼看过去 6 个标签是斜的。
+     窄屏下改成顶部对齐：标签、金额各自落在同一条基线上，
+     没有百分比的块底下留白，比整块下沉干净。 */
+  .metric-box{justify-content:flex-start}
+}
+.metric-box .m-prog{height:6px;margin-top:6px;background:var(--gray-100);border-radius:3px;overflow:hidden}
+/* 进度条填充色**必须走 class，不能写在 style 属性里**：
+   内联样式的优先级高于任何样式表规则，深色主题的覆盖会被它静默压掉。
+   （实测过：这里原来是用 style="background:..." 直接内联，
+   于是深色下的两条覆盖规则一条都没生效，而页面看着「只是有点怪」。）
+
+   100% 用成功色是刻意的：那是「已完成」= 成功态。 */
+.metric-box .m-prog-fill{height:100%;border-radius:3px;background:var(--primary)}
+.metric-box .m-prog-fill.is-full{background:var(--success-ink)}
+
+/* 「剩余未付」是这 6 个指标里唯一需要示警的，给一层极浅的琥珀底。
+   底色用 --warning-bg，数字用 --warning-ink 而不是底色变量本身：
+   #D97706 当底色配深字是 6.37:1，但拿它当**文字色**只有 3.19:1
+   （AA 正文要 4.5），而这正好是这个数字的用法。 */
+/* 底色要跟相邻 5 块**等高**。
+   不能给这个块单独加 padding：metric-box 是 height:100% 的 flex 容器，
+   内容高度不同（这一列比别的列多一行百分比），加 padding 只会让它更高。
+   正确做法是负外边距 + 等量 padding：净高度变化为 -6+6-6+6 = 0，
+   盒子高度不变，只是底色向外扩 6px，于是与相邻块的边界对齐。 */
+.mp-unpaid.mp-unpaid-hot{
+  background:var(--warning-bg);
+  border-radius:4px;
+  margin:-6px 0;
+  padding-top:10px;
+  padding-bottom:10px;
+}
+.mp-unpaid.mp-unpaid-hot .m-val{color:var(--warning-ink)}
+.mp-unpaid.mp-unpaid-hot .m-label{color:var(--warning-ink)}
+/* 已付清时保持中性：这时它不再是一个警示，不该继续占着琥珀色 */
+.mp-unpaid.mp-unpaid-ok{background:transparent}
+
+/* ⚠ 深色下颜色全部走 style.css 的变量，不写死字面值 ——
+   否则下次换主题又要回来改一遍（而且一定会漏）。
+   深底上阴影不可见，靠描边分层；分割线要换成半透明白才看得见。 */
+[data-bs-theme="dark"] .metric-row > [class*="col-"]:not(:first-child) .metric-box{
+  /* 深底上分割线要换成半透明白，否则这条线等于看不见 */
+  border-left-color:var(--card-border);
+}
+[data-bs-theme="dark"] .metric-box .m-prog{background:rgba(255,255,255,.10)}
+[data-bs-theme="dark"] .metric-box .m-prog-fill{background:var(--gray-500)}
+[data-bs-theme="dark"] .metric-box .m-prog-fill.is-full{
+  /* rgba(34,197,94,.7) 就是 --success-ink #22C55E 的 70% 透明度。
+     用字面值而不是 color-mix()：color-mix 在旧版 Chrome 上不认，
+     会整条声明失效——那正是「上一条 color-mix 在前、字面值在后」
+     那种写法很危险的地方：看着有兜底，实际取决于浏览器是否支持。
+     这里反过来，只留字面值，并在注释里写明它等于哪个变量，
+     换色时好核对。 */
+  background:rgba(34,197,94,.7);
+}
+[data-bs-theme="dark"] .mp-unpaid.mp-unpaid-hot{background:rgba(217,119,6,.14)}
+[data-bs-theme="dark"] .mp-unpaid.mp-unpaid-hot .m-val,
+[data-bs-theme="dark"] .mp-unpaid.mp-unpaid-hot .m-label{color:#f0916f}
+/* 采购单明细表
+   ----------------------------------------------------------------------------
+   这张表只有 6 列、内容都很短，却一直挂着 .table-wide（min-width:900px）。
+   实测（2026-10-08，1600px 视口）列宽分配是这样的：
+
+       采购单 325px   ← 内容只有「第一笔采购订单」7 个字，约 100px 就够
+       状态   316px   ← 一个 96px 的 <select>，白占 220px
+       金额   239px   ← 内容「¥31,334.40」约 80px
+       合计   1282px
+
+   自动布局把多出来的空间按内容权重摊回去，于是「最不需要宽度的列」
+   拿到最多宽度。而且 1282px 宽的表比容器还多出 3px，
+   `.table-responsive` 是 overflow-x:auto —— **多 1px 就出滚动条**，
+   于是一屏几十张卡片张张都挂一条横向滚动条。
+
+   三处一起改：
+     1. 去掉 .table-wide 的 min-width（内容本来就撑不满）
+     2. table-layout:fixed + 显式百分比列宽，不再让浏览器乱摊
+     3. 表体降到 12px，与表头一致
+        —— 原来表头 12px 而**表体 14px**，标题比内容小是反的。
+           这张表是卡片里的次级明细，12px 足够；金额有等宽数字，好认。 */
+table[data-col-key="procurement"]{
+  min-width:0 !important;
+  width:100% !important;
+  table-layout:fixed;      /* 列宽由下面的 col 定死，不受内容长度影响 */
+}
+table[data-col-key="procurement"] col.c-no    { width:26%; }
+table[data-col-key="procurement"] col.c-date  { width:14%; }
+table[data-col-key="procurement"] col.c-amt   { width:17%; }
+table[data-col-key="procurement"] col.c-stat  { width:19%; }
+table[data-col-key="procurement"] col.c-items { width:8%; }
+table[data-col-key="procurement"] col.c-act   { width:16%; }
+table[data-col-key="procurement"] thead th,
+table[data-col-key="procurement"] tbody td{
+  /* 行高从 3px 内边距提到 12px：一屏几十张卡片时，原来那种挤法
+     让「¥31,334.40」和下一行的金额几乎贴在一起，逐行对账容易看错行。
+     12px + 12px 上下内边距 = 约 40px 行高，仍在紧凑表的范围内。 */
+  padding:12px 8px !important;
+  height:auto !important;
+  line-height:1.35;
+  /* 表体与表头**必须同档**：原来表头 12px 而表体 14px，标题比内容小是反的。
+     tests/test_procurement_table.py:87 会断言这两处字号种类 == 1。 */
+  font-size:12px;
+  letter-spacing:var(--ls-0);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+/* 表头：中性浅底 + 12px 中灰。它是卡片里的次级明细，
+   不该跟卡片标题抢层级——原来的深绿底色 #eef5f2 + 深绿字
+   让表头比它下面的数据还重。 */
+table[data-col-key="procurement"] thead th{
+  background:var(--gray-50);
+  color:var(--text-muted);
+  font-weight:var(--fw-strong);
+  border-bottom:1px solid var(--gray-200);
+  border-top:none;
+}
+/* 金额列右对齐 + 等宽数字：这一列是这张表唯一需要竖着对账的 */
+table[data-col-key="procurement"] .text-money{
+  font-variant-numeric:tabular-nums;
+  font-feature-settings:"tnum" 1;
+}
+/* 采购单号链接：文字链而不是按钮块。这张表里「详情」和单号
+   指向同一个页面，两者都做成按钮就分不出主次了。 */
+table[data-col-key="procurement"] tbody td a{
+  color:var(--primary-text);text-decoration:none;
+}
+table[data-col-key="procurement"] tbody td a:hover{text-decoration:underline}
+
+/* 状态下拉做成胶囊标签的样子。
+   它仍然是 <select>（改状态是这张表的主要动作，不能退化成只读徽章），
+   但外观按语义着色：tone 由 JS 按当前值写到 data-tone 上，
+   四档取值直接来自 app/state_colors.py 的 STATE_TONE_MAP，
+   不在这里另建一套映射。 */
+table[data-col-key="procurement"] .po-status{
+  width:100% !important;
+  max-width:130px;
+  padding:2px 6px;
+  font-size:12px;
+  border-radius:999px;
+  border:1px solid var(--gray-200);
+  background:var(--gray-100);
+  color:var(--gray-700);
+  font-weight:var(--fw-normal);
+  cursor:pointer;
+  /* 胶囊有 130px 宽、文字只有三个字，默认靠左会留一大段空白，
+     看起来像“没排版”。下拉框里居中选中的文字。 */
+  text-align:center;
+  text-align-last:center;
+}
+table[data-col-key="procurement"] .po-status[data-tone="active"]{
+  background:var(--primary);border-color:var(--primary);color:#fff;
+}
+table[data-col-key="procurement"] .po-status[data-tone="watch"]{
+  background:var(--warning-bg);border-color:#f0dcae;color:var(--warning-ink);
+}
+table[data-col-key="procurement"] .po-status[data-tone="done"]{
+  background:var(--success-bg);border-color:#c3e6d9;color:var(--success-ink);
+}
+table[data-col-key="procurement"] .po-status:focus{
+  box-shadow:0 0 0 2px rgba(4,120,87,.18);
+}
+[data-bs-theme="dark"] table[data-col-key="procurement"] thead th{
+  background:var(--surface-2);color:var(--gray-700);
+  border-bottom-color:var(--card-border);
+}
+[data-bs-theme="dark"] table[data-col-key="procurement"] .po-status{
+  background:var(--gray-200);border-color:var(--card-border);color:var(--gray-800);
+}
+[data-bs-theme="dark"] table[data-col-key="procurement"] .po-status[data-tone="active"]{
+  background:var(--primary-grad);border-color:transparent;color:var(--on-active-grad);
+}
+[data-bs-theme="dark"] table[data-col-key="procurement"] .po-status[data-tone="watch"]{
+  background:rgba(201,162,39,.16);border-color:rgba(201,162,39,.34);color:#dcbb52;
+}
+[data-bs-theme="dark"] table[data-col-key="procurement"] .po-status[data-tone="done"]{
+  background:rgba(34,197,94,.16);border-color:rgba(34,197,94,.34);color:#4ade80;
+}
+[data-bs-theme="dark"] table[data-col-key="procurement"] tbody td a{color:var(--primary-text)}
+
+table[data-col-key="procurement"] .btn-sm{padding:2px 9px;font-size:12px}
+
+/* 「金额」是 text-end、「状态」左对齐，两列边界严丝合缝地贴在一起，
+   两个表头读出来是「金额状态」一个词（1440 下实测两列边界就在同一像素）。
+   给状态列补一段左内距，把两列在视觉上切开。 */
+table[data-col-key="procurement"] th:nth-child(4),
+table[data-col-key="procurement"] td:nth-child(4){padding-left:14px}
+
+/* 没有采购单时，不再渲染整张表。
+   实测一张空表 = thead 41px + 空行 83px = 124px，而卡片总高才 283px，
+   44% 的高度在重复一句「暂无」。一屏十几份合同时就是上千像素的噪音，
+   而且每张卡都长着一样的表头，反而看不出哪张卡是空的。
+   换成一行提示：省 86px，还把「去哪儿创建」直接放在需要它的地方。 */
+.po-empty{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:9px 0 2px;font-size:13px;color:var(--text-muted);
+  border-top:1px solid var(--gray-200);
+}
+.po-empty .bi{font-size:14px;opacity:.75}
+.po-empty a{color:var(--primary-text);text-decoration:none;font-weight:500}
+.po-empty a:hover{text-decoration:underline}
+[data-bs-theme="dark"] .po-empty{border-top-color:var(--card-border)}
+
+/* ---- 工具栏 ----
+   原来是 <form> 上的内联样式（padding/border-radius/margin 散在 style 属性里），
+   挪到这里是因为改样式不该改 HTML。内联样式的问题是：它压得住任何
+   样式表规则，所以暗色主题覆盖不到它。 */
+.toolbar{
+  padding:12px 16px;
+  margin:0 0 16px;
+  border-radius:8px;
+}
+.toolbar .form-control{
+  width:176px;
+  height:36px;
+  border-radius:6px;
+}
+.toolbar .form-control:focus{
+  border-color:var(--primary);
+  box-shadow:0 0 0 3px rgba(4,120,87,.14);
+}
+/* 5 个筛选胶囊：等宽 + 内容整体居中。
+   原来 Bootstrap 的 dropdown-toggle 把漏斗图标钉在左端、caret（::after）
+   钉在右端，中间文字只靠 text-align:center 居中——那只把「字」摆中间，
+   图标与文字、文字与 caret 之间的两段空隙并不相等，于是每个胶囊的
+   视觉重心都在飘（「项目」两个字时尤其明显）。改成 flex 后
+   图标 + 文字 + caret 是一个整体，gap 统一；min-width 抹平字数差异，
+   一排看过去左边缘和宽度都是齐的。 */
+#fltForm .dropdown-toggle{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  min-width:100px;
+}
+/* 吸顶。滚到下面去改筛选不用再滚回顶部。
+   ⚠ 样式必须走 class，不能像上一版那样在 JS 里写 inline style：
+   那段代码写死了 background:'#f4f6f2' 和 left:'228px'，
+   一旦真的启用，深色主题下会横出一条浅色条，侧栏宽度一改还会错位。
+   走 class 就能直接用主题变量，深浅两套自动跟着走。 */
+.toolbar.is-stuck{
+  position:fixed;top:0;left:var(--sidebar-width);right:0;z-index:1000;
+  margin:0;border-radius:0 0 8px 8px;
+  background:var(--surface);
+  border-bottom:1px solid var(--card-border);
+  box-shadow:0 2px 8px rgba(0,0,0,.08);
+}
+/* 「恢复原样」是弱操作：它不新建什么，只是把筛选清回去。
+   给它一个描边边框会和旁边的主按钮抢注意力，所以只留文字。 */
+.btn-reset{
+  color:var(--text-muted);
+  text-decoration:none;
+  padding:0 8px;
+  height:36px;
+  display:inline-flex;align-items:center;gap:6px;
+  border-radius:6px;
+}
+.btn-reset:hover{color:var(--primary-text);text-decoration:none}
+.btn-reset:focus-visible{box-shadow:0 0 0 3px rgba(4,120,87,.18)}
+/* 没有任何筛选条件时它是个空操作：点了页面不发生变化，
+   用户会以为「筛选没生效」或「按钮坏了」。所以没有筛选就藏起来。
+   ⚠ 这条不能省：上面 .btn-reset 把 display 写成了 inline-flex，
+   它会盖掉浏览器对 [hidden] 的默认 display:none，导致 hidden 失效。 */
+.btn-reset[hidden]{display:none}
+
+/* ---- 合同卡片外壳 ----
+   白底 + 1px 描边 + 悬停时极弱的阴影。边界靠描边而不是投影分层，
+   这样一屏十几张卡片时不会糊成一片灰。 */
+.contract-card{border-radius:8px}
+.contract-card:hover{box-shadow:0 4px 6px -1px rgba(0,0,0,.05)}
+.contract-card .card-header{
+  background:var(--surface);
+  border-bottom:1px solid var(--gray-200);
+}
+/* 合同名是**标题**，不是链接。
+   它虽然是 <a>（整块可点），但一屏十几张卡片时如果每张的标题都是品牌绿，
+   绿色就从「这里是重点」退化成「这里是一张卡片」，反而看不出哪个重要。
+   标题用近黑 + 600 字重，可点性靠 hover（下划线 + 变主色）传达。 */
+.contract-card .card-header .contract-title{
+  color:var(--text);
+  font-weight:var(--fw-strong);
+}
+.contract-card .card-header .contract-title:hover{
+  color:var(--primary);
+  text-decoration:underline;
+}
+/* ⚠ 深色下必须再补这一条，否则标题会变回链接蓝。
+   basecamp.css:1515 有一条全局规则
+     html[data-bs-theme="dark"] .main a:not(.btn):not(.nav-link){color:var(--primary)}
+   特异性是 (0,4,2)，而上面那条只有 (0,3,0) —— 它压不住。
+   结果是：浅色下标题是正确的近黑 #22303E，深色下被静默改回 #8CB4F0，
+   正好把「标题不是链接、不用品牌色」这个决策在深色里推翻掉，
+   而且不报错、不异常，只是看起来「深色下有点怪」。
+   这里把选择器堆到 5 个 class（0,5,0）才够压过它。 */
+[data-bs-theme="dark"] .main .contract-card .card-header .contract-title{
+  color:var(--text);
+}
+[data-bs-theme="dark"] .contract-card:hover{box-shadow:none}
+[data-bs-theme="dark"] .btn-reset{color:var(--gray-700)}
+[data-bs-theme="dark"] .btn-reset:hover{color:var(--primary-text)}
+</style>
+{# ↑ 上面这个 </style> 不能少。少一个字符，后面**整页** HTML 都会被浏览器
+   当成样式表解析掉：页面能打开、标题正常、地址正常，只是正文一片空白，
+   而服务端测试因为只查 HTTP 200 与文本内容，全绿。
+   本轮就踩过一次——改这段 CSS 时把闭合标签一起替换掉了。 #}
+
+<div class="page-head">
+  
+
+<form class="search-row toolbar" id="fltForm" method="get">
+    <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="搜索合同 / 编号">
+    {% import "_multiselect.html" as ms %}
+    {{ ms.multiselect('supplier_id', '供应商', suppliers|map(attribute='id')|list, suppliers|map(attribute='name')|list, supplier_id) }}
+    {{ ms.multiselect('project_id', '项目', [-1] + projects|map(attribute='id')|list, ['未分配项目'] + projects|map(attribute='name')|list, project_id) }}
+    {{ ms.multiselect('category', '分类', categories, categories, category) }}
+    {{ ms.multiselect('delivery', '送货', ['delivered','undelivered'], ['已送货','未送货'], delivery) }}
+    {{ ms.multiselect('unpaid', '付款', ['unpaid','paid'], ['有未付','已付清'], unpaid) }}
+    {# 「恢复原样」只在真的有筛选条件时才出现。
+       没有筛选时它点了页面毫无变化，是纯空操作——而空操作按钮最坏的
+       不是浪费像素，是让用户以为「筛选没生效」。 #}
+    {% set has_filter = q or supplier_id or project_id or category or delivery or unpaid %}
+    <a href="/procurement" id="fltReset" class="btn btn-link btn-reset"{% if not has_filter %} hidden{% endif %}><i class="bi bi-arrow-counterclockwise"></i> 恢复原样</a>
+    <div class="ms-auto d-flex gap-2">
+      <a href="/contracts/new" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增合同</a>
+      <a href="/purchases/new" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-lg"></i> 新建采购单</a>
+    </div>
+  </form>
+
+</div>
+
+<div id="result-box">
+{% if not data %}
+<div class="card"><div class="card-body empty-state"><i class="bi bi-cart-x"></i>暂无采购合同，点击右上角「新增合同」或上传 PDF/Word 自动识别</div></div>
+{% endif %}
+
+{% for d in data %}
+{% set c = d.contract %}
+<div class="card contract-card mb-3" id="contract-{{ c.id }}">
+  <div class="card-header py-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <a href="/contracts/{{ c.id }}" class="contract-title text-decoration-none">{{ c.name }}</a>
+        {% if c.category %}<span class="badge badge-category ms-1">{{ c.category }}</span>{% endif %}
+        {% if c.contract_no %}<span class="badge text-bg-light ms-1">{{ c.contract_no }}</span>{% endif %}
+        <span class="small text-muted ms-2">
+          {{ c.supplier.name if c.supplier else '—' }}
+          {% if c.project %} · {{ c.project.name }}{% endif %}
+        </span>
+        {% if c.no_delivery %}
+        <span class="badge {{ "无需送货" | state_badge }} ms-1">无需送货单</span>
+        {% elif c.delivery_notes %}
+        <span class="badge {{ "已送货" | state_badge }} ms-1">已送货 {{ c.delivery_notes | length }}</span>
+        {% else %}
+        <span class="badge {{ "未送货" | state_badge }} ms-1">未送货</span>
+        {% endif %}
+      </div>
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <a href="/purchases/new?contract_id={{ c.id }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-cart-plus"></i> 下单</a>
+        <a href="/contracts/{{ c.id }}" class="btn btn-sm btn-outline-secondary">详情</a>
+      </div>
+    </div>
+  </div>
+  <div class="card-body">
+    {# 6 个指标块。g-2 的负边距会吃掉 metric-box 的分割线左侧留白，
+       这里用 g-0 让分割线紧贴栅格边界，视觉上是一条连续的竖线组。 #}
+    <div class="row g-0 mb-3 metric-row">
+      <div class="col-6 col-md-2"><div class="metric-box mp-amount"><div class="m-label">合同额</div><div class="m-row"><span class="m-val">¥{{ c.amount|money }}</span></div></div></div>
+      {# 「已下单」不再带百分比。
+         它原来写的是 d.progress，而第 6 块「下单进度」显示的也是 d.progress
+         —— 同一个数字在同一行里出现两次，一个括号里一个标签里。
+         读的人会本能地去分辨「这两个 0.0% 是不是同一件事」，
+         而这个分辨成本是白花的。金额归金额，进度归进度条。 #}
+      <div class="col-6 col-md-2"><div class="metric-box mp-ordered"><div class="m-label">已下单</div><div class="m-row"><span class="m-val">¥{{ d.ordered_total|money }}</span></div></div></div>
+      <div class="col-6 col-md-2"><div class="metric-box mp-invoice"><div class="m-label">进项票</div><div class="m-row"><span class="m-val">¥{{ d.invoice_total|money }}</span><span class="m-pct">（{{ d.progress_inv }}%）</span></div></div></div>
+      <div class="col-6 col-md-2"><div class="metric-box mp-paid"><div class="m-label">已付</div><div class="m-row"><span class="m-val">¥{{ d.paid_total|money }}</span><span class="m-pct">（{{ d.progress_paid }}%）</span></div></div></div>
+      <div class="col-6 col-md-2"><div class="metric-box mp-unpaid {{ 'mp-unpaid-hot' if d.unpaid > 0 else 'mp-unpaid-ok' }}"><div class="m-label">剩余未付</div><div class="m-row"><span class="m-val">¥{{ d.unpaid|money }}</span><span class="m-pct">（{{ d.progress_unpaid }}%）</span></div></div></div>
+      <div class="col-6 col-md-2"><div class="metric-box mp-progress"><div class="m-label">下单进度 {{ '%.1f'|format(d.progress) }}%</div><div class="m-prog"><div class="m-prog-fill {% if d.progress >= 100 %}is-full{% endif %}" style="width: {{ d.progress }}%"></div></div></div></div>
+    </div>
+    {% if d.orders %}
+    <div class="table-responsive">
+      {# 不再挂 .table-wide：6 列短内容用不着 900px 的最小宽，
+         那正是横向滚动条的来源（见上方 <style> 里的说明）。
+         列宽改由 <col> 定死，见 pro-layout-*.css 那组规则。 #}
+      <table class="table table-sm align-middle mb-0 table-card" data-col-resizable data-col-key="procurement">
+        <colgroup>
+          <col class="c-no"><col class="c-date"><col class="c-amt">
+          <col class="c-stat"><col class="c-items"><col class="c-act">
+        </colgroup>
+        <thead><tr><th>采购单</th><th>日期</th><th class="text-end">金额</th><th>状态</th><th>明细</th><th></th></tr></thead>
+        <tbody>
+          {% for o in d.orders %}
+          <tr>
+            <td><a href="/purchases/{{ o.id }}" class="fw-semibold" title="{{ o.order_no or ('采购单 #' ~ o.id) }}">{{ o.order_no or ('采购单 #' ~ o.id) }}</a></td>
+            <td>{{ o.order_date or '—' }}</td>
+            <td class="text-end text-money">¥{{ o.total_amount|money }}</td>
+            <td><select class="form-select form-select-sm po-status" data-id="{{ o.id }}" onchange="poStatus(this)">
+              {% for st in ['待下单','已下单','部分到货','已到货'] %}<option value="{{ st }}" {{ 'selected' if o.status == st else '' }}>{{ st }}</option>{% endfor %}
+            </select></td>
+            <td>{{ o.items | length }} 项</td>
+            <td><a href="/purchases/{{ o.id }}" class="btn btn-sm btn-outline-primary">详情</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    {# 空表退回一行提示，见上方 .po-empty 的说明。
+       文案仍然明确告诉用户「点哪里」，只是不再借一整张表来铺垫。 #}
+    <div class="po-empty">
+      <i class="bi bi-inbox"></i>
+      <span>这份合同还没有采购单。</span>
+      <a href="/purchases/new?contract_id={{ c.id }}">从合同清单创建第一笔 →</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+</div>
+
+<script>
+/* 筛选栏吸顶：滚到列表下面去改筛选，不用再滚回顶部。
+   ⚠ 上一版这段是**死代码**：它找的是 #procFilterBar，而全站没有任何
+   元素有这个 id（工具栏本身就是 #fltForm），`if(!bar) return;` 直接返回，
+   所以这个功能从来没生效过。更麻烦的是里面写死了 background:'#f4f6f2'
+   和 left:'228px'——哪天有人真把 id 补上，深色主题下就会横出一条浅色条，
+   侧栏宽度一改还会错位。
+   现在：直接找 #fltForm，样式全部交给 .is-stuck 那个 class（吃主题变量），
+   横向位置用 --sidebar-width，不留魔法数字。 */
+(function(){
+  var bar = document.getElementById('fltForm');
+  if(!bar) return;
+  var ph = document.createElement('div');
+  ph.style.display = 'none';
+  bar.parentNode.insertBefore(ph, bar);
+  function setStuck(on){
+    if(on === bar.classList.contains('is-stuck')) return;
+    if(on){
+      ph.style.height = bar.offsetHeight + 'px';
+      ph.style.display = 'block';
+      bar.classList.add('is-stuck');
+    } else {
+      ph.style.display = 'none';
+      bar.classList.remove('is-stuck');
+    }
+  }
+  var lastTop = 0;
+  function onScroll(){
+    /* 窄屏没有固定侧栏，吸顶会横穿整个视口，这种情况不做 */
+    if(window.matchMedia('(max-width: 991.98px)').matches){ setStuck(false); return; }
+    var top = window.pageYOffset || document.documentElement.scrollTop || 0;
+    if(top > 90 && top > lastTop + 2){ setStuck(true); }
+    else if(top < 90){ setStuck(false); }
+    lastTop = top;
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  window.addEventListener('resize', onScroll);
+  onScroll();
+})();
+</script>
+
+<script>
+function fltSubmit(cb){
+  if(!cb) cb = document.querySelector('input.flt-cb');
+  if(!cb) return;
+  var form = cb.form;
+  if(!form) return;
+  var fd = new FormData(form);
+  var qs = new URLSearchParams(fd).toString();
+  var url = location.pathname + (qs ? '?' + qs : '');
+  var boxId = form.getAttribute('data-result') || 'result-box';
+  var box = document.getElementById(boxId);
+  if(!box){ form.submit(); return; }  // 无局部容器则整页提交
+  fetch(url, {headers:{'X-Requested-With':'fetch'}})
+    .then(function(r){ if(!r.ok) throw 0; return r.text(); })
+    .then(function(html){
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var nb = doc.getElementById(boxId);
+      if(nb) box.innerHTML = nb.innerHTML;   // 仅更新表格区，下拉/页面不刷新
+      history.replaceState(null, '', url);
+      syncAllChecks(form);
+      updateFilterBadges(form);
+    })
+    .catch(function(){ form.submit(); });    // 异常时退化为整页
+}
+function syncAllChecks(form){
+  form.querySelectorAll('input[id^="all-"]').forEach(function(all){
+    var g = all.id.replace('all-','');
+    var cbs = form.querySelectorAll('input[data-group="' + g + '"]');
+    var allc = cbs.length > 0 && [].every.call(cbs, function(c){ return c.checked; });
+    all.checked = allc;
+  });
+}
+function updateFilterBadges(form){
+  form.querySelectorAll('.dropdown').forEach(function(dd){
+    var cbs = dd.querySelectorAll('input.flt-cb');
+    if(cbs.length === 0) return;  // 仅处理筛选下拉
+    var n = [].filter.call(cbs, function(c){ return c.checked; }).length;
+    var filtered = n > 0 && n < cbs.length;  // 有勾选但未全选 = 筛选状态
+    var btn = dd.querySelector('.dropdown-toggle');
+    if(!btn) return;
+    var icon = btn.querySelector('.bi');
+    if(filtered){
+      btn.classList.add('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel-fill';
+      var b = btn.querySelector('.flt-badge');
+      if(!b){ b = document.createElement('span'); b.className='flt-badge'; btn.appendChild(b); }
+      b.textContent = n;
+    } else {
+      btn.classList.remove('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel';
+      var ob = btn.querySelector('.flt-badge');
+      if(ob) ob.remove();
+    }
+  });
+  /* 「恢复原样」的显隐要跟着筛选状态走。
+     服务端只在首屏按查询参数渲染它，但勾选筛选走的是 fetch 局部刷新，
+     工具栏不会重渲染——不在这里同步的话，用户勾完筛选按钮还是不出现。 */
+  var q = form.querySelector('input[name="q"]');
+  var active = !!form.querySelector('.btn-filter-active') || (q && q.value.trim() !== '');
+  var reset = document.getElementById('fltReset');
+  if(reset){ reset.hidden = !active; }
+}
+function fltToggleAll(g, el){
+  var form = el.form;
+  if(!form) return;
+  var first = form.querySelector('input[data-group="' + g + '"]');
+  if(!first) return;
+  form.querySelectorAll('input[data-group="' + g + '"]').forEach(function(c){ c.checked = el.checked; });
+  if(el.checked){ fltSubmit(first); }  // 勾选全选：提交全部
+  else { updateFilterBadges(form); }  // 取消全选：清空并恢复按钮未筛选样式
+}
+</script>
+<script>
+/* 采购状态的语义档。**唯一来源是 app/state_colors.py 的 STATE_TONE_MAP**，
+   这里只做一份镜像供 <select> 上色用——<select> 不能直接吃 state_badge
+   那个 class（它是渲染成静态徽章的），所以前端按值查一次档位。
+   四个词与后端字典一一对应：待下单→idle / 已下单→active /
+   部分到货→watch / 已到货→done。
+   ⚠ 后端加状态词时这里要同步，否则新词会落到 idle（中性灰），
+     表现为「能选但不着色」——不会报错，所以只能靠约定。 */
+var PO_TONE = {'待下单':'idle','已下单':'active','部分到货':'watch','已到货':'done'};
+function paintPoStatus(el){
+  var t = PO_TONE[el.value];
+  if(t){ el.setAttribute('data-tone', t); }
+  else  { el.removeAttribute('data-tone'); }  /* 未知值回落中性，不猜 */
+}
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('.po-status').forEach(paintPoStatus);
+});
+function poStatus(el){
+  var id = el.getAttribute('data-id');
+  var prev = el.value;          /* 先记住旧值，失败要回滚 */
+  var st = el.value;
+  paintPoStatus(el);   /* 先上色，让点击立刻有反馈 */
+  function rollback(msg){
+    alert(msg);
+    el.value = prev;            /* 别让界面停在一个没存上的状态 */
+    paintPoStatus(el);
+  }
+  fetch('/purchases/' + id + '/status', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'status=' + encodeURIComponent(st)
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(!d.ok) rollback('状态更新失败：' + (d.msg || '未知错误'));
+  }).catch(function(){ rollback('网络错误，状态未保存'); });
+}
+</script>
+
+
+
+{% endblock %}

@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}岗位权限{% endblock %}
+{% block page_title %}岗位权限矩阵{% endblock %}
+{% block content %}
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div class="card mb-3">
+  <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="small text-muted">
+      勾选＝允许。左侧行是模块，顶部列是可执行的动作。
+      <strong>「老板 / admin」是超级用户</strong>，恒定拥有全部权限且不可修改，防止把系统锁死。
+    </div>
+    <a href="/oa/users" class="btn btn-sm btn-outline-secondary"><i class="bi bi-people"></i> 账号管理</a>
+  </div>
+</div>
+
+<div class="page-head">
+  <div class="search-row">
+    {% for r in roles %}
+    <a href="/oa/permissions?role={{ r.name }}"
+       class="btn btn-sm {{ 'btn-primary' if current == r.name else 'btn-outline-secondary' }}">{{ r.name }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if current %}
+{% set locked = current in ['老板', 'admin'] %}
+<form method="post" action="/oa/permissions">
+  <input type="hidden" name="role" value="{{ current }}">
+
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-shield-lock me-1"></i>「{{ current }}」的权限</span>
+      {% if locked %}<span class="badge text-bg-light">超级用户 · 全部权限，不可修改</span>
+      {% else %}<span class="small text-muted">共 {{ modules|length }} 个模块</span>{% endif %}
+    </div>
+
+    {% if locked %}
+    <div class="card-body">
+      <div class="alert alert-warning mb-0">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        超级用户岗位恒定拥有所有模块的全部动作，此处的勾选框已禁用。
+        如需限制他人，请为其他岗位单独配置。
+      </div>
+    </div>
+    {% else %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 table-wide">
+        <thead>
+          <tr>
+            <th style="min-width:190px">模块</th>
+            {% for a in actions %}<th class="text-center" style="width:74px">{{ action_labels[a] }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in modules %}
+          <tr>
+            <td>
+              <div class="fw-semibold">{{ m.label }}</div>
+              <div class="small text-muted">{{ m.key }}{% if m.note %} · {{ m.note }}{% endif %}</div>
+            </td>
+            {% for a in actions %}
+            <td class="text-center">
+              <input class="form-check-input" type="checkbox" name="p_{{ m.key }}_{{ a }}"
+                     value="1" data-mod="{{ m.key }}"
+                     {% if checked.get(m.key, {}).get(a) %}checked{% endif %}>
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer d-flex gap-2 justify-content-between align-items-center flex-wrap">
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="pmAll(true)">全选</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="pmAll(false)">全不选</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="pmViewOnly()">只留「查看」</button>
+      </div>
+      <button class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存「{{ current }}」权限</button>
+    </div>
+    {% endif %}
+  </div>
+</form>
+{% endif %}
+
+<div class="card">
+  <div class="card-header"><i class="bi bi-person-badge me-1"></i>岗位管理</div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead><tr><th>岗位</th><th>类型</th><th>说明</th><th class="text-center">可查看模块</th><th class="text-end">操作</th></tr></thead>
+      <tbody>
+        {% for r in roles %}
+        <tr>
+          <td class="fw-semibold">
+            <a href="/oa/permissions?role={{ r.name }}">{{ r.name }}</a>
+          </td>
+          <td>
+            {% if r.builtin %}<span class="badge text-bg-light">内置</span>
+            {% else %}<span class="badge text-bg-info">自定义</span>{% endif %}
+          </td>
+          <td class="small text-muted">{{ r.note or '—' }}</td>
+          <td class="text-center text-money">{{ view_counts.get(r.name, 0) }}</td>
+          <td class="text-end">
+            {% if r.builtin %}
+            <span class="small text-muted">不可删除</span>
+            {% else %}
+            <form method="post" action="/oa/roles/{{ r.id }}/delete" class="d-inline"
+                  onsubmit="return confirm('确定删除岗位「{{ r.name }}」？');">
+              <button class="btn btn-sm btn-outline-danger">删除</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer">
+    <form method="post" action="/oa/roles/new" class="d-flex gap-2 align-items-center flex-wrap">
+      <input type="text" name="name" class="form-control form-control-sm" style="max-width:200px"
+             placeholder="新岗位名称，如：材料员" required>
+      <input type="text" name="note" class="form-control form-control-sm" style="max-width:280px"
+             placeholder="职责说明（可选）">
+      <button class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> 新建岗位</button>
+      <span class="small text-muted ms-2">新建后到「账号管理」把员工归到该岗位，再到权限页勾选权限。</span>
+    </form>
+  </div>
+</div>
+
+<script>
+function pmAll(v) {
+  document.querySelectorAll('input[data-mod]').forEach(function (c) { c.checked = v; });
+}
+function pmViewOnly() {
+  document.querySelectorAll('input[data-mod]').forEach(function (c) {
+    c.checked = c.name.endsWith('_view');
+  });
+}
+</script>
+{% endblock %}

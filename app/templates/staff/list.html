@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block title %}公司人员{% endblock %}
+{% block page_title %}公司人员{% endblock %}
+{% block content %}
+
+{# 这一页只管「人」，不管「账号」。
+   能登录系统的人在 OA → 用户 里维护，两件事不要混。
+   现场师傅不进名册就没法被指派任务——这是本页存在的理由。 #}
+
+{% if msg %}
+<div class="alert alert-info py-2 small mb-3">{{ msg }}</div>
+{% endif %}
+
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span>
+      <i class="bi bi-people me-1"></i>人员名册
+      <span class="text-muted small fw-normal ms-1">
+        在职 {{ active_count }} 人{% if all_count > active_count %} · 含停用共 {{ all_count }} 人{% endif %}
+      </span>
+    </span>
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <form method="get" action="/staff" class="d-flex gap-1">
+        <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm"
+               placeholder="搜姓名 / 工种 / 电话" style="width:170px">
+        {% if show == 'all' %}<input type="hidden" name="show" value="all">{% endif %}
+        <button class="btn btn-sm btn-outline-secondary">搜索</button>
+      </form>
+      <a href="/staff{% if show == 'all' %}{% else %}?show=all{% endif %}"
+         class="btn btn-sm {{ 'btn-secondary' if show == 'all' else 'btn-outline-secondary' }}"
+         title="离职的人不会消失，只是默认不显示">
+        {{ '只看在职' if show == 'all' else '含已停用' }}
+      </a>
+      <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#staffModal"
+              data-mode="new">
+        <i class="bi bi-person-plus"></i> 添加人员
+      </button>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 table-card">
+      <thead><tr>
+        <th style="width:150px">姓名</th>
+        <th style="width:110px">工种</th>
+        <th style="width:140px">电话</th>
+        <th style="width:120px">被引用</th>
+        <th style="width:90px">状态</th>
+        <th>备注</th>
+        <th style="width:170px">操作</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{{ '' if r.s.active else 'opacity-75' }}">
+          <td class="fw-semibold">
+            {{ r.s.name }}
+            {% if r.s.user_id %}
+            <i class="bi bi-person-check text-primary ms-1" title="已绑定登录账号"></i>
+            {% endif %}
+          </td>
+          <td class="small">{{ r.s.job or '—' }}</td>
+          <td class="small text-muted">{{ r.s.phone or '—' }}</td>
+          <td>
+            {% if r.used %}
+            <span class="badge state-badge state-idle">{{ r.used }} 处</span>
+            {% else %}
+            <span class="text-muted small">未使用</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.s.active %}
+            <span class="badge state-badge state-active">在职</span>
+            {% else %}
+            <span class="badge state-badge state-idle">已停用</span>
+            {% endif %}
+          </td>
+          <td class="small text-muted text-truncate" style="max-width:220px"
+              title="{{ r.s.note }}">{{ r.s.note or '' }}</td>
+          <td class="text-nowrap">
+            <button class="btn btn-link btn-sm p-0 text-primary"
+                    data-bs-toggle="modal" data-bs-target="#staffModal"
+                    data-mode="edit" data-id="{{ r.s.id }}"
+                    data-name="{{ r.s.name }}" data-job="{{ r.s.job or '' }}"
+                    data-phone="{{ r.s.phone or '' }}" data-note="{{ r.s.note or '' }}"
+                    data-sort="{{ r.s.sort_order }}" data-user="{{ r.s.user_id or 0 }}">编辑</button>
+            <form method="post" action="/staff/{{ r.s.id }}/toggle" class="d-inline ms-2">
+              <button class="btn btn-link btn-sm p-0 {{ 'text-warning' if r.s.active else 'text-success' }}">
+                {{ '停用' if r.s.active else '启用' }}
+              </button>
+            </form>
+            {% if r.used %}
+            <button class="btn btn-link btn-sm p-0 text-muted ms-2" disabled
+                    title="还被记录引用，不能删除；离职请用「停用」">删除</button>
+            {% else %}
+            <form method="post" action="/staff/{{ r.s.id }}/delete" class="d-inline ms-2"
+                  onsubmit="return confirm('确认从名册删除「{{ r.s.name }}」？');">
+              <button class="btn btn-link btn-sm p-0 text-danger">删除</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">
+          {% if q %}没有匹配「{{ q }}」的人员{% else %}名册还是空的，点右上角「添加人员」{% endif %}
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card-body py-2 small text-muted">
+    <i class="bi bi-info-circle me-1"></i>
+    这里是<b>人</b>，不是<b>账号</b>。工长、师傅、设计师不需要开登录账号也能进名册、被指派任务。
+    需要登录系统的人在 <a href="/oa/users">OA → 用户</a> 里维护。
+    离职请用「停用」——历史任务里还写着他的名字，删掉会让那些记录对不上人。
+  </div>
+</div>
+
+{% if orphans %}
+{# 名册之外还有人在用。这不是报错，是老数据的现实：
+   改版前负责人是自由文本，谁都能随手写一个名字。
+   不自动补录（否则名册会变成垃圾桶），而是提示用户认领。 #}
+<div class="card border-warning">
+  <div class="card-header py-2 bg-warning-subtle">
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    有 {{ orphans|length }} 个名字在任务/项目里被使用，但不在名册中
+  </div>
+  <div class="card-body py-2">
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      {% for n in orphans %}
+      <form method="post" action="/staff" class="d-inline">
+        <input type="hidden" name="name" value="{{ n }}">
+        <button class="btn btn-sm btn-outline-primary" title="添加到名册">
+          <i class="bi bi-plus-lg"></i> {{ n }}
+        </button>
+      </form>
+      {% endfor %}
+    </div>
+    <div class="small text-muted mt-2">
+      这些人是从历史数据里读出来的。点名字把他们补进名册，之后就能在负责人下拉里选到了。
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ============ 新增 / 编辑弹窗 ============ -->
+<div class="modal fade" id="staffModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="/staff" id="staffForm">
+        <div class="modal-header">
+          <h6 class="modal-title" id="staffModalTitle">添加人员</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2">
+            <div class="col-7">
+              <label class="form-label small mb-1">姓名 <span class="text-danger">*</span></label>
+              <input type="text" name="name" id="sfName" class="form-control form-control-sm" required
+                     placeholder="如：刘工 / 小周">
+            </div>
+            <div class="col-5">
+              <label class="form-label small mb-1">工种</label>
+              {# 用 datalist 而不是 select：装修公司对工种的叫法不统一
+                 （泥工/泥瓦、油漆/油工），允许自定义比强制选更贴合实际。 #}
+              <input type="text" name="job" id="sfJob" class="form-control form-control-sm"
+                     list="jobOptions" placeholder="选或填">
+              <datalist id="jobOptions">
+                {% for j in jobs %}<option value="{{ j }}"></option>{% endfor %}
+              </datalist>
+            </div>
+            <div class="col-7">
+              <label class="form-label small mb-1">电话</label>
+              <input type="text" name="phone" id="sfPhone" class="form-control form-control-sm">
+            </div>
+            <div class="col-5">
+              <label class="form-label small mb-1">排序</label>
+              <input type="number" name="sort_order" id="sfSort" class="form-control form-control-sm"
+                     value="100" title="数字小的排前面">
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-1">绑定登录账号（可选）</label>
+              <select name="user_id" id="sfUser" class="form-select form-select-sm">
+                <option value="0">— 不绑定（纯名册人员）—</option>
+                {% for u in users %}
+                <option value="{{ u.id }}">{{ u.display_name or u.username }}（{{ u.role }}）</option>
+                {% endfor %}
+              </select>
+              <div class="form-text">
+                绑了才会计入那个账号的「我的任务」。不绑也能被指派，只是按账号筛不到。
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-1">备注</label>
+              <input type="text" name="note" id="sfNote" class="form-control form-control-sm">
+            </div>
+          </div>
+          <div class="alert alert-warning py-2 small mt-3 mb-0 d-none" id="sfRenameHint">
+            改名会同步更新所有任务和项目里旧名字的引用。
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+          <button class="btn btn-primary btn-sm">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var modal = document.getElementById('staffModal');
+  if (!modal) return;
+  var form = document.getElementById('staffForm');
+  var title = document.getElementById('staffModalTitle');
+  var hint = document.getElementById('sfRenameHint');
+
+  modal.addEventListener('show.bs.modal', function (ev) {
+    var btn = ev.relatedTarget;
+    var mode = btn && btn.getAttribute('data-mode');
+    var id = btn && btn.getAttribute('data-id');
+
+    if (mode === 'edit' && id) {
+      title.textContent = '编辑人员';
+      form.setAttribute('action', '/staff/' + id + '/edit');
+      document.getElementById('sfName').value = btn.getAttribute('data-name') || '';
+      document.getElementById('sfJob').value = btn.getAttribute('data-job') || '';
+      document.getElementById('sfPhone').value = btn.getAttribute('data-phone') || '';
+      document.getElementById('sfNote').value = btn.getAttribute('data-note') || '';
+      document.getElementById('sfSort').value = btn.getAttribute('data-sort') || '100';
+      document.getElementById('sfUser').value = btn.getAttribute('data-user') || '0';
+      hint.classList.remove('d-none');
+    } else {
+      title.textContent = '添加人员';
+      form.setAttribute('action', '/staff');
+      form.reset();
+      document.getElementById('sfSort').value = '100';
+      document.getElementById('sfUser').value = '0';
+      hint.classList.add('d-none');
+    }
+  });
+})();
+</script>
+{% endblock %}

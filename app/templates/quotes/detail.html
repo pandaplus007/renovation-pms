@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}{{ obj.title }} · 报价单{% endblock %}
+{% block page_title %}{{ obj.title }}{% endblock %}
+{% block content %}
+
+<div class="page-head no-print">
+  <div class="d-flex gap-2 align-items-center">
+    <a href="/quotes" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回漏斗</a>
+    <a href="/quotes/{{ obj.id }}/edit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i> 编辑</a>
+  </div>
+  <div class="d-flex gap-2">
+    {% if obj.status != '已成交' %}
+    <form method="post" action="/quotes/{{ obj.id }}/status" class="d-inline">
+      <input type="hidden" name="status" value="已成交">
+      <button class="btn btn-sm btn-success"><i class="bi bi-trophy"></i> 标记成交</button>
+    </form>
+    {% endif %}
+    <button class="btn btn-sm btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer"></i> 打印</button>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-8">
+    <div class="card h-100">
+      <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-card-text me-1"></i>报价单信息</span>
+        <span class="badge {{ obj.status | state_badge }}">{{ obj.status }}</span>
+      </div>
+      <div class="card-body py-2">
+        <div class="row g-2 small">
+          <div class="col-6 col-md-4"><span class="text-muted">客户：</span><span class="fw-semibold">{{ obj.customer.name if obj.customer else '—' }}</span></div>
+          <div class="col-6 col-md-4"><span class="text-muted">报价单号：</span>{{ obj.quote_no or '—' }}</div>
+          <div class="col-6 col-md-4"><span class="text-muted">小区：</span>{{ obj.community or '—' }}</div>
+          <div class="col-6 col-md-4"><span class="text-muted">面积：</span>{{ obj.area or '—' }} ㎡</div>
+          <div class="col-6 col-md-4"><span class="text-muted">类型：</span>{{ obj.requirement_type or '—' }}</div>
+          <div class="col-6 col-md-4"><span class="text-muted">综合单价：</span>{% if obj.unit_price %}{{ obj.unit_price|money }} 元/㎡{% if obj.discount != 100 %} · {{ obj.discount|int }}折{% endif %}{% else %}—{% endif %}</div>
+          <div class="col-6 col-md-4"><span class="text-muted">报价日期：</span>{{ obj.quote_date or '—' }}</div>
+          <div class="col-6 col-md-4"><span class="text-muted">有效期：</span>{{ obj.valid_until or '—' }}</div>
+          <div class="col-6 col-md-4"><span class="text-muted">关联项目：</span>
+            {% if obj.project %}<a href="/projects/{{ obj.project.id }}">{{ obj.project.name }}</a>{% else %}—{% endif %}
+          </div>
+        </div>
+        {% if obj.lost_reason %}
+        <div class="alert alert-danger py-1 px-2 mt-2 small mb-0">
+          <strong>流失原因：</strong>{{ obj.lost_reason }}
+        </div>
+        {% endif %}
+        {% if obj.note %}
+        <div class="small text-muted mt-2 mb-0">备注：{{ obj.note }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-body text-center d-flex flex-column justify-content-center">
+        <div class="text-muted small">报价总额</div>
+        <div class="fs-2 fw-bold {{ 'text-success' if obj.status == '已成交' else '' }}">{{ total|money }}</div>
+        {% if obj.items %}
+        <div class="small text-muted">明细 {{ obj.items|length }} 项合计 {{ items_total|money }}</div>
+        {% elif obj.area and obj.unit_price %}
+        <div class="small text-muted">{{ obj.area }} ㎡ × {{ obj.unit_price|money }} × {{ obj.discount|int }}%</div>
+        {% else %}
+        <div class="small text-muted">无明细，按面积单价推算</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-list-ol me-1"></i>报价明细</span>
+    <span class="small text-muted">共 {{ obj.items|length }} 项</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th style="width:60px" class="text-end">#</th>
+        <th style="width:90px">类别</th>
+        <th>项目</th>
+        <th style="width:90px" class="text-end">数量</th>
+        <th style="width:70px">单位</th>
+        <th style="width:110px" class="text-end">单价</th>
+        <th style="width:120px" class="text-end">金额</th>
+        <th style="width:70px" class="no-print">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for it in obj.items %}
+        <tr>
+          <td class="text-end text-muted">{{ loop.index }}</td>
+          <td class="small"><span class="badge text-bg-light">{{ it.category }}</span></td>
+          <td>{{ it.item_name }}{% if it.note %}<div class="small text-muted">{{ it.note }}</div>{% endif %}</td>
+          <td class="text-end text-muted">{{ it.qty|money }}</td>
+          <td class="small text-muted">{{ it.unit }}</td>
+          <td class="text-end text-money text-muted">{{ it.unit_price|money }}</td>
+          <td class="text-end text-money fw-semibold">{{ it._amount|money }}</td>
+          <td class="no-print">
+            <form method="post" action="/quotes/item/{{ it.id }}/delete" onsubmit="return confirm('删除这一行？')">
+              <button class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">还没有明细</td></tr>
+      {% endfor %}
+      </tbody>
+      {% if obj.items %}
+      <tfoot class="table-light">
+        <tr class="fw-semibold">
+          <td colspan="6" class="text-end">合计</td>
+          <td class="text-end text-money">{{ items_total|money }}</td>
+          <td class="no-print"></td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+{# ---------- 添加明细 ---------- #}
+<div class="card mt-3 no-print">
+  <div class="card-header py-2"><i class="bi bi-plus-circle me-1"></i>添加明细</div>
+  <div class="card-body">
+    <form method="post" action="/quotes/{{ obj.id }}/item" class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label small mb-1">类别</label>
+        <select name="category" class="form-select form-select-sm">
+          {% for c in categories %}
+          <option value="{{ c }}">{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1">项目名称</label>
+        <input type="text" name="item_name" class="form-control form-control-sm" required
+               placeholder="如：客餐厅地砖铺贴（含人工）">
+      </div>
+      <div class="col-md-1">
+        <label class="form-label small mb-1">数量</label>
+        <input type="number" name="qty" step="0.01" class="form-control form-control-sm" value="1">
+      </div>
+      <div class="col-md-1">
+        <label class="form-label small mb-1">单位</label>
+        <input type="text" name="unit" class="form-control form-control-sm" value="项">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">单价</label>
+        <input type="number" name="unit_price" step="0.01" class="form-control form-control-sm" value="0">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">金额</label>
+        <input type="number" name="amount" step="0.01" class="form-control form-control-sm" value="0"
+               placeholder="留空按数量×单价">
+      </div>
+      <div class="col-12">
+        <label class="form-label small mb-1">备注</label>
+        <input type="text" name="note" class="form-control form-control-sm">
+      </div>
+      <div class="col-12 text-end">
+        <button class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> 添加这一行</button>
+      </div>
+    </form>
+    <div class="form-text mt-2">
+      「金额」留空时按 数量 × 单价 自动算；需要总价优先时手工填金额（如包干价）
+    </div>
+  </div>
+</div>
+{% endblock %}

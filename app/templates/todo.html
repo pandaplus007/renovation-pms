@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}待办总览{% endblock %}
+{% block page_title %}待办总览{% endblock %}
+{% block content %}
+
+{% if flash %}<div class="alert alert-info py-2">{{ flash }}</div>{% endif %}
+
+{% if empty %}
+  <div class="card">
+    <div class="card-body text-center py-5">
+      <i class="bi bi-check2-circle" style="font-size:28px;color:#3d7a63"></i>
+      <div class="mt-3 text-muted">目前没有需要处理的异常。</div>
+      <div class="small text-muted mt-1">应收逾期、超付、送货缺口、分包缺口、成本超预算、客户跟进到期——有情况会自动出现在这里。</div>
+    </div>
+  </div>
+{% else %}
+
+{# ---------- 待我审批 ---------- #}
+{% if approvals %}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-inbox me-1"></i>待我审批</span>
+    <a href="/approvals" class="btn btn-sm btn-outline-secondary">全部审批</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>单据</th><th style="width:110px">类型</th><th style="width:120px" class="text-end">金额</th>
+        <th style="width:140px">提交时间</th><th style="width:150px">进度</th>
+      </tr></thead>
+      <tbody>
+      {% for r in approvals %}
+        <tr>
+          <td><a href="/approvals/{{ r.id }}" class="text-decoration-none">{{ r.title }}</a></td>
+          <td class="small">{{ r.entity_type }}</td>
+          <td class="text-end">{{ r.amount|money }}</td>
+          <td class="small text-nowrap">{{ r.submitted_at.strftime('%m-%d %H:%M') if r.submitted_at else '—' }}</td>
+          <td class="small text-muted">
+            {% if r.total_steps %}{{ r.current_step + 1 }} / {{ r.total_steps }} 关{% else %}—{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# 严重度三档。徽章色沿用全站 4 档语义：alert（红）只给「严重」——
+     红色出现即代表有真问题。提醒用 watch（琥珀），提示用 idle（中性灰），
+     不用 info 蓝——蓝色在这个界面里没有第二层含义，加进来只是多一套。
+
+     这三行必须放在「概览」和「列表」两处**之前**：Jinja 的 {% set %}
+     按行执行，写在后面的话概览处的 colors[lv] 取不到值（不报错，
+     只是渲染成空字符串，徽章退化成无背景的白字）。 #}
+{% set levels = {'danger': '严重', 'warning': '提醒', 'info': '提示'} %}
+{% set colors = {'danger': 'state-alert', 'warning': 'state-watch', 'info': 'state-idle'} %}
+{% set icons = {'danger': 'exclamation-octagon', 'warning': 'exclamation-triangle', 'info': 'info-circle'} %}
+
+{# ---------- 异常概览 ---------- #}
+<div class="row g-2 mb-3">
+  {% for lv in ['danger', 'warning', 'info'] %}
+  <div class="col-auto"><span class="badge state-badge {{ colors[lv] }} fs-6">{{ levels[lv] }} {{ stat[lv] }}</span></div>
+  {% endfor %}
+  <div class="col-auto align-self-center text-muted small">
+    严重项涉及金额 <strong class="text-danger">{{ stat.amount|money }}</strong> 元
+  </div>
+</div>
+
+{# ---------- 异常列表 ---------- #}
+{% for lv in ['danger', 'warning', 'info'] %}
+  {% set group = items | selectattr('level', 'equalto', lv) | list %}
+  {% if group %}
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-{{ icons[lv] }} me-1"></i>{{ levels[lv] }}（{{ group|length }}）</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 table-card">
+        <tbody>
+        {% for it in group %}
+          <tr>
+            <td style="width:96px">
+              <span class="badge state-badge {{ colors[lv] }}">{{ it.kind }}</span>
+            </td>
+            <td>
+              <a href="{{ it.url }}" class="text-decoration-none fw-semibold">{{ it.title }}</a>
+              <div class="small text-muted">{{ it.detail }}</div>
+            </td>
+            <td style="width:120px" class="text-end text-nowrap">
+              {% if it.amount %}<span class="text-danger fw-semibold">{{ it.amount|money }}</span>{% else %}—{% endif %}
+            </td>
+            <td style="width:70px" class="text-end">
+              <a href="{{ it.url }}" class="btn btn-sm btn-outline-secondary">处理</a>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+{% endfor %}
+
+<div class="text-muted small mt-3">
+  <i class="bi bi-info-circle me-1"></i>
+  本页只列<b>异常与待办</b>，不重复正常数据。判定口径：
+  应收逾期＝计划日已过且未收齐；超付＝已付金额超过合同额；
+  待登记送货＝合同需送货但无任何送货记录；分包缺口＝合同额大于已下分包单合计；
+  成本超预算＝已发生费用超过预算；客户待跟进＝跟进计划已到期。
+  分包缺口不一定算错——合同若为包干总额则无需拆单，按实际情况处理即可。
+</div>
+{% endif %}
+{% endblock %}

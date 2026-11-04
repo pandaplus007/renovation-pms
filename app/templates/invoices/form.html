@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑发票' if invoice else '登记发票' }}{% endblock %}
+{% block page_title %}{{ '编辑发票' if invoice else '登记发票' }}{% endblock %}
+{% block content %}
+
+{% set cur_dir = invoice.direction if invoice else (match.direction if match else '进项') %}
+{% set sel_sup = invoice.supplier_id if invoice else (match.supplier.id if match and match.supplier else 0) %}
+{% set sel_cust = invoice.customer_id if invoice else (match.customer.id if match and match.customer else 0) %}
+{% set sel_proj = invoice.project_id if invoice else (prefill_project_id if prefill_project_id else (match.project.id if match and match.project else 0)) %}
+{% set sel_contract = invoice.contract_id if invoice else (prefill_contract_id if prefill_contract_id else 0) %}
+{% set val_amount = invoice.amount if invoice else (parsed.amount if parsed else (prefill_amount if prefill_amount else 0)) %}
+{% set val_tax = invoice.tax_amount if invoice else (parsed.tax_amount if parsed else 0) %}
+{% set val_rate = invoice.tax_rate if invoice else (parsed.tax_rate if parsed else 0) %}
+{% set val_no = invoice.invoice_no if invoice else (parsed.invoice_no if parsed else '') %}
+{% set val_date = invoice.invoice_date if invoice and invoice.invoice_date else (parsed.invoice_date if parsed and parsed.invoice_date else '') %}
+{% set val_title = invoice.title if invoice else (parsed.buyer_name if parsed else (prefill_title if prefill_title else '')) %}
+{% set val_taxno = invoice.tax_no if invoice else (parsed.buyer_tax_no if parsed else '') %}
+{% set val_seller = invoice.seller_name if invoice else (parsed.seller_name if parsed else (prefill_seller_name if prefill_seller_name else '')) %}
+{% set val_sellertax = invoice.seller_tax_no if invoice else (parsed.seller_tax_no if parsed else '') %}
+{% set val_type = invoice.invoice_type if invoice else (parsed.invoice_type if parsed else '增值税普通发票') %}
+
+<!-- PDF 自动识别 -->
+<div class="card mb-3" style="max-width:900px;">
+  <div class="card-header"><i class="bi bi-file-earmark-pdf me-1 text-danger"></i>PDF 发票自动识别</div>
+  <div class="card-body">
+    <form method="post" action="/invoices/parse" enctype="multipart/form-data"
+          class="d-flex gap-2 align-items-end flex-wrap">
+      <input type="hidden" name="project_id" value="{{ sel_proj or 0 }}">
+      <input type="hidden" name="contract_id" value="{{ sel_contract or 0 }}">
+      <input type="hidden" name="subcontract_id" value="{{ (invoice.subcontract_id if invoice else (prefill_subcontract_id if prefill_subcontract_id else 0)) or 0 }}">
+      <input type="hidden" name="suborder_id" value="{{ (invoice.suborder_id if invoice else (prefill_suborder_id if prefill_suborder_id else 0)) or 0 }}">
+      {% if back_url %}<input type="hidden" name="back_url" value="{{ back_url }}">{% endif %}
+      <div class="flex-grow-1" style="min-width:280px">
+        <input type="file" name="file" class="form-control" accept="application/pdf,.pdf">
+      </div>
+      <button class="btn btn-outline-primary"><i class="bi bi-magic"></i> 识别并预填</button>
+    </form>
+    <div class="small text-muted mt-2">
+      上传电子发票 PDF，自动识别号码 / 金额 / 税额 / 日期 / 购方销方，并自动匹配客户、供应商与项目。
+      {% if file_path %}
+      <span class="badge {{ "已上传附件" | state_badge }} ms-1">已上传附件</span>
+      <a href="{{ file_path }}" target="_blank" class="ms-2 small text-success" title="查看已上传发票"><i class="bi bi-eye me-1"></i>查看</a>
+      <a href="{{ file_path }}" download class="ms-2 small text-muted" title="下载发票"><i class="bi bi-download me-1"></i>下载</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{% if match %}
+<div class="alert alert-success py-2">
+  <i class="bi bi-check-circle-fill me-1"></i>
+  {% if match.customer %}
+    已匹配客户「<strong>{{ match.customer.name }}</strong>」
+    {% if match.project %}，自动关联项目「<strong>{{ match.project.name }}</strong>」{% else %}（该客户暂无项目）{% endif %}
+  {% elif match.supplier %}
+    已匹配供应商「<strong>{{ match.supplier.name }}</strong>」（进项发票）
+  {% else %}
+    未匹配到客户 / 供应商，请手动选择
+  {% endif %}
+  · 方向已预设为「{{ match.direction }}」
+</div>
+{% endif %}
+
+{% if parsed %}
+<div class="alert alert-info py-2 small">
+  <i class="bi bi-info-circle me-1"></i>
+  识别结果：发票号 <strong>{{ parsed.invoice_no or '—' }}</strong>
+  | 金额 <strong>¥{{ parsed.amount|money }}</strong> | 税额 ¥{{ parsed.tax_amount|money }} | 税率 {% if parsed.tax_rate %}{{ '%g'|format(parsed.tax_rate) }}%{% else %}—{% endif %}
+  | 开票日期 {{ parsed.invoice_date or '—' }} | 类型 {{ parsed.invoice_type }}
+  | 购方 {{ parsed.buyer_name or '—' }}（税号 {{ parsed.buyer_tax_no or '—' }}）
+  | 销方 {{ parsed.seller_name or '—' }}（税号 {{ parsed.seller_tax_no or '—' }}）
+</div>
+{% endif %}
+
+<div class="card" style="max-width:900px;">
+  <div class="card-body p-4">
+    <form method="post" action="{{ '/invoices/%d/edit' % invoice.id if invoice else '/invoices/new' }}">
+      <input type="hidden" name="file_path" value="{{ invoice.file_path if invoice else file_path }}">
+      <input type="hidden" name="payment_id" value="{{ (invoice.payment_id if invoice else prefill_payment_id) or 0 }}">
+      <input type="hidden" name="subcontract_id" value="{{ (invoice.subcontract_id if invoice else (prefill_subcontract_id if prefill_subcontract_id else 0)) or 0 }}">
+      {% if back_url %}<input type="hidden" name="back_url" value="{{ back_url }}">{% endif %}
+      <div class="row g-3">
+        <div class="col-md-3">
+          <label class="form-label">方向</label>
+          <select name="direction" class="form-select">
+            {% for d in OPTIONS.invoice_directions %}
+            <option value="{{ d }}" {{ 'selected' if cur_dir == d else '' }}>{{ d }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-5">
+          <label class="form-label">发票类型</label>
+          <select name="invoice_type" class="form-select">
+            {% for t in OPTIONS.invoice_types %}
+            <option value="{{ t }}" {{ 'selected' if val_type == t else '' }}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">发票号码</label>
+          <input type="text" name="invoice_no" class="form-control" value="{{ val_no }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">金额（价税合计）¥</label>
+          <input type="number" step="0.01" name="amount" class="form-control" value="{{ val_amount }}" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">税额 ¥</label>
+          <input type="number" step="0.01" name="tax_amount" class="form-control" value="{{ val_tax }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">税率 %</label>
+          <input type="number" step="0.01" name="tax_rate" class="form-control" value="{{ val_rate }}" placeholder="如：13">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">开票日期</label>
+          <input type="date" name="invoice_date" class="form-control" value="{{ val_date }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">状态</label>
+          <select name="status" class="form-select">
+            {% for s in OPTIONS.invoice_status %}
+            <option value="{{ s }}" {{ 'selected' if (invoice and invoice.status == s) or (not invoice and s == '正常') else '' }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">购方名称（抬头）</label>
+          <input type="text" name="title" class="form-control" value="{{ val_title }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">购方税号</label>
+          <input type="text" name="tax_no" class="form-control" value="{{ val_taxno }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">销方名称</label>
+          <input type="text" name="seller_name" class="form-control" value="{{ val_seller }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">销方税号</label>
+          <input type="text" name="seller_tax_no" class="form-control" value="{{ val_sellertax }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">供应商（进项）</label>
+          <input type="text" name="supplier_name" id="supInput" class="form-control" list="supDatalist" placeholder="点击选择供应商…" autocomplete="off" value="{{ sel_sup_name }}">
+          <datalist id="supDatalist">
+            {% for s in suppliers %}<option value="{{ s.name }}">{% endfor %}
+          </datalist>
+          <input type="hidden" name="supplier_id" value="0">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">客户（销项）</label>
+          <select name="customer_id" class="form-select">
+            <option value="0">—</option>
+            {% for c in customers %}<option value="{{ c.id }}" {{ 'selected' if sel_cust == c.id else '' }}>{{ c.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">关联项目</label>
+          <select name="project_id" id="invProjSel" class="form-select" onchange="invFilterProj()">
+            <option value="0">—</option>
+            {% for p in projects %}<option value="{{ p.id }}" {{ 'selected' if sel_proj == p.id else '' }}>{{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          {% if suborders %}
+          <label class="form-label">关联分包采购单（该分包合同）</label>
+          <select name="suborder_id" class="form-select">
+            <option value="0">—</option>
+            {% for so in suborders %}<option value="{{ so.id }}" data-project="{{ so.subcontract.project_id if so.subcontract else 0 }}" {{ 'selected' if (invoice and invoice.suborder_id == so.id) or (not invoice and prefill_suborder_id == so.id) else '' }}>{{ so.order_no or ('分包单#' ~ so.id) }} · ¥{{ so.total_amount|money }}</option>{% endfor %}
+          </select>
+          {% endif %}
+          <input type="hidden" name="po_id" value="{{ (invoice.po_id if invoice else 0) or 0 }}">
+          <input type="hidden" name="suborder_id" value="{{ (invoice.suborder_id if invoice else 0) or 0 }}">
+        </div>
+                <div class="col-6">
+          <label class="form-label">关联采购合同</label>
+          <select name="contract_id" class="form-select">
+            <option value="0">—</option>
+            {% for ct in contracts %}<option value="{{ ct.id }}" data-project="{{ ct.project_id or 0 }}" {{ 'selected' if sel_contract == ct.id else '' }}>{{ ct.name }}{% if ct.contract_no %}（{{ ct.contract_no }}）{% endif %}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-6">
+          <label class="form-label">关联分包合同（可选）</label>
+          <select name="subcontract_id" class="form-select">
+            <option value="0">—</option>
+            {% for sc in subcontracts %}<option value="{{ sc.id }}" data-project="{{ sc.project_id or 0 }}" {{ 'selected' if (invoice and invoice.subcontract_id == sc.id) or (not invoice and prefill_subcontract_id == sc.id) else '' }}>{{ sc.name }}（{{ sc.contract_no or '无编号' }}）</option>{% endfor %}
+          </select>
+        </div>
+<div class="col-12">
+          <label class="form-label">备注</label>
+          <input type="text" name="note" class="form-control" value="{{ invoice.note if invoice else '' }}">
+        </div>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">保存</button>
+        {% if back_url %}<a href="{{ back_url }}" class="btn btn-outline-secondary">取消</a>{% else %}<a href="/invoices" class="btn btn-outline-secondary">取消</a>{% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+(function(){
+  var sup = document.getElementById('supInput');
+  if(!sup) return;
+  var dl = document.getElementById('supDatalist');
+  var seller = document.querySelector('input[name="seller_name"]');
+  if(seller && dl){
+    seller.addEventListener('change', function(){
+      var v = (seller.value||'').trim();
+      if(!v || sup.value) return;
+      for (var i=0;i<dl.options.length;i++){
+        var o = dl.options[i];
+        if(o.value === v || o.value.indexOf(v)!==-1 || v.indexOf(o.value)!==-1){
+          sup.value = o.value;
+          return;
+        }
+      }
+    });
+    if(seller.value && !sup.value){ seller.dispatchEvent(new Event('change')); }
+  }
+})();
+</script>
+<script>
+function invFilterProj(){
+  var proj = document.getElementById('invProjSel');
+  if(!proj) return;
+  var pid = proj.value || '0';
+  ['po_id','contract_id','subcontract_id','suborder_id'].forEach(function(n){
+    var sel = document.querySelector('select[name="' + n + '"]');
+    if(!sel) return;
+    if(pid === '0'){
+      sel.disabled = true;
+      [].forEach.call(sel.options, function(o){ o.hidden = false; });
+      return;
+    }
+    sel.disabled = false;
+    [].forEach.call(sel.options, function(o){
+      if(o.value === '0'){ o.hidden = false; return; }
+      var dp = o.getAttribute('data-project') || '0';
+      o.hidden = !(dp === pid || dp === '0');
+    });
+  });
+}
+(function(){
+  invFilterProj();
+})();
+</script>
+{% endblock %}
+
+

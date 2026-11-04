@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}费用管理
+{% endblock %}
+{% block page_title %}费用管理（除材料采购外的项目费用）{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <form class="search-row" id="fltForm" method="get">
+    <input type="text" name="q" value="{{ q }}" class="form-control" style="width:220px" placeholder="搜索费用名称 / 备注">
+    {% import "_multiselect.html" as ms %}
+    {{ ms.multiselect('project_id', '项目', projects|map(attribute='id')|list, projects|map(attribute='name')|list, project_id) }}
+    {{ ms.multiselect('category', '类别', OPTIONS.cost_categories, OPTIONS.cost_categories, category) }}
+    {# 作废项默认隐藏：它们不计入合计，混在列表里只会让人加到总账里对不上。
+       勾选后连同作废原因一起显示，但合计仍然只算未作废的。 #}
+    <label class="form-check form-check-inline align-middle ms-1">
+      <input class="form-check-input" type="checkbox" name="show_voided" value="1"
+             {% if show_voided %}checked{% endif %}>
+      <span class="form-check-label small">显示已作废{% if voided_count %}（{{ voided_count }} 笔 ¥{{ voided_total|money }}）{% endif %}</span>
+    </label>
+    <a href="/expenses" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> 恢复原样</a>
+  </form>
+  <a href="/expenses/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 新增费用</a>
+  <a href="/expenses/import" class="btn btn-outline-success"><i class="bi bi-upload"></i> Excel 导入</a>
+  <a href="/expenses/template" class="btn btn-outline-secondary"><i class="bi bi-file-earmark-excel"></i> 下载模板</a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="stat-card grad-terra">
+      <div class="stat-label">当前筛选费用合计{% if show_voided and voided_count %}（不含已作废）{% endif %}</div>
+      <div class="stat-num">¥{{ total|money }}</div>
+      {% if show_voided and voided_count %}
+      <div class="small text-muted">另有已作废 {{ voided_count }} 笔 ¥{{ voided_total|money }} 未计入</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-md-8">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="small text-muted mb-2">按类别分布</div>
+        {% for cat, amt in by_category %}
+        <div class="d-flex justify-content-between small mb-1">
+          <span>{{ cat }}</span>
+          <span class="text-money">¥{{ amt|money }}</span>
+        </div>
+        {% else %}
+        <div class="empty-state empty-state-sm"><i class="bi bi-wallet2"></i>暂无费用</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="result-box">
+  <div class="table-responsive">
+    <table class="table-wide table table-hover align-middle mb-0 table-card" data-col-resizable data-col-key="expenses" data-sortable>
+      <thead><tr>
+        <th class="sortable" data-sort="project">项目</th><th class="sortable" data-sort="category">类别</th><th class="sortable" data-sort="name">费用名称</th><th class="text-end sortable" data-sort="amount" data-type="number">金额</th><th class="sortable" data-sort="date" data-type="date">日期</th><th class="sortable" data-sort="note">备注</th><th>凭证</th><th>操作</th>
+      </tr></thead>
+      <tbody>
+        {% for i in items %}
+        {# 作废行整体压暗：它还在库里（可审计、可恢复），但不计入合计与项目成本。
+           视觉上要一眼看出「这笔不算数」，否则财务会把它加进总账然后对不上。 #}
+        <tr class="{{ 'row-voided' if i.status == '作废' else '' }}">
+          <td data-value="{{ i.project.name }}"><a href="/projects/{{ i.project_id }}" class="project-link">{{ i.project.name }}</a></td>
+          <td data-value="{{ i.category }}"><span class="badge text-bg-light">{{ i.category }}</span></td>
+          <td>{{ i.item_name }}
+            {% if i.status == '作废' %}
+            <span class="badge state-badge state-idle ms-1">已作废</span>
+            <div class="small text-muted">{% if i.void_reason %}原因：{{ i.void_reason }}{% endif %}{% if i.voided_at %} · {{ i.voided_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</div>
+            {% endif %}
+          </td>
+          <td class="text-money text-danger" data-value="{{ i.amount or 0 }}">¥{{ i.amount|money }}</td>
+          <td class="small" data-value="{{ i.occurred_date or '' }}">{{ i.occurred_date or '—' }}</td>
+          <td class="small text-muted">{{ i.note or '' }}</td>
+          <td>
+            {% if i.file_path %}
+            <a href="{{ i.file_path }}" target="_blank" class="text-success" title="查看凭证"><i class="bi bi-paperclip"></i></a> <a href="{{ i.file_path }}" download class="text-muted" title="下载凭证"><i class="bi bi-download"></i></a>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if i.status == '作废' %}
+            <form method="post" action="/expenses/{{ i.id }}/restore" class="d-inline"
+                  onsubmit="return confirm('恢复该费用？它将重新计入合计与项目成本。');">
+              <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> 恢复</button>
+            </form>
+            {% else %}
+            <a href="/expenses/{{ i.id }}/edit" class="btn btn-sm btn-outline-secondary">编辑</a>
+            <form method="post" action="/expenses/{{ i.id }}/void" class="d-inline"
+                  onsubmit="return confirm('作废该费用？\n\n记录会保留以便对账与审计，但不再计入合计和项目成本。误操作可在列表中恢复。');">
+              <button class="btn btn-sm btn-outline-danger" title="作废（保留记录，不计入合计）">作废</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">暂无费用记录（人工/机械/设计/管理/运输等，材料采购请走「采购」模块）</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+function fltSubmit(cb){
+  if(!cb) cb = document.querySelector('input.flt-cb');
+  if(!cb) return;
+  var form = cb.form;
+  if(!form) return;
+  var fd = new FormData(form);
+  var qs = new URLSearchParams(fd).toString();
+  var url = location.pathname + (qs ? '?' + qs : '');
+  var boxId = form.getAttribute('data-result') || 'result-box';
+  var box = document.getElementById(boxId);
+  if(!box){ form.submit(); return; }  // 无局部容器则整页提交
+  fetch(url, {headers:{'X-Requested-With':'fetch'}})
+    .then(function(r){ if(!r.ok) throw 0; return r.text(); })
+    .then(function(html){
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var nb = doc.getElementById(boxId);
+      if(nb) box.innerHTML = nb.innerHTML;   // 仅更新表格区，下拉/页面不刷新
+      history.replaceState(null, '', url);
+      syncAllChecks(form);
+      updateFilterBadges(form);
+    })
+    .catch(function(){ form.submit(); });    // 异常时退化为整页
+}
+function syncAllChecks(form){
+  form.querySelectorAll('input[id^="all-"]').forEach(function(all){
+    var g = all.id.replace('all-','');
+    var cbs = form.querySelectorAll('input[data-group="' + g + '"]');
+    var allc = cbs.length > 0 && [].every.call(cbs, function(c){ return c.checked; });
+    all.checked = allc;
+  });
+}
+function updateFilterBadges(form){
+  form.querySelectorAll('.dropdown').forEach(function(dd){
+    var cbs = dd.querySelectorAll('input.flt-cb');
+    if(cbs.length === 0) return;  // 仅处理筛选下拉
+    var n = [].filter.call(cbs, function(c){ return c.checked; }).length;
+    var filtered = n > 0 && n < cbs.length;  // 有勾选但未全选 = 筛选状态
+    var btn = dd.querySelector('.dropdown-toggle');
+    if(!btn) return;
+    var icon = btn.querySelector('.bi');
+    if(filtered){
+      btn.classList.add('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel-fill';
+      var b = btn.querySelector('.flt-badge');
+      if(!b){ b = document.createElement('span'); b.className='flt-badge'; btn.appendChild(b); }
+      b.textContent = n;
+    } else {
+      btn.classList.remove('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel';
+      var ob = btn.querySelector('.flt-badge');
+      if(ob) ob.remove();
+    }
+  });
+}
+function fltToggleAll(g, el){
+  var form = el.form;
+  if(!form) return;
+  var first = form.querySelector('input[data-group="' + g + '"]');
+  if(!first) return;
+  form.querySelectorAll('input[data-group="' + g + '"]').forEach(function(c){ c.checked = el.checked; });
+  if(el.checked){ fltSubmit(first); }  // 勾选全选：提交全部
+  else { updateFilterBadges(form); }  // 取消全选：清空并恢复按钮未筛选样式
+}
+</script>
+
+
+{% endblock %}

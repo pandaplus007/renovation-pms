@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑客户' if customer else '新增客户' }}{% endblock %}
+{% block page_title %}{{ '编辑客户' if customer else '新增客户' }}{% endblock %}
+{% block content %}
+
+<div class="card" style="max-width:860px;">
+  <div class="card-body p-4">
+    <div class="card mb-3 border-success-subtle">
+      <div class="card-header py-2"><i class="bi bi-magic me-1"></i>粘贴识别（可选）</div>
+      <div class="card-body py-2">
+        {% if parsed and parsed.error %}
+        <div class="alert alert-warning py-2 small">{{ parsed.error }}</div>
+        {% endif %}
+        {% if parsed and not parsed.error %}
+        <div class="alert alert-info py-2 small">已识别：{{ parsed.name or '—' }} ｜ {{ parsed.tax_no or '—' }} ｜ {{ parsed.contact or '—' }} ｜ {{ parsed.phone or '—' }} ｜ {{ parsed.bank or '—' }} {{ parsed.account or '—' }}，确认后保存。</div>
+        {% endif %}
+        <form method="post" action="/customers/parse">
+          <div class="d-flex gap-2 align-items-start flex-wrap">
+            <textarea name="text" class="form-control" rows="6" style="flex:1;min-width:260px;font-size:14px;min-height:150px"
+                      placeholder="粘贴外部复制的客户信息（公司名 / 信用代码 / 联系人 / 电话 / 地址 / 开户银行 / 银行账户）"></textarea>
+            <button class="btn btn-primary"><i class="bi bi-magic"></i> 识别填充</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <form method="post" action="{{ '/customers/%d/edit' % customer.id if customer else '/customers/new' }}">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">公司 / 客户名称 *</label>
+          <input type="text" name="name" class="form-control" required value="{{ customer.name if customer else (parsed.name if parsed and parsed.name else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">统一社会信用代码</label>
+          <input type="text" name="tax_no" class="form-control" value="{{ customer.tax_no if customer else (parsed.tax_no if parsed and parsed.tax_no else '') }}" placeholder="公司客户必填">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">联系人</label>
+          <input type="text" name="contact_person" class="form-control" value="{{ customer.contact_person if customer else (parsed.contact if parsed and parsed.contact else '') }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">联系电话</label>
+          <input type="text" name="contact_phone" class="form-control" value="{{ customer.contact_phone if customer else (parsed.phone if parsed and parsed.phone else '') }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">备用电话</label>
+          <input type="text" name="phone" class="form-control" value="{{ customer.phone if customer else '' }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label">公司地址</label>
+          <input type="text" name="company_address" class="form-control" value="{{ customer.company_address if customer else (parsed.address if parsed and parsed.address else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">开户银行（开票信息）</label>
+          <input type="text" name="bank_name" class="form-control" value="{{ customer.bank_name if customer else (parsed.bank if parsed and parsed.bank else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">银行账户（开票信息）</label>
+          <input type="text" name="bank_account" class="form-control" value="{{ customer.bank_account if customer else (parsed.account if parsed and parsed.account else '') }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">项目地点 / 楼盘</label>
+          <input type="text" name="community" class="form-control" value="{{ customer.community if customer else (parsed.community if parsed and parsed.community else '') }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">户型</label>
+          <input type="text" name="house_type" class="form-control" placeholder="如：3室2厅" value="{{ customer.house_type if customer else '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">面积（㎡）</label>
+          <input type="number" step="any" name="area" class="form-control" value="{{ customer.area if customer else 0 }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">需求类型</label>
+          <select name="requirement_type" class="form-select">
+            <option value="">请选择</option>
+            {% for t in ['整装', '半包', '全包'] %}
+            <option value="{{ t }}" {{ 'selected' if customer and customer.requirement_type == t else '' }}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">预算下限（¥）</label>
+          <input type="number" step="1000" name="budget_low" class="form-control" value="{{ customer.budget_low if customer else 0 }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">预算上限（¥）</label>
+          <input type="number" step="1000" name="budget_high" class="form-control" value="{{ customer.budget_high if customer else 0 }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">客户状态</label>
+          <select name="status" class="form-select">
+            {% for s in OPTIONS.customer_status %}
+            <option value="{{ s }}" {{ 'selected' if (customer and customer.status == s) or (not customer and s == '线索') else '' }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">来源渠道</label>
+          <input type="text" name="source" class="form-control" placeholder="如：朋友介绍 / 抖音" value="{{ customer.source if customer else '' }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label">备注</label>
+          <textarea name="note" class="form-control" rows="3">{{ customer.note if customer else '' }}</textarea>
+        </div>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">保存</button>
+        <a href="{{ '/customers/%d' % customer.id if customer else '/customers' }}" class="btn btn-outline-secondary">取消</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+{% endblock %}

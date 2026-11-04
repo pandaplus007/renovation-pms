@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}客户管理
+{% endblock %}
+{% block page_title %}客户管理{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <form class="search-row flex-wrap" id="fltForm" method="get">
+    <input type="text" name="q" value="{{ q }}" class="form-control" style="width:260px" placeholder="搜索姓名 / 电话 / 小区">
+    {% import "_multiselect.html" as ms %}
+    {{ ms.multiselect('status', '状态', OPTIONS.customer_status, OPTIONS.customer_status, status) }}
+    <a href="/customers" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> 恢复原样</a>
+  </form>
+  <a href="/customers/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 新增客户</a>
+</div>
+
+{% if follow_due_count or follow_missing %}
+<div class="alert alert-{{ 'warning' if follow_due_count else 'info' }} py-2">
+  <i class="bi bi-bell me-1"></i>
+  {% if follow_due_count %}<strong>{{ follow_due_count }}</strong> 个客户跟进已到期{% endif %}
+  {% if follow_due_count and follow_missing %}，{% endif %}
+  {% if follow_missing %}<strong>{{ follow_missing }}</strong> 个客户从未跟进{% endif %}
+  —— 线索放着不跟进就不会成交。下表已标出。
+</div>
+{% endif %}
+
+<div class="card" id="result-box">
+  <div class="table-responsive">
+    <table class="table-wide table table-hover mb-0 table-card" data-col-resizable data-col-key="customers" data-sortable data-col-minor>
+      <thead><tr>
+        <th class="sortable" data-sort="name">公司 / 客户</th><th class="col-minor sortable" data-sort="contact">联系人</th><th class="col-minor">电话</th><th class="col-minor">统一社会信用代码</th><th class="sortable" data-sort="place">项目地点</th>
+        <th class="col-minor">需求</th><th class="col-minor">预算区间</th><th>状态</th><th>跟进</th><th class="col-minor">最近更新</th><th>操作</th>
+      </tr></thead>
+      <tbody>
+        {% for c in customers %}
+        {% set f = follow_map.get(c.id) %}
+        <tr class="{{ 'table-warning' if f and f.overdue else '' }}">
+          <td><a href="/customers/{{ c.id }}" class="fw-semibold">{{ c.name }}</a></td>
+          <td class="col-minor">{{ c.contact_person or c.name or '—' }}</td>
+          <td class="col-minor">{{ c.contact_phone or c.phone or '—' }}</td>
+          <td class="small col-minor">{{ c.tax_no or '—' }}</td>
+          <td class="small">{{ c.community or '—' }}</td>
+          <td class="col-minor">{{ c.requirement_type or '—' }}</td>
+          <td class="col-minor">{% if c.budget_low or c.budget_high %}¥{{ c.budget_low|money }} ~ ¥{{ c.budget_high|money }}{% else %}—{% endif %}</td>
+          <td>
+            <span class="badge {{ c.status | state_badge }}">{{ c.status }}</span>
+          </td>
+          <td class="small">
+            {% if f and f.overdue %}
+              <span class="badge state-badge state-watch" title="跟进计划已到期">逾期 {{ f.days }} 天</span>
+              <div class="text-muted">{{ f.next_at }}</div>
+            {% elif f and f.next_at %}
+              <span class="text-muted">{{ f.next_at }}</span>
+              <div class="text-muted">{{ f.count }} 次</div>
+            {% elif f and f.count %}
+              <span class="text-muted">{{ f.count }} 次</span>
+            {% elif c.status not in ('已签约', '已流失') %}
+              <span class="badge {{ "未跟进" | state_badge }}">未跟进</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="small text-muted col-minor">{{ c.updated_at.strftime('%m-%d') }}</td>
+          <td>
+            <a href="/customers/{{ c.id }}" class="btn btn-sm btn-outline-primary">查看</a>
+            <a href="/customers/{{ c.id }}/edit" class="btn btn-sm btn-outline-secondary">编辑</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="11" class="text-center text-muted py-4">暂无客户</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+function fltSubmit(cb){
+  if(!cb) cb = document.querySelector('input.flt-cb');
+  if(!cb) return;
+  var form = cb.form;
+  if(!form) return;
+  var fd = new FormData(form);
+  var qs = new URLSearchParams(fd).toString();
+  var url = location.pathname + (qs ? '?' + qs : '');
+  var boxId = form.getAttribute('data-result') || 'result-box';
+  var box = document.getElementById(boxId);
+  if(!box){ form.submit(); return; }  // 无局部容器则整页提交
+  fetch(url, {headers:{'X-Requested-With':'fetch'}})
+    .then(function(r){ if(!r.ok) throw 0; return r.text(); })
+    .then(function(html){
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var nb = doc.getElementById(boxId);
+      if(nb) box.innerHTML = nb.innerHTML;   // 仅更新表格区，下拉/页面不刷新
+      history.replaceState(null, '', url);
+      syncAllChecks(form);
+      updateFilterBadges(form);
+    })
+    .catch(function(){ form.submit(); });    // 异常时退化为整页
+}
+function syncAllChecks(form){
+  form.querySelectorAll('input[id^="all-"]').forEach(function(all){
+    var g = all.id.replace('all-','');
+    var cbs = form.querySelectorAll('input[data-group="' + g + '"]');
+    var allc = cbs.length > 0 && [].every.call(cbs, function(c){ return c.checked; });
+    all.checked = allc;
+  });
+}
+function updateFilterBadges(form){
+  form.querySelectorAll('.dropdown').forEach(function(dd){
+    var cbs = dd.querySelectorAll('input.flt-cb');
+    if(cbs.length === 0) return;  // 仅处理筛选下拉
+    var n = [].filter.call(cbs, function(c){ return c.checked; }).length;
+    var filtered = n > 0 && n < cbs.length;  // 有勾选但未全选 = 筛选状态
+    var btn = dd.querySelector('.dropdown-toggle');
+    if(!btn) return;
+    var icon = btn.querySelector('.bi');
+    if(filtered){
+      btn.classList.add('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel-fill';
+      var b = btn.querySelector('.flt-badge');
+      if(!b){ b = document.createElement('span'); b.className='flt-badge'; btn.appendChild(b); }
+      b.textContent = n;
+    } else {
+      btn.classList.remove('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel';
+      var ob = btn.querySelector('.flt-badge');
+      if(ob) ob.remove();
+    }
+  });
+}
+function fltToggleAll(g, el){
+  var form = el.form;
+  if(!form) return;
+  var first = form.querySelector('input[data-group="' + g + '"]');
+  if(!first) return;
+  form.querySelectorAll('input[data-group="' + g + '"]').forEach(function(c){ c.checked = el.checked; });
+  if(el.checked){ fltSubmit(first); }  // 勾选全选：提交全部
+  else { updateFilterBadges(form); }  // 取消全选：清空并恢复按钮未筛选样式
+}
+</script>
+
+
+{% endblock %}

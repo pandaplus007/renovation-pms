@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% from "_staff.html" import staff_select %}
+{% block title %}{{ '编辑项目' if project else '新建项目' }}{% endblock %}
+{% block page_title %}{{ '编辑项目' if project else '新建项目' }}{% endblock %}
+{% block content %}
+
+<div class="card" style="max-width:900px;">
+  <div class="card-body p-4">
+    <form method="post" action="{{ '/projects/%d/edit' % project.id if project else '/projects/new' }}">
+      <div class="row g-3">
+{% if not project %}
+        <div class="col-12 mt-2 border-top pt-2" id="contract-zone">
+          {% set cp = contract_parsed if contract_parsed and not contract_parsed.error else None %}
+          {% if contract_parsed and contract_parsed.error %}
+          <div class="alert alert-warning py-1 small">{{ contract_parsed.error }}</div>
+          {% endif %}
+          {% if cp %}
+          <div class="alert alert-info py-1 small">已识别：{{ cp.name or '—' }}（{{ cp.contract_no or '无编号' }}）｜ 甲方 {{ cp.party_a or '—' }} ｜ ¥{{ cp.amount|money }}，确认下方信息后保存。</div>
+          {% endif %}
+          <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+            <label class="form-label small mb-0">施工合同（上传 PDF/Word 自动识别）：</label>
+            <input type="file" name="file" class="form-control form-control-sm" accept=".pdf,.doc,.docx" style="width:250px">
+            <button type="submit" formaction="/projects/parse-contract" formmethod="post" formenctype="multipart/form-data" formnovalidate class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-arrow-up"></i> 识别导入</button>
+          </div>
+          <input type="hidden" name="ct_file" value="{{ cp.file_path if cp else '' }}">
+          {% if cp_pay_terms %}<input type="hidden" name="ct_pay_terms" value="{{ cp_pay_terms }}">{% endif %}
+
+          </div>
+        </div>
+        {% endif %}
+        <div class="col-md-6">
+          <label class="form-label">所属客户 *</label>
+          <select name="customer_id" class="form-select" required>
+            <option value="">请选择客户</option>
+            {% for c in customers %}
+            <option value="{{ c.id }}" {{ 'selected' if selected_customer_id == c.id else '' }}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">项目名称 *</label>
+          <input type="text" name="name" class="form-control" required placeholder="如：张伟·万科城3栋1单元802" value="{{ project.name if project else (contract_parsed.project_name if contract_parsed and contract_parsed.project_name else '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">项目地址</label>
+          <input type="text" name="address" class="form-control" value="{{ project.address if project else (contract_parsed.project_address if contract_parsed and contract_parsed.project_address else '') }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">面积（㎡）</label>
+          <input type="number" step="any" name="area" class="form-control" value="{{ project.area if project else 0 }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">装修风格</label>
+          <input type="text" name="style" class="form-control" placeholder="现代简约" value="{{ project.style if project else '' }}">
+        </div>
+
+          <div class="row g-2">
+            <div class="col-md-2"><label class="form-label small mb-1">开工日期</label>
+              <input name="ct_start_date" type="date" class="form-control form-control-sm" value="{{ cp.start_date if cp else '' }}"></div>
+            <div class="col-md-2"><label class="form-label small mb-1">竣工日期</label>
+              <input name="ct_end_date" type="date" class="form-control form-control-sm" value="{{ cp.end_date if cp else '' }}"></div>
+            <div class="col-md-2"><label class="form-label small mb-1">工期(天)</label>
+              <input name="ct_duration" type="number" class="form-control form-control-sm" value="{{ cp.duration_days if cp else 0 }}"></div>
+            <div class="col-md-2"><label class="form-label small mb-1">税率%</label>
+              <input name="ct_tax_rate" type="number" step="any" class="form-control form-control-sm" value="{{ cp.tax_rate if cp else 0 }}"></div>
+            <div class="col-md-2"><label class="form-label small mb-1">预付款%</label>
+              <input name="ct_prepay" type="number" step="any" class="form-control form-control-sm" value="{{ cp.prepay_rate if cp else 0 }}"></div>
+            <div class="col-md-2"><label class="form-label small mb-1">质保(月)</label>
+              <input name="ct_warranty" type="number" class="form-control form-control-sm" value="{{ cp.warranty_months if cp else 0 }}"></div>
+            <div class="col-md-2"><label class="form-label small mb-1">质保金%</label>
+              <input name="ct_warranty_rate" type="number" step="any" class="form-control form-control-sm" value="{{ cp.warranty_retention_rate if cp else 0 }}"></div>
+            <div class="col-md-2"><label class="form-label small mb-1">付款方式</label>
+              <input name="ct_pay_method" class="form-control form-control-sm" value="{{ cp.pay_method if cp else '' }}"></div>
+        <div class="col-md-4">
+          <label class="form-label">项目状态</label>
+          <select name="status" class="form-select">
+            {% for s in OPTIONS.project_status %}
+            <option value="{{ s }}" {{ 'selected' if (project and project.status == s) or (not project and s == '待签约') else '' }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {% if not project %}
+        <div class="col-md-6">
+          <label class="form-label">合同金额（¥）</label>
+          <input type="number" step="1000" name="contract_amount" class="form-control" {% if contract_parsed and contract_parsed.amount %}value="{{ contract_parsed.amount }}"{% else %}value="0"{% endif %}>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">签约日期</label>
+          <input type="date" name="sign_date" class="form-control" {% if contract_parsed and contract_parsed.sign_date %}value="{{ contract_parsed.sign_date }}"{% endif %}>
+        </div>
+        {% endif %}
+        
+        <div class="col-12">
+          <label class="form-label">备注</label>
+          <textarea name="note" class="form-control" rows="3">{{ project.note if project else '' }}</textarea>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">设计师</label>
+          {# 三个岗位统一改成名册下拉。这三个字段也是按人筛选的依据
+             （项目列表能按设计师/工长筛），自由文本会让筛选失效。 #}
+          {{ staff_select('designer', staffs, project.designer if project else '',
+                          allow_empty=True, empty_label='— 未指定 —',
+                          classes='form-select', include_inactive=True, placeholder='设计师') }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">工长</label>
+          {{ staff_select('foreman', staffs, project.foreman if project else '',
+                          allow_empty=True, empty_label='— 未指定 —',
+                          classes='form-select', include_inactive=True, placeholder='工长') }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">监理</label>
+          {{ staff_select('supervisor', staffs, project.supervisor if project else '',
+                          allow_empty=True, empty_label='— 未指定 —',
+                          classes='form-select', include_inactive=True, placeholder='监理') }}
+        </div>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">保存</button>
+        <a href="{{ '/projects/%d' % project.id if project else '/projects' }}" class="btn btn-outline-secondary">取消</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

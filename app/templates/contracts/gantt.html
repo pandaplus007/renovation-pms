@@ -1,0 +1,866 @@
+{% extends "base.html" %}
+{% from "_staff.html" import staff_select, staff_filter %}
+{% block title %}工程管理{% endblock %}
+{% block page_title %}工程管理{% endblock %}
+{% block content %}
+
+{# 任务行的编辑触发属性。
+   弹窗（#taskModal）靠这几个 data-* 回填表单，所以两个渲染点
+   （按阶段分组的任务、未排期任务）必须给出完全一致的一组，
+   漏一个就会出现「点编辑，项目那一栏变空」——那会把任务改挂到
+   别的项目上去，比不显示编辑按钮危险得多。抽成宏就是为了不漏。 #}
+{% macro task_edit_attrs(t) -%}
+data-bs-toggle="modal" data-bs-target="#taskModal"
+data-task="{{ t.id }}" data-name="{{ t.name }}"
+data-start="{{ t.start_date or '' }}" data-end="{{ t.end_date or '' }}"
+data-assignee="{{ t.assignee or '' }}"
+data-project="{{ t.project_id or 0 }}" data-phase="{{ t.phase_id or 0 }}"
+data-note="{{ t.note or '' }}"
+{%- endmacro %}
+
+{# 标题只写「工程管理」，和侧边栏一致。
+   改版前这里叫「工期规划」，侧边栏叫「工程管理」，而模式切换里又有一个
+   「工期规划」按钮——同一个东西三层名字，用户第一眼就懵。 #}
+
+<style>
+/* ---------- 阶段矩阵 ----------
+   行=项目、列=阶段，一格一个状态。这是装修公司老板早上打开要看的东西：
+   一屏看完所有在施项目到哪一步、哪个卡住了。
+   用 select 而不是自绘按钮：改状态是高频操作（一天十几次），
+   原生控件有键盘支持、有下拉反馈，比自己画一个「点一下循环切换」更明确。 */
+.pm-scroll { overflow-x: auto; }
+.pm-table { border-collapse: separate; border-spacing: 3px; width: 100%; min-width: 760px; }
+.pm-table th {
+  font-size: 12px; font-weight: 400; color: var(--text-muted);
+  text-align: center; padding: 6px 2px; white-space: nowrap;
+}
+.pm-table th.pm-name, .pm-table td.pm-name {
+  text-align: left; width: 190px; min-width: 190px; padding: 4px 10px 4px 12px;
+}
+.pm-table td { padding: 0; vertical-align: middle; }
+/* 四档语义色，全部走主题变量，浅色/深色自动跟随。
+   刻意不直接用 .state-done 那套：它把底色写死成 #e4f2ed，
+   深色主题下要靠另一条 !important 规则兜，跨文件改起来容易漏。
+   矩阵里的 select 和甘特图里的状态小标签共用这套，保证同一个状态同一个颜色。 */
+.pm-tone { border-width: 1px; border-style: solid; }
+.pm-tone.t-done   { background: var(--success-bg);  color: var(--success-ink);  border-color: var(--success-bg); }
+.pm-tone.t-active { background: var(--brand-light); color: var(--primary-text); border-color: var(--primary); font-weight: 500; }
+.pm-tone.t-watch  { background: var(--warning-bg);  color: var(--warning-ink);  border-color: var(--warning-bg); }
+.pm-tone.t-idle   { background: var(--gray-100);    color: var(--text-2);       border-color: var(--gray-200); }
+
+.pm-select {
+  width: 100%; font-size: 12px; line-height: 1.25;
+  padding: 6px 4px; border-radius: 6px;
+  text-align: center; text-align-last: center;
+  cursor: pointer; appearance: auto;
+  font-variant-numeric: tabular-nums;
+}
+.pm-chip {
+  display: inline-block; font-size: 11px; line-height: 1.5;
+  padding: 0 7px; border-radius: 5px; white-space: nowrap;
+}
+.pm-cell-empty {
+  display: block; text-align: center; font-size: 12px;
+  color: var(--text-3); padding: 6px 0;
+}
+.pm-tasks {
+  display: block; text-align: center; font-size: 11px;
+  color: var(--text-muted); margin-top: 1px;
+}
+
+/* ---------- 甘特图 ----------
+   .gantt-* 那套样式在 style.css 里已有，这里只补「阶段节」和「窗口提示」。
+   改版前甘特图跨 963 天画进 11786px，要横滚 12 屏；现在窗口收到 8 周，
+   一屏放得下，横滚只在窄屏下出现。 */
+.gantt-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.gantt-legend .lg { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); }
+.gantt-legend .lg i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+/* ---------- 甘特图的主题适配 ----------
+   style.css 里那套 .gantt-* 是写死浅色的：.gantt-label 背景 #fff、
+   .gantt-header #f7faf9、.gantt-section #f2faf7、网格线 #edf5f2。
+   而 basecamp.css:1378 还有一条 `.gantt-bar{background:var(--text)!important}`
+   把蓝色条刷成了正文色。浅色下看不出问题，深色下整块变成白底黑字、
+   条形白底白字——文字直接消失。
+   这套类只在本页用，所以在模板里覆盖即可，不动全局样式表。
+   !important 是必须的：basecamp 那条就是 !important，同权重压不住。 */
+.gantt-chart .gantt-row { border-bottom-color: var(--card-border); }
+.gantt-chart .gantt-label {
+  background: var(--surface); border-right-color: var(--card-border);
+  box-shadow: none; color: var(--text);
+}
+.gantt-chart .gantt-header { background: var(--surface-2); border-bottom-color: var(--card-border); }
+.gantt-chart .gantt-header .gantt-label { background: var(--surface-2); color: var(--text-2); }
+.gantt-chart .gantt-section { background: var(--surface-2); border-bottom-color: var(--card-border); color: var(--text); }
+.gantt-chart .gantt-section:hover { background: var(--gray-100); }
+.gantt-chart .gantt-section .gantt-label { background: inherit; }
+.gantt-chart .gantt-track {
+  background-image: repeating-linear-gradient(90deg, var(--gray-200) 0 1px, transparent 1px 90px);
+}
+/* 放大到「按天」时，网格线也要按天铺。90px 的固定网格在 24/36px 一天的
+   尺度上和刻度完全对不上，看着像画歪了。background-size 取一天宽、
+   渐变只画最左 1px，平铺出来就是每天一条竖线。 */
+.gantt-chart.zoom-day .gantt-track {
+  background-image: repeating-linear-gradient(90deg, var(--gray-200) 0 1px, transparent 1px 100%);
+  background-size: calc(100% / var(--gantt-days)) 100%;
+}
+.gantt-chart .gantt-axis-label { color: var(--text-2); }
+.gantt-chart .gantt-bar {
+  background: var(--primary) !important;
+  color: var(--on-accent) !important;
+  border-color: transparent; box-shadow: none;
+}
+/* 任务行的左栏要两行（任务名 + 负责人/状态）。.gantt-label 是 display:flex
+   且没有 flex-direction，默认 row —— 两行会并排挤成一行，
+   实测出现「演示-开槽布线刘工」这种黏连。阶段行的左栏仍要保持一行。 */
+.gantt-chart .gantt-item .gantt-label {
+  flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px;
+}
+.gantt-chart .gantt-item .gantt-label > .fw-semibold {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gantt-chart .gantt-section .gantt-label { gap: 6px; white-space: nowrap; }
+
+/* 左栏第一行：任务名 + 工期天数。
+   名字长了就截断，天数永远完整显示——「这条活干几天」是排期表的核心信息，
+   不该被省略号吃掉。天数由 `_task_days` 算好（含头含尾），不在这里做日期运算。 */
+.gantt-name-row { display: flex; align-items: baseline; gap: 6px; width: 100%; min-width: 0; }
+.gantt-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gantt-days { flex: none; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* 首个刻度改成左对齐，否则 translateX(-50%) 会把它切掉一半（见 _axis 注释） */
+.gantt-axis-label.edge-start { transform: translate(0, -50%); }
+/* 图上的一句提示要压在今天线之上，否则红线从字中间穿过去 */
+.gantt-hint {
+  position: absolute; left: 10px; top: 9px; z-index: 5;
+  background: var(--surface); border: 1px solid var(--card-border);
+  border-radius: 6px; padding: 2px 9px; font-size: 12px; color: var(--text-muted);
+}
+
+/* ---------- 任务行的编辑入口 ----------
+   改版前甘特图只能看不能改：要改一个任务的日期，得先切到「阶段看板」，
+   在那张「未完成任务」表里找到同一行再点编辑——看图和改图被拆进两个视图，
+   一件事要来回切。现在行上直接给入口，弹窗仍是同一个 #taskModal。
+
+   为什么是「悬停才出现的小铅笔」而不是常驻文字按钮：
+   左栏只有 210px，常驻一个「编辑」文字按钮要吃掉 40px，任务名会更早被
+   省略号截断。图标按钮只占 22px，且悬停才显形——静态时视觉上等于没有。
+   代价是左栏常驻预留 26px 空间（否则悬停时铅笔会压在任务名上），
+   210px 下任务名仍有约 170px ≈ 12 个汉字，实际任务名都在 6 字以内。
+   名字万一被截断，`title` 属性可悬停看全。
+   触屏没有 hover，用 @media (hover:none) 让它常驻——否则手机上这个功能
+   等于不存在。 */
+.gantt-chart .gantt-item .gantt-label { padding-right: 26px; }
+.gantt-edit {
+  position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+  width: 22px; height: 22px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; line-height: 1;
+  border: 1px solid transparent; border-radius: 4px;
+  background: var(--surface); color: var(--text-2);
+  opacity: 0; transition: opacity .12s, background-color .12s, color .12s;
+}
+.gantt-chart .gantt-item:hover .gantt-edit,
+.gantt-chart .gantt-item:focus-within .gantt-edit { opacity: 1; }
+.gantt-edit:hover,
+.gantt-edit:focus-visible {
+  background: var(--gray-100); color: var(--primary);
+  border-color: var(--card-border);
+}
+@media (hover: none) { .gantt-edit { opacity: 1; } }
+/* 条形本身也点得开。它才是图上最显眼的靶子，用户第一反应就是点它；
+   光标改成 pointer 让人知道能点（原来是 default，等于写着「别点我」）。
+   条形从 <div> 换成了 <button>：键盘能 Tab 到、回车能开弹窗，读屏会念
+   出任务名。但 button 自带 text-align:center 和 appearance，这里要压回去，
+   否则条形里的文字会居中、「泥瓦铺贴」跑偏，Safari 上还会带一圈内阴影。 */
+.gantt-chart .gantt-item .gantt-bar {
+  cursor: pointer;
+  text-align: left; appearance: none; -webkit-appearance: none;
+  font-family: inherit;
+}
+</style>
+
+<!-- 视图切换。两个视图各有明确职责：
+     阶段看板 = 状态（到哪一步了），甘特图 = 排期（什么时候干什么）。
+     改版前是三个（时间线 / 工期规划 / 看板），时间线和甘特图是同一份
+     数据的两种画法，看板则是矩阵的前身——合并后各剩一个。 -->
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+  <div class="btn-group btn-group-sm" role="group">
+    <a href="/gantt?view=matrix" class="btn {{ 'btn-primary' if view == 'matrix' else 'btn-outline-secondary' }}">
+      <i class="bi bi-grid-3x3-gap"></i> 阶段看板</a>
+    <a href="/gantt?view=gantt{% if gantt %}&project_id={{ gantt.project.id }}{% endif %}&range={{ range }}&zoom={{ zoom }}"
+       class="btn {{ 'btn-primary' if view == 'gantt' else 'btn-outline-secondary' }}">
+      <i class="bi bi-bar-chart-steps"></i> 甘特图</a>
+  </div>
+  <span class="text-muted small ms-1">今天 {{ today }}</span>
+  <button class="btn btn-sm btn-primary ms-auto" data-bs-toggle="modal" data-bs-target="#taskModal">
+    <i class="bi bi-plus-lg"></i> 新建任务</button>
+</div>
+
+{% if empty %}
+<div class="card"><div class="card-body empty-state">
+  <i class="bi bi-briefcase"></i>还没有在施项目。先到 <a href="/projects/new">项目管理</a> 建一个项目。
+</div></div>
+
+{% elif view == 'matrix' %}
+
+
+<!-- ============ 阶段看板 ============ -->
+<div class="card mb-3">
+  <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+    <span><i class="bi bi-grid-3x3-gap me-1"></i>施工进度</span>
+    <span class="text-muted small fw-normal">{{ matrix|length }} 个在施项目 · 点格子改状态</span>
+    <div class="ms-auto gantt-legend">
+      <span class="lg"><i style="background:var(--success-bg);border:1px solid var(--success-ink)"></i>已完成</span>
+      <span class="lg"><i style="background:var(--brand-light);border:1px solid var(--primary)"></i>进行中</span>
+      <span class="lg"><i style="background:var(--gray-100);border:1px solid var(--gray-200)"></i>未开始</span>
+    </div>
+  </div>
+  <div class="card-body p-2">
+    <div class="pm-scroll">
+      <table class="pm-table">
+        <thead>
+          <tr>
+            <th class="pm-name">项目</th>
+            {% for n in col_names %}<th>{{ n }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in matrix %}
+          <tr>
+            <td class="pm-name">
+              <a href="/projects/{{ row.project.id }}" class="fw-semibold">{{ row.project.name }}</a>
+              <div class="small text-muted">
+                {{ row.project.status }} · {{ row.done }}/{{ row.total }} 阶段
+                {% if row.overdue %}<span class="text-danger"> · 逾期 {{ row.overdue }} 天</span>{% endif %}
+              </div>
+            </td>
+            {% for c in row.cells %}
+            <td>
+              {% if c.missing %}
+              <span class="pm-cell-empty" title="该项目没有这个阶段">—</span>
+              {% else %}
+              <select class="pm-select pm-tone t-{{ c.tone }}" data-phase="{{ c.phase.id }}"
+                      data-project="{{ row.project.id }}" aria-label="{{ row.project.name }} {{ c.name }}">
+                {% for s in phase_status %}
+                <option value="{{ s }}" {{ 'selected' if s == c.status else '' }}>{{ s }}</option>
+                {% endfor %}
+              </select>
+              {% if c.tasks %}
+              <span class="pm-tasks" title="{% for t in c.tasks %}{{ t.name }}{{ '、' if not loop.last }}{% endfor %}">{{ c.tasks|length }} 项</span>
+              {% endif %}
+              {% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 近期交货节点。
+     合同节点不再进主时间线：contract_milestones 的名字是合同 OCR 出来的
+     自由文本（实测 33 条里 17 条都叫「交货期限」），当时间线主数据只能
+     制造噪音。但只筛「交货」类、限定近端窗口，它就是真正卡施工的那件事——
+     材料不到，工人就窝工。 -->
+<div class="card mb-3">
+  <div class="card-header d-flex align-items-center gap-2">
+    <span><i class="bi bi-truck me-1"></i>近期交货节点</span>
+    <span class="text-muted small fw-normal">采购合同里「交货」类节点，前后 30 / 14 天</span>
+  </div>
+  <div class="card-body py-2">
+    {% if deliveries %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr>
+          <th style="width:150px">日期</th><th>合同</th><th>供应商</th>
+          <th style="width:130px">项目</th><th style="width:110px">节点</th>
+        </tr></thead>
+        <tbody>
+          {% for d in deliveries %}
+          <tr>
+            <td class="text-nowrap">
+              {{ d.date }}
+              {% if d.days < 0 %}
+              <span class="badge state-badge state-alert ms-1">逾期 {{ -d.days }} 天</span>
+              {% elif d.days == 0 %}
+              <span class="badge state-badge state-watch ms-1">今天</span>
+              {% else %}
+              <span class="text-muted small ms-1">{{ d.days }} 天后</span>
+              {% endif %}
+            </td>
+            <td><a href="/contracts/{{ d.contract_id }}">{{ d.name }}</a></td>
+            <td class="text-muted small">{{ d.supplier or '—' }}</td>
+            <td class="text-muted small">{{ d.project or '未分配' }}</td>
+            <td class="text-muted small text-truncate" style="max-width:160px" title="{{ d.node }}">{{ d.node }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-muted small py-2">
+      <i class="bi bi-check2-circle me-1"></i>近 30 天内没有逾期的交货节点，未来 14 天也没有待到的货。
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 未完成任务。矩阵只回答「到哪一步了」，回答不了「要干什么」——
+     这一块补上。只列未完成的，完成的留在甘特图里查。 -->
+<div class="card">
+  <div class="card-header d-flex align-items-center gap-2">
+    <span><i class="bi bi-list-check me-1"></i>未完成任务</span>
+    <span class="badge state-badge state-idle">{{ open_tasks|length }}</span>
+    <button class="btn btn-sm btn-outline-primary ms-auto" data-bs-toggle="modal" data-bs-target="#taskModal">
+      <i class="bi bi-plus-lg"></i> 新建</button>
+  </div>
+  <div class="card-body py-2">
+    {% if open_tasks %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr>
+          <th>任务</th><th style="width:200px">项目 / 阶段</th>
+          <th style="width:170px">起止</th><th style="width:100px">负责人</th>
+          <th style="width:120px">状态</th><th style="width:110px">操作</th>
+        </tr></thead>
+        <tbody>
+          {% for t in open_tasks %}
+          <tr>
+            <td>
+              {{ t.name }}
+              {% if t.note %}<i class="bi bi-info-circle text-muted ms-1" title="{{ t.note }}"></i>{% endif %}
+            </td>
+            <td class="small text-muted">
+              {{ t.project.name if t.project else '未分配' }}
+              {% if t.phase %}<span class="text-3">/ {{ t.phase.name }}</span>{% else %}<span class="text-3">/ 未排期</span>{% endif %}
+            </td>
+            <td class="small text-nowrap">
+              {{ t.start_date or '—' }}{% if t.end_date and t.end_date != t.start_date %} ~ {{ t.end_date }}{% endif %}
+            </td>
+            <td class="small text-muted">{{ t.assignee or '—' }}</td>
+            <td>
+              <form method="post" action="/gantt/tasks/{{ t.id }}/status" class="m-0">
+                <input type="hidden" name="back" value="/gantt?view=matrix">
+                <select name="status" class="form-select form-select-sm py-0" style="font-size:12px"
+                        onchange="this.form.submit()" aria-label="任务状态">
+                  {% for s in phase_status %}
+                  <option value="{{ s }}" {{ 'selected' if s == t.status else '' }}>{{ s }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+            </td>
+            <td class="text-nowrap">
+              <button class="btn btn-link btn-sm p-0 text-primary" data-bs-toggle="modal"
+                      data-bs-target="#taskModal" data-task="{{ t.id }}"
+                      data-name="{{ t.name }}" data-start="{{ t.start_date or '' }}"
+                      data-end="{{ t.end_date or '' }}" data-assignee="{{ t.assignee or '' }}"
+                      data-project="{{ t.project_id or 0 }}" data-phase="{{ t.phase_id or 0 }}"
+                      data-note="{{ t.note or '' }}">编辑</button>
+              <form method="post" action="/gantt/tasks/{{ t.id }}/delete" class="d-inline ms-2"
+                    onsubmit="return confirm('删除任务「{{ t.name }}」？');">
+                <button class="btn btn-link btn-sm p-0 text-danger">删除</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-muted small py-2">没有未完成的任务。</div>
+    {% endif %}
+  </div>
+</div>
+
+{% else %}
+
+<!-- ============ 甘特图 ============ -->
+{% if not gantt %}
+<div class="card"><div class="card-body empty-state">
+  <i class="bi bi-bar-chart-steps"></i>还没有可排期的项目。
+</div></div>
+{% else %}
+<div class="card">
+  <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+    <span><i class="bi bi-bar-chart-steps me-1"></i>{{ gantt.project.name }}</span>
+    <span class="text-muted small fw-normal">
+      {{ gantt.start }} ~ {{ gantt.end }}（{{ gantt.total_days }} 天）
+    </span>
+    <div class="ms-auto d-flex gap-2 align-items-center">
+      {# 项目切换：甘特图一次只看一个项目。改版前把 3 个项目 48 份合同
+         塞进一张 963 天的图里，条子细到 0px——尺子拿错了，不是用户不会用。 #}
+      <select class="form-select form-select-sm" style="width:190px" aria-label="选择项目"
+              onchange="location.href='/gantt?view=gantt&range={{ range }}&zoom={{ zoom }}&project_id=' + this.value">
+        {% for p in projects %}
+        <option value="{{ p.id }}" {{ 'selected' if p.id == gantt.project.id else '' }}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+      {# 时间窗。默认 8 周：装修项目通常 2-4 个月，8 周正好一屏。
+         「全部」不是回到改版前的 963 天，而是按项目工期，且上限 26 周。 #}
+      <select class="form-select form-select-sm" style="width:120px" aria-label="时间范围"
+              onchange="location.href='/gantt?view=gantt&project_id={{ gantt.project.id }}&zoom={{ zoom }}&range=' + this.value">
+        <option value="4w" {{ 'selected' if range == '4w' else '' }}>近 4 周</option>
+        <option value="8w" {{ 'selected' if range == '8w' else '' }}>近 8 周</option>
+        <option value="12w" {{ 'selected' if range == '12w' else '' }}>近 12 周</option>
+      </select>
+      {# 缩放：范围决定「看多远」，缩放决定「一天画多宽」。
+         100% 时轨道正好铺满卡片；放大后横向滚动，刻度从每周一个换成每天一个。
+         用 −/＋ 而不是放大镜图标：16px 下 zoom-in / zoom-out 几乎分不出来。 #}
+      <div class="btn-group btn-group-sm" role="group" aria-label="时间轴缩放">
+        {% if zoom_prev %}
+        <a class="btn btn-outline-secondary px-2"
+           href="/gantt?view=gantt&project_id={{ gantt.project.id }}&range={{ range }}&zoom={{ zoom_prev }}"
+           title="缩小时间轴（看得更远）" aria-label="缩小时间轴"><i class="bi bi-dash-lg"></i></a>
+        {% else %}
+        <span class="btn btn-outline-secondary px-2 disabled" aria-disabled="true"
+              title="已经是一屏宽，不能再缩小"><i class="bi bi-dash-lg"></i></span>
+        {% endif %}
+        <span class="btn btn-outline-secondary disabled gantt-zoom-val px-2"
+              title="时间轴宽度（相对一屏）">{{ zoom }}%</span>
+        {% if zoom_next %}
+        <a class="btn btn-outline-secondary px-2"
+           href="/gantt?view=gantt&project_id={{ gantt.project.id }}&range={{ range }}&zoom={{ zoom_next }}"
+           title="放大时间轴（看清每一天）" aria-label="放大时间轴"><i class="bi bi-plus-lg"></i></a>
+        {% else %}
+        <span class="btn btn-outline-secondary px-2 disabled" aria-disabled="true"
+              title="已经是最大"><i class="bi bi-plus-lg"></i></span>
+        {% endif %}
+      </div>
+      <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#taskModal"
+              data-project-preset="{{ gantt.project.id }}">
+        <i class="bi bi-plus-lg"></i> 新建任务</button>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="gantt-scroll">
+      <div class="gantt-chart{{ ' zoom-day' if gantt.zoom > 100 }}" id="ganttChart" data-start="{{ gantt.start }}"
+           data-total="{{ gantt.total_days }}"
+           style="min-width:{{ gantt.min_css }};--gantt-days:{{ gantt.total_days }};position:relative">
+        <div class="gantt-row gantt-header">
+          <div class="gantt-label"><span class="text-muted small">阶段 / 任务</span>
+            <span class="text-muted small ms-auto" title="每条任务的工期（含开始和结束当天）">工期</span></div>
+          <div class="gantt-track">
+            {% for a in gantt.axis %}
+            <span class="gantt-axis-label {{ a.edge }}" style="left:{{ a.pct }}%">{{ a.label }}</span>
+            {% endfor %}
+            <div class="gantt-today" style="left:{{ gantt.today_pct }}%" title="今天 {{ today }}"></div>
+          </div>
+        </div>
+
+        {# 一条任务都没有时，光有 7 个空阶段行会让人以为页面坏了。
+           这里明说一句，并给出下一步动作。 #}
+        {% if gantt.task_total == 0 %}
+        <div class="gantt-row gantt-item">
+          <div class="gantt-label">
+            <span class="text-muted small">提示</span>
+          </div>
+          <div class="gantt-track">
+            <span class="gantt-hint">
+              这个项目还没有排期任务。阶段状态可以在这里看；要在图上排出时间，点右上角「新建任务」并选到这个项目。
+            </span>
+            <div class="gantt-today" style="left:{{ gantt.today_pct }}%" title="今天 {{ today }}"></div>
+          </div>
+        </div>
+        {% endif %}
+
+        {% for sec in gantt.sections %}
+        {% set secIdx = loop.index0 %}
+        <div class="gantt-section" data-group-toggle data-group="sec-{{ secIdx }}">
+          <div class="gantt-label">
+            <i class="bi bi-chevron-down group-caret"></i>
+            {{ sec.phase.name }}
+            <span class="pm-chip pm-tone t-{{ sec.tone }} ms-1">{{ sec.status }}</span>
+            {% if sec.count %}<span class="text-muted small fw-normal">{{ sec.count }} 项</span>{% endif %}
+          </div>
+          <div class="gantt-track">
+            <div class="gantt-today" style="left:{{ gantt.today_pct }}%" title="今天 {{ today }}"></div>
+          </div>
+        </div>
+        {% for it in sec.rows %}
+        <div class="gantt-row gantt-item" data-group="sec-{{ secIdx }}">
+          <div class="gantt-label">
+            <div class="gantt-name-row">
+              <span class="gantt-name fw-semibold" title="{{ it.task.name }}">{{ it.task.name }}</span>
+              {% if it.days %}<span class="gantt-days" title="工期 {{ it.days }} 天（含开始和结束当天）">{{ it.days }} 天</span>{% endif %}
+            </div>
+            <div class="small text-muted">
+              {{ it.task.assignee or '未指派' }}
+              {% if it.task.status %}<span class="pm-chip pm-tone t-{{ state_tone(it.task.status) }}">{{ it.task.status }}</span>{% endif %}
+            </div>
+            {# 左栏的编辑入口。图标按钮，悬停/聚焦才出现（见样式段注释）。
+               不用 <a href>：这里没有独立的任务详情页，编辑就是开弹窗。 #}
+            <button type="button" class="gantt-edit" {{ task_edit_attrs(it.task) }}
+                    title="编辑任务「{{ it.task.name }}」" aria-label="编辑任务 {{ it.task.name }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+          </div>
+          <div class="gantt-track">
+            {% if it.bar %}
+            {# 条形也能点开编辑：它是图上最大的靶子，用户第一反应就是点条子。
+               用 button 而不是给 div 绑 onclick —— 键盘能 Tab 到、能回车打开，
+               读屏也会念出「编辑任务 X」。 #}
+            <button type="button" class="gantt-bar" {{ task_edit_attrs(it.task) }}
+                    style="left:{{ it.bar.left }}%;width:{{ it.bar.width }}%"
+                    title="{{ it.task.name }}：{{ it.task.start_date }} ~ {{ it.task.end_date or it.task.start_date }} · 共 {{ it.days }} 天{% if it.task.assignee %}（{{ it.task.assignee }}）{% endif %}{% if it.task.note %}｜{{ it.task.note }}{% endif %}">{{ it.task.name }}</button>
+            {% else %}
+            <span class="small text-muted" style="position:absolute;left:8px;top:14px">不在当前时间窗内</span>
+            {% endif %}
+            <div class="gantt-today" style="left:{{ gantt.today_pct }}%" title="今天 {{ today }}"></div>
+          </div>
+        </div>
+        {% endfor %}
+        {% endfor %}
+
+        {% if gantt.loose %}
+        <div class="gantt-section" data-group-toggle data-group="sec-loose">
+          <div class="gantt-label">
+            <i class="bi bi-chevron-down group-caret"></i>未排期任务
+            <span class="text-muted small fw-normal">{{ gantt.loose|length }} 项</span>
+          </div>
+          <div class="gantt-track">
+            <div class="gantt-today" style="left:{{ gantt.today_pct }}%" title="今天 {{ today }}"></div>
+          </div>
+        </div>
+        {% for it in gantt.loose %}
+        <div class="gantt-row gantt-item" data-group="sec-loose">
+          <div class="gantt-label">
+            <div class="gantt-name-row">
+              <span class="gantt-name fw-semibold" title="{{ it.task.name }}">{{ it.task.name }}</span>
+              {% if it.days %}<span class="gantt-days" title="工期 {{ it.days }} 天（含开始和结束当天）">{{ it.days }} 天</span>{% endif %}
+            </div>
+            <div class="small text-muted">{{ it.task.assignee or '未指派' }}</div>
+            {# 未排期任务更需要这个入口：它们的日期是空的或者错了，
+               所以才掉进这一节——这里恰恰是最该马上改的地方。 #}
+            <button type="button" class="gantt-edit" {{ task_edit_attrs(it.task) }}
+                    title="编辑任务「{{ it.task.name }}」" aria-label="编辑任务 {{ it.task.name }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+          </div>
+          <div class="gantt-track">
+            {% if it.bar %}
+            <button type="button" class="gantt-bar" {{ task_edit_attrs(it.task) }}
+                    style="left:{{ it.bar.left }}%;width:{{ it.bar.width }}%"
+                    title="{{ it.task.name }}">{{ it.task.name }}</button>
+            {% else %}
+            <span class="small text-muted" style="position:absolute;left:8px;top:14px">不在当前时间窗内</span>
+            {% endif %}
+            <div class="gantt-today" style="left:{{ gantt.today_pct }}%"></div>
+          </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+
+        {% if gantt.nodes %}
+        <div class="gantt-section" data-group-toggle data-group="sec-nodes">
+          <div class="gantt-label">
+            <i class="bi bi-chevron-down group-caret"></i>合同交货 / 验收节点
+            <span class="text-muted small fw-normal">{{ gantt.nodes|length }} 个</span>
+          </div>
+          <div class="gantt-track">
+            <div class="gantt-today" style="left:{{ gantt.today_pct }}%" title="今天 {{ today }}"></div>
+          </div>
+        </div>
+        <div class="gantt-row gantt-item" data-group="sec-nodes">
+          <div class="gantt-label">
+            <span class="fw-semibold">全部节点</span>
+            <div class="small text-muted">悬停看合同与日期</div>
+          </div>
+          <div class="gantt-track">
+            {% for n in gantt.nodes %}
+            <div class="gantt-node" style="left:{{ n.pct }}%;color:{{ n.color }}"
+                 title="{{ n.contract }} · {{ n.name }}：{{ n.date }}"></div>
+            {% endfor %}
+            <div class="gantt-today" style="left:{{ gantt.today_pct }}%" title="今天 {{ today }}"></div>
+          </div>
+        </div>
+        {% endif %}
+
+        {# 没挂项目的任务不属于任何一张单项目甘特图，画不到时间轴上——
+           但它们恰恰是最需要编辑的：日期和负责人都可能已经错了，校正的
+           第一步是把它挂到一个项目上。改版前这里只有一句「去阶段看板认领」，
+           等于把 edit 入口又推回另一个视图，和这次要解决的问题是同一个。
+           所以直接列成可编辑的行：能改，也能顺手把项目补上。 #}
+        {% if orphans %}
+        <div class="gantt-section" data-group-toggle data-group="sec-orphans">
+          <div class="gantt-label">
+            <i class="bi bi-chevron-down group-caret"></i>未挂项目
+            <span class="text-muted small fw-normal">{{ orphan_rows|length }} 项</span>
+          </div>
+          <div class="gantt-track">
+            <div class="gantt-today" style="left:{{ gantt.today_pct }}%" title="今天 {{ today }}"></div>
+          </div>
+        </div>
+        {% for row in orphan_rows %}
+        {% set t = row.task %}
+        <div class="gantt-row gantt-item" data-group="sec-orphans">
+          <div class="gantt-label">
+            <div class="gantt-name-row">
+              <span class="gantt-name fw-semibold" title="{{ t.name }}">{{ t.name }}</span>
+              {% if row.days %}<span class="gantt-days" title="工期 {{ row.days }} 天（含开始和结束当天）">{{ row.days }} 天</span>{% endif %}
+            </div>
+            <div class="small text-muted">{{ t.assignee or '未指派' }}</div>
+            <button type="button" class="gantt-edit" {{ task_edit_attrs(t) }}
+                    title="编辑任务「{{ t.name }}」" aria-label="编辑任务 {{ t.name }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+          </div>
+          <div class="gantt-track">
+            <span class="gantt-hint">
+              没挂项目，排不进时间轴。点左边铅笔把它挂到项目上。
+            </span>
+            <div class="gantt-today" style="left:{{ gantt.today_pct }}%" title="今天 {{ today }}"></div>
+          </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="card-footer d-flex flex-wrap gap-3 align-items-center">
+    <div class="gantt-legend">
+      {% for kind, color in colors.items() %}
+      <span class="lg"><i style="background:{{ color }}"></i>{{ kind }}</span>
+      {% endfor %}
+    </div>
+    <span class="lg ms-auto"><i style="background:#ef4444"></i>今天</span>
+    <span class="text-muted small">
+      {% if gantt.task_total == 0 %}
+      还没有排期任务
+      {% elif gantt.outside %}
+      另有 {{ gantt.outside }} 项任务在当前时间窗外
+      {% else %}
+      全部 {{ gantt.task_total }} 项任务都在窗口内
+      {% endif %}
+    </span>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
+<!-- ============ 任务弹窗（新建 / 编辑共用） ============
+     改版前是常驻在页面顶部的一张卡，占 130px 首屏，而且三个模式各占一遍。
+     收进弹窗后首屏全给了数据。共用同一个弹窗也顺手把「编辑」从
+     「每个任务一个 modal」的写法里救出来——原时间线模式渲染了 48 个 modal。 -->
+<div class="modal fade" id="taskModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="/gantt/tasks" id="taskForm">
+        <div class="modal-header">
+          <h6 class="modal-title" id="taskModalTitle">新建任务</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="back" value="/gantt?view={{ view }}">
+          <div class="mb-2">
+            <label class="form-label small mb-1">任务名称 <span class="text-danger">*</span></label>
+            <input type="text" name="name" id="tmName" class="form-control form-control-sm" required>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small mb-1">项目</label>
+              <select name="project_id" id="tmProject" class="form-select form-select-sm">
+                <option value="0">— 未分配 —</option>
+                {% for p in projects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-1">施工阶段</label>
+              <select name="phase_id" id="tmPhase" class="form-select form-select-sm">
+                <option value="0">— 未排期 —</option>
+                {% for p in projects %}
+                {% for ph in phase_map[p.id] %}
+                <option value="{{ ph.id }}" data-project="{{ p.id }}">{{ ph.name }}</option>
+                {% endfor %}
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small mb-1">开始日期 <span class="text-danger">*</span></label>
+              <input type="date" name="start_date" id="tmStart" class="form-control form-control-sm" required value="{{ today }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-1">结束日期</label>
+              <input type="date" name="end_date" id="tmEnd" class="form-control form-control-sm">
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-1">负责人</label>
+            {# 改成从人员名册下拉选，不再自由输入。
+               自由输入让同一个师傅分裂成「刘工」「刘师傅」「老刘」三种写法，
+               按人筛选和统计全部失效（实测生产库任务里就是「刘工」「小周」两套写法）。 #}
+            {{ staff_select('assignee', staffs, '', empty_label='— 未指派 —',
+                            include_inactive=True, placeholder='负责人', el_id='tmAssignee') }}
+            <div class="form-text">人员不在列表里？到 <a href="/staff" target="_blank">公司人员</a> 添加。</div>
+          </div>
+          <div>
+            <label class="form-label small mb-1">备注</label>
+            <input type="text" name="note" id="tmNote" class="form-control form-control-sm">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+          <button class="btn btn-primary btn-sm" id="tmSubmit">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="gantt-tooltip" id="ganttTooltip"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  // ---------- 矩阵：点格子改状态 ----------
+  // 走 fetch 就地换色，不整页刷新。改状态是高频操作，每次刷新都要
+  // 重新滚动到原来那一行，一天下来很烦。
+  document.querySelectorAll('.pm-select').forEach(function (sel) {
+    sel.addEventListener('change', function () {
+      var prev = sel.getAttribute('data-prev-tone') || sel.className.match(/t-(\w+)/)[1];
+      var body = new URLSearchParams();
+      body.set('status', sel.value);
+      sel.disabled = true;
+      fetch('/gantt/phases/' + sel.getAttribute('data-phase') + '/status', {
+        method: 'POST', body: body,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      }).then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.ok) throw new Error(d.error || '保存失败');
+          sel.className = sel.className.replace(/t-\w+/, 't-' + d.tone);
+          sel.setAttribute('data-prev-tone', d.tone);
+          sel.disabled = false;
+        })
+        .catch(function () {
+          // 失败就把界面退回原值：显示改了但库里没改是最坏的情况
+          sel.value = prev === 'done' ? '已完成' : prev === 'active' ? '进行中' : '未开始';
+          sel.disabled = false;
+          alert('状态没保存上，请刷新后重试。');
+        });
+    });
+    sel.setAttribute('data-prev-tone', (sel.className.match(/t-(\w+)/) || [])[1] || 'idle');
+  });
+
+  // ---------- 任务弹窗：新建 / 编辑共用 ----------
+  var modal = document.getElementById('taskModal');
+  if (!modal) return;
+  var form = document.getElementById('taskForm');
+  var title = document.getElementById('taskModalTitle');
+  var fProject = document.getElementById('tmProject');
+  var fPhase = document.getElementById('tmPhase');
+
+  // 阶段下拉按项目过滤：选了项目就只剩这个项目的阶段。
+  // 不做过滤的话，3 个项目 9 个阶段全列在一起，用户会把「泥木」挂到
+  // 另一个项目的「泥瓦」下面——数据就这么脏的。
+  function syncPhaseOptions() {
+    var pid = fProject.value;
+    var firstVisible = null;
+    Array.prototype.forEach.call(fPhase.options, function (o) {
+      if (!o.value || o.value === '0') return;      // 「未排期」永远在
+      var match = o.getAttribute('data-project') === pid;
+      o.hidden = !match;
+      o.disabled = !match;
+      if (match && firstVisible === null) firstVisible = o;
+    });
+    if (fPhase.selectedOptions.length && fPhase.selectedOptions[0].disabled) {
+      fPhase.value = '0';
+    }
+  }
+  fProject.addEventListener('change', syncPhaseOptions);
+
+  // 显示 / 隐藏「已停用」的人员选项。
+  //
+  // 为什么需要这个：负责人下拉里带了已停用的人（否则老任务的负责人一保存就丢），
+  // 但**新建**任务时不该能选到一个已经离职的人——那是纯误操作。
+  // 所以新建时把它们藏起来，编辑时才放出来。
+  function showInactiveStaff(show) {
+    var sel = document.getElementById('tmAssignee');
+    if (!sel) return;
+    Array.prototype.forEach.call(sel.options, function (o) {
+      if (o.getAttribute('data-inactive') === '1') {
+        o.hidden = !show;
+        o.disabled = !show;
+      }
+    });
+  }
+
+  modal.addEventListener('show.bs.modal', function (ev) {
+    var btn = ev.relatedTarget;
+    var id = btn && btn.getAttribute('data-task');
+    if (id) {
+      // 编辑
+      title.textContent = '编辑任务';
+      form.setAttribute('action', '/gantt/tasks/' + id + '/edit');
+      document.getElementById('tmName').value = btn.getAttribute('data-name') || '';
+      document.getElementById('tmStart').value = btn.getAttribute('data-start') || '';
+      document.getElementById('tmEnd').value = btn.getAttribute('data-end') || '';
+      document.getElementById('tmNote').value = btn.getAttribute('data-note') || '';
+      // 先放开已停用的人，再赋值——顺序反了会赋不上：
+      // 那个 option 还是 disabled 状态时，select.value = 名字 会被忽略。
+      showInactiveStaff(true);
+      document.getElementById('tmAssignee').value = btn.getAttribute('data-assignee') || '';
+      fProject.value = btn.getAttribute('data-project') || '0';
+      syncPhaseOptions();
+      fPhase.value = btn.getAttribute('data-phase') || '0';
+    } else {
+      // 新建
+      title.textContent = '新建任务';
+      form.setAttribute('action', '/gantt/tasks');
+      form.reset();
+      document.getElementById('tmStart').value = '{{ today }}';
+      var preset = btn && btn.getAttribute('data-project-preset');
+      fProject.value = preset || '0';
+      // 新建时不列离职的人：派活给一个已经走了的人是纯粹的误操作。
+      showInactiveStaff(false);
+      syncPhaseOptions();
+      fPhase.value = '0';
+    }
+  });
+  syncPhaseOptions();
+
+  // ---------- 甘特图：折叠分组 + 日期提示 ----------
+  document.querySelectorAll('[data-group-toggle]').forEach(function (sec) {
+    sec.addEventListener('click', function () {
+      var gid = sec.getAttribute('data-group');
+      var collapsed = sec.classList.toggle('collapsed');
+      document.querySelectorAll('.gantt-item[data-group="' + gid + '"]').forEach(function (it) {
+        it.style.display = collapsed ? 'none' : '';
+      });
+    });
+  });
+
+  var chart = document.getElementById('ganttChart');
+  var tip = document.getElementById('ganttTooltip');
+  if (chart && tip) {
+    chart.appendChild(tip);
+    var startStr = chart.getAttribute('data-start') || '';
+    var total = parseInt(chart.getAttribute('data-total') || '0', 10);
+    if (startStr && total) {
+      chart.addEventListener('mousemove', function (e) {
+        var track = chart.querySelector('.gantt-track');
+        if (!track) return;
+        var rect = track.getBoundingClientRect();
+        var x = e.clientX - rect.left;
+        if (x < 0 || x > rect.width) { tip.style.display = 'none'; return; }
+        var dayIdx = Math.max(0, Math.min(total - 1, Math.floor(x / rect.width * total)));
+        var d = new Date(startStr);
+        d.setDate(d.getDate() + dayIdx);
+        var y = d.getFullYear();
+        var mo = String(d.getMonth() + 1).padStart(2, '0');
+        var da = String(d.getDate()).padStart(2, '0');
+        tip.textContent = y + '-' + mo + '-' + da + ' 周' + '日一二三四五六'[d.getDay()];
+        var crect = chart.getBoundingClientRect();
+        tip.style.left = (e.clientX - crect.left + 14) + 'px';
+        tip.style.top = '0px';
+        tip.style.display = 'block';
+      });
+      chart.addEventListener('mouseleave', function () { tip.style.display = 'none'; });
+    }
+  }
+})();
+</script>
+{% endblock %}

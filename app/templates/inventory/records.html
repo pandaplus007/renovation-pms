@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}库存流水{% endblock %}
+{% block page_title %}库存流水{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <form class="search-row" method="get">
+    <select name="material_id" class="form-select" style="width:220px">
+      <option value="0">全部材料</option>
+      {% for m in materials %}
+      <option value="{{ m.id }}" {{ 'selected' if material_id == m.id else '' }}>{{ m.name }} {{ m.spec }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-outline-primary"><i class="bi bi-funnel"></i> 筛选</button>
+  </form>
+  <a href="/inventory" class="btn btn-outline-secondary">返回库存总览</a>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 table-card">
+      <thead><tr>
+        <th>时间</th><th>材料</th><th>类型</th><th>数量</th><th>项目</th><th>备注</th><th>操作</th>
+      </tr></thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td class="small">{{ r.occurred_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td><a href="/materials/{{ r.material_id }}">{{ r.material.name }}</a></td>
+          <td><span class="badge {{ r.record_type | state_badge }}">{{ r.record_type }}</span></td>
+          <td class="text-money">{{ r.quantity }} {{ r.material.unit }}</td>
+          <td class="small">{{ r.project.name if r.project else '—' }}</td>
+          <td class="small text-muted">{{ r.note or '' }}</td>
+          <td>
+            <form method="post" action="/inventory/records/{{ r.id }}/delete" onsubmit="return confirm('删除该流水将影响库存统计，确定？');">
+              <button class="btn btn-sm btn-outline-danger">删</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">暂无流水记录</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% block title %}报价单{% endblock %}
+{% block page_title %}报价单（签单漏斗）{% endblock %}
+{% block content %}
+
+<div class="page-head no-print">
+  <div class="search-row">
+    <a href="/quotes" class="btn btn-sm {{ 'btn-primary' if not status else 'btn-outline-secondary' }}">全部</a>
+    {% for s in statuses %}
+    <a href="/quotes?status={{ s }}" class="btn btn-sm {{ 'btn-primary' if status == s else 'btn-outline-secondary' }}">
+      {{ s }}{% if counts.get(s) %} <span class="badge text-bg-secondary">{{ counts[s] }}</span>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  <div class="d-flex gap-2">
+    <a href="/quotes/new" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> 新增报价</a>
+    <a href="/quotes/export" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> 导出</a>
+    <button class="btn btn-sm btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer"></i> 打印</button>
+  </div>
+</div>
+
+{# ---------- 漏斗核心 ---------- #}
+{% if f.quoted_count or f.draft %}
+<div class="row g-2 mb-3">
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="text-muted small">签单率（按金额）</div>
+      <div class="fs-3 fw-bold {{ 'text-success' if f.win_rate_amt >= 30 else ('text-warning' if f.win_rate_amt else '') }}">
+        {{ f.win_rate_amt }}%
+      </div>
+      <div class="small text-muted">成交 {{ f.won_amount|money }} / 报出 {{ f.quoted_amount|money }}</div>
+    </div></div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="text-muted small">签单率（按笔数）</div>
+      <div class="fs-3 fw-bold">{{ f.win_rate_cnt }}%</div>
+      <div class="small text-muted">成交 {{ f.won_count }} / 报出 {{ f.quoted_count }} 笔（含流失 {{ f.lost_count }}）</div>
+    </div></div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="text-muted small">平均报价</div>
+      <div class="fs-3 fw-bold">{{ f.avg_quote|money }}</div>
+      <div class="small text-muted">成交单平均 <strong>{{ f.avg_won|money }}</strong></div>
+    </div></div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="text-muted small">洽谈中</div>
+      <div class="fs-3 fw-bold {{ 'text-warning' if f.talking_count else 'text-muted' }}">{{ f.talking_count }}</div>
+      <div class="small text-muted">
+        流失 {{ f.lost_count }} 笔{% if f.draft %}　草稿 {{ f.draft }} 笔{% endif %}
+      </div>
+    </div></div>
+  </div>
+</div>
+{% endif %}
+
+{# ---------- 漏斗可视化 + 流失原因 ---------- #}
+{# 漏斗与流失原因整块常驻：这两个是「为什么要录报价」的全部理由，
+   报价单为 0 时才用占位说明。不做成条件块，否则漏斗功能在数据攒起来之前
+   一直看不见，用户会以为没这个功能。 #}
+<div class="row g-3 mb-3">
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header py-2"><i class="bi bi-funnel me-1"></i>签单漏斗</div>
+      <div class="card-body py-3">
+        {% set stages = [
+          ('报出', f.quoted_count, f.quoted_amount, 'secondary'),
+          ('成交', f.won_count, f.won_amount, 'success'),
+          ('洽谈中', f.talking_count, 0, 'warning'),
+          ('流失', f.lost_count, f.lost_amount, 'danger')
+        ] %}
+        {% for label, cnt, amt, color in stages %}
+        {% if cnt %}
+        <div class="mb-2">
+          <div class="d-flex justify-content-between small">
+            <span>{{ label }}</span>
+            <span class="text-muted">{{ cnt }} 笔{% if amt %} · {{ amt|money }}{% endif %}</span>
+          </div>
+          <div class="progress" style="height:18px">
+            <div class="progress-bar bg-{{ color }}"
+                 style="width:{{ (cnt / f.quoted_count * 100)|round(1) if f.quoted_count else 0 }}%">
+              {{ (cnt / f.quoted_count * 100)|round(0)|int }}%
+            </div>
+          </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% if not f.quoted_count %}
+        <div class="text-center text-muted py-4">
+          还没有报出的报价单<br>
+          <span class="small">录一条报价（哪怕状态是「草稿」），这里就会开始统计</span>
+        </div>
+        {% endif %}
+        <div class="small text-muted mt-2">
+          分母是<strong>所有报出的单子</strong>（含洽谈中与已流失）。
+          把流失的排除在外，签单率会虚高——报 5 单成 3 单丢 2 单，
+          按 3/5 是 60%，按 3/3 就成了 100%，没法用来判断该不该涨价。
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header py-2"><i class="bi bi-x-circle me-1"></i>流失原因</div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0 table-card">
+          <thead><tr><th>原因</th><th style="width:70px" class="text-end">笔数</th><th style="width:120px" class="text-end">金额</th></tr></thead>
+          <tbody>
+          {% for r in f.reasons %}
+            <tr>
+              <td>{{ r.reason }}</td>
+              <td class="text-end text-muted">{{ r.count }}</td>
+              <td class="text-end text-money">{{ r.amount|money }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="3" class="text-center text-muted py-4">
+              还没有流失记录<br><span class="small">报价单标记「已流失」时填写原因，这里会统计分布</span>
+            </td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ---------- 报价清单 ---------- #}
+<div class="card mb-3">
+  <div class="card-header py-2">
+    <i class="bi bi-table me-1"></i>报价清单
+    <span class="small text-muted ms-1">共 {{ rows|length }} 条</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 table-card">
+      <thead><tr>
+        <th>客户 / 报价单</th>
+        <th style="width:110px">小区 / 楼盘</th>
+        <th style="width:70px" class="text-end">面积</th>
+        <th style="width:70px">类型</th>
+        <th style="width:100px" class="text-end">综合单价</th>
+        <th style="width:120px" class="text-end">报价总额</th>
+        <th style="width:90px">状态</th>
+        <th style="width:100px">报价日期</th>
+        <th style="width:90px">有效期</th>
+        <th style="width:110px" class="no-print">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>
+            <a href="/quotes/{{ r.id }}" class="fw-semibold text-decoration-none">{{ r.customer_name }}</a>
+            <div class="small text-muted">{{ r.title }}{% if r.no %} · {{ r.no }}{% endif %}</div>
+          </td>
+          <td class="small">{{ r.community or '—' }}</td>
+          <td class="text-end text-muted">{{ r.area or '—' }}</td>
+          <td class="small">{{ r.requirement_type or '—' }}</td>
+          <td class="text-end text-muted text-nowrap">
+            {% if r.unit_price %}{{ r.unit_price|money }}<div class="small">/㎡{% if r.discount != 100 %} · {{ r.discount|int }}折{% endif %}</div>{% else %}—{% endif %}
+          </td>
+          <td class="text-end text-money fw-semibold">{{ r.total|money }}</td>
+          <td>
+            <span class="badge {{ r.status | state_badge }}">
+              {{ r.status }}
+            </span>
+            {% if r.expired %}<div class="small text-danger">已过期</div>{% endif %}
+          </td>
+          <td class="small text-muted text-nowrap">{{ r.quote_date or '—' }}</td>
+          <td class="small text-muted text-nowrap">{{ r.valid_until or '—' }}</td>
+          <td class="no-print">
+            <div class="d-flex gap-1">
+              {% if r.status != '已成交' %}
+              <form method="post" action="/quotes/{{ r.id }}/status" class="d-inline">
+                <input type="hidden" name="status" value="已成交">
+                <button class="btn btn-sm btn-outline-success py-0 px-1" title="标记为已成交"><i class="bi bi-trophy"></i></button>
+              </form>
+              {% endif %}
+              <a href="/quotes/{{ r.id }}/edit" class="btn btn-sm btn-outline-secondary py-0 px-1"><i class="bi bi-pencil"></i></a>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="10" class="text-center text-muted py-5">
+          还没有报价单<br>
+          <span class="small">把报过价、谈过的单子录进来，才能看出签单率和丢单原因</span>
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ---------- 单价基准 ---------- #}
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header py-2"><i class="bi bi-rulers me-1"></i>综合单价基准</div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0 table-card">
+          <thead><tr>
+            <th>需求类型</th><th style="width:70px" class="text-end">样本</th>
+            <th style="width:90px" class="text-end">平均</th>
+            <th style="width:90px" class="text-end">最低</th>
+            <th style="width:90px" class="text-end">最高</th>
+          </tr></thead>
+          <tbody>
+          {% for b in bench.rows %}
+            <tr>
+              <td>{{ b.requirement_type }}</td>
+              <td class="text-end text-muted">{{ b.count }}</td>
+              <td class="text-end text-money fw-semibold">{{ b.avg|money }}</td>
+              <td class="text-end text-money text-muted">{{ b.min|money }}</td>
+              <td class="text-end text-money text-muted">{{ b.max|money }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-4">
+              还不够样本<br><span class="small">填「面积 + 综合单价」后这里会显示同类报价的区间</span>
+            </td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header py-2"><i class="bi bi-people me-1"></i>客户报价历史</div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0 table-card">
+          <thead><tr>
+            <th>客户</th><th style="width:60px" class="text-end">报价</th>
+            <th style="width:60px" class="text-end">成交</th>
+            <th style="width:80px" class="text-end">签单率</th>
+          </tr></thead>
+          <tbody>
+          {% for c in by_cust[:12] %}
+            <tr>
+              <td class="small">{{ c.name }}</td>
+              <td class="text-end text-muted">{{ c.count }}</td>
+              <td class="text-end text-success">{{ c.won }}</td>
+              <td class="text-end">{{ c.rate }}%</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="text-center text-muted py-4">暂无数据</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

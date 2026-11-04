@@ -1,0 +1,387 @@
+{% extends "base.html" %}
+{% block title %}{{ sc.name }}{% endblock %}
+{% block page_title %}分包合同详情{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <a href="/subcontracts" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回分包管理</a>
+  <div class="d-flex gap-2">
+    <a href="/subcontracts/{{ sc.id }}/edit" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> 编辑</a>
+    <a href="/subcontracts/orders/new?subcontract_id={{ sc.id }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-cart-plus"></i> 新增分包采购单</a>
+    <form method="post" action="/subcontracts/{{ sc.id }}/delete" class="d-inline"
+          onsubmit="return confirm('删除该分包合同？将连同其分包采购单、清单与节点一起删除。');">
+      <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> 删除</button>
+    </form>
+  </div>
+</div>
+
+<!-- 合同信息 -->
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between flex-wrap gap-2">
+      <div>
+        <h5 class="mb-1">{{ sc.name }}
+          {% if sc.contract_no %}<span class="badge text-bg-light ms-1">{{ sc.contract_no }}</span>{% endif %}
+          <span class="badge text-bg-info ms-1">{{ sc.category }}</span>
+        </h5>
+        <div class="small text-muted">
+          分包商：{{ sc.party_b or '—' }} ｜ 关联项目：{{ sc.project.name if sc.project else '未分配' }} ｜ 签订：{{ sc.sign_date or '—' }}
+        </div>
+      </div>
+      <div class="text-end">
+        <div class="text-muted small">分包金额</div>
+        <div class="fw-bold fs-5">¥{{ sc.amount|money }}</div>
+      </div>
+    </div>
+    {% if sc.note %}<div class="small text-muted mt-2">备注：{{ sc.note }}</div>{% endif %}
+  </div>
+</div>
+
+<!-- 采购执行进度 -->
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-cart-check me-1"></i>采购执行进度</span>
+    <a href="/subcontracts/orders/new?subcontract_id={{ sc.id }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg"></i> 新增分包采购单</a>
+  </div>
+  <div class="card-body">
+    <div class="row g-2 mb-2">
+      <div class="col-md-3"><div class="text-muted small">分包合同额</div><div class="fw-semibold">¥{{ sc.amount|money }}</div></div>
+      <div class="col-md-3"><div class="text-muted small">已下单</div><div class="fw-semibold text-primary">¥{{ ordered|money }} <span class="text-muted small fw-normal">（{{ '%.1f'|format(ordered_pct) }}%）</span></div></div>
+      <div class="col-md-3"><div class="text-muted small">剩余待执行</div><div class="fw-semibold {% if remain > 0 %}text-danger{% else %}text-success{% endif %}">¥{{ remain|money }} <span class="text-muted small fw-normal">（{{ '%.1f'|format(remain_pct) }}%）</span></div></div>
+      <div class="col-md-3">
+        <div class="text-muted small">执行进度 {{ '%.0f'|format(progress) }}%</div>
+        <div class="progress" style="height:8px"><div class="progress-bar" style="width: {{ progress }}%"></div></div>
+      </div>
+    </div>
+    <div class="row g-2 mb-2">
+      <div class="col-md-3"><div class="text-muted small">已开发票金额</div><div class="fw-semibold text-primary">¥{{ invoice_total|money }} <span class="text-muted small fw-normal">（{{ '%.1f'|format(inv_pct) }}%）</span></div></div>
+      <div class="col-md-3"><div class="text-muted small">剩余未开票金额</div><div class="fw-semibold {% if remain_invoice > 0 %}text-danger{% else %}text-success{% endif %}">¥{{ remain_invoice|money }} <span class="text-muted small fw-normal">（{{ '%.1f'|format(remain_inv_pct) }}%）</span></div></div>
+      <div class="col-md-3"><div class="text-muted small">已付款</div><div class="fw-semibold text-danger">¥{{ paid_total|money }} <span class="text-muted small fw-normal">（{{ '%.1f'|format(paid_pct) }}%）</span></div></div>
+      <div class="col-md-3"><div class="text-muted small">剩余未付款</div><div class="fw-semibold {% if remain_pay > 0 %}text-danger{% else %}text-success{% endif %}">¥{{ remain_pay|money }} <span class="text-muted small fw-normal">（{{ '%.1f'|format(remain_pay_pct) }}%）</span></div></div>
+      {% if over_pay > 0 %}
+      <div class="col-md-3"><span class="badge state-badge state-alert fs-6"><i class="bi bi-exclamation-triangle me-1"></i>超付 ¥{{ over_pay|money }}</span></div>
+      {% endif %}
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>单号</th><th>日期</th><th>金额</th><th>已开发票</th><th>已付款</th><th>备注</th><th>操作</th></tr></thead>
+        <tbody id="so-tbody">
+          {% for o in sc.orders %}
+          <tr class="so-row" draggable="true" data-id="{{ o.id }}">
+            <td class="fw-semibold" style="cursor:pointer" data-bs-toggle="modal" data-bs-target="#soEdit{{ o.id }}" title="点击编辑">{{ o.order_no or ('分包单 #' ~ o.id) }}</td>
+            <td class="small">{{ o.order_date or '—' }}</td>
+            <td class="text-money">¥{{ o.total_amount|money }}</td>
+            <td class="text-money">¥{{ o.invoice_amt|money }}</td>
+            <td class="text-money text-danger">¥{{ o.paid_amt|money }}</td>
+            <td class="small text-muted">{{ o.note or '' }}</td>
+            <td class="text-nowrap">
+              <button class="btn btn-sm btn-outline-success py-0 px-1" data-bs-toggle="modal" data-bs-target="#linkInv{{ o.id }}" title="关联发票"><i class="bi bi-receipt"></i></button>
+              <button class="btn btn-sm btn-outline-info py-0 px-1" data-bs-toggle="modal" data-bs-target="#linkPay{{ o.id }}" title="关联付款"><i class="bi bi-credit-card"></i></button>
+              <button class="btn btn-sm btn-outline-primary py-0 px-1" data-bs-toggle="modal" data-bs-target="#soEdit{{ o.id }}" title="编辑"><i class="bi bi-pencil"></i></button>
+              <form method="post" action="/subcontracts/orders/{{ o.id }}/delete" class="d-inline"
+                    onsubmit="return confirm('删除该分包单？');">
+                <button class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+              </form>
+            </td>
+          </tr>
+          <div class="modal fade" id="linkInv{{ o.id }}" tabindex="-1">
+            <div class="modal-dialog">
+              <div class="modal-content">
+                <form method="post" action="/subcontracts/orders/{{ o.id }}/link-invoices">
+                  <div class="modal-header py-2"><h6 class="modal-title">关联发票 · {{ o.order_no or ('分包单#' ~ o.id) }}</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                  <div class="modal-body" style="max-height:340px;overflow:auto">
+                    {% for inv in unlinked_invoices %}
+                    <div class="form-check mb-1">
+                      <input class="form-check-input" type="checkbox" name="invoice_ids" value="{{ inv.id }}" id="invcb{{ o.id }}-{{ inv.id }}">
+                      <label class="form-check-label small" for="invcb{{ o.id }}-{{ inv.id }}">{{ inv.invoice_no or '发票' }} · ¥{{ inv.amount|money }} · {{ inv.invoice_date or '' }}</label>
+                    </div>
+                    {% else %}
+                    <div class="text-muted small py-2">暂无未关联发票（可在发票管理中登记后关联）</div>
+                    {% endfor %}
+                  </div>
+                  <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-sm btn-success">关联所选</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+          <div class="modal fade" id="linkPay{{ o.id }}" tabindex="-1">
+            <div class="modal-dialog">
+              <div class="modal-content">
+                <form method="post" action="/subcontracts/orders/{{ o.id }}/link-payments">
+                  <div class="modal-header py-2"><h6 class="modal-title">关联付款 · {{ o.order_no or ('分包单#' ~ o.id) }}</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                  <div class="modal-body" style="max-height:340px;overflow:auto">
+                    {% for pay in unlinked_payments %}
+                    <div class="form-check mb-1">
+                      <input class="form-check-input" type="checkbox" name="payment_ids" value="{{ pay.id }}" id="paycb{{ o.id }}-{{ pay.id }}">
+                      <label class="form-check-label small" for="paycb{{ o.id }}-{{ pay.id }}">{{ pay.pay_date or '' }} · ¥{{ pay.amount|money }} · {{ pay.supplier.name if pay.supplier else '' }}</label>
+                    </div>
+                    {% else %}
+                    <div class="text-muted small py-2">暂无未关联付款</div>
+                    {% endfor %}
+                  </div>
+                  <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-sm btn-success">关联所选</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+          <div class="modal fade" id="soEdit{{ o.id }}" tabindex="-1">
+            <div class="modal-dialog">
+              <div class="modal-content">
+                <form method="post" action="/subcontracts/orders/{{ o.id }}/edit">
+                  <div class="modal-header py-2"><h6 class="modal-title">编辑分包采购单</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                  <div class="modal-body">
+                    <div class="row g-2">
+                      <div class="col-6"><label class="form-label small">单号</label>
+                        <input name="order_no" class="form-control form-control-sm" value="{{ o.order_no or '' }}"></div>
+                      <div class="col-6"><label class="form-label small">金额 ¥</label>
+                        <input name="total_amount" type="number" step="any" class="form-control form-control-sm" value="{{ o.total_amount }}"></div>
+                      <div class="col-6"><label class="form-label small">日期</label>
+                        <input name="order_date" type="date" class="form-control form-control-sm" value="{{ o.order_date or '' }}"></div>
+                      <div class="col-12"><label class="form-label small">备注</label>
+                        <textarea name="note" class="form-control form-control-sm" rows="2">{{ o.note or '' }}</textarea></div>
+                    </div>
+                  </div>
+                  <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-sm btn-primary">保存</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-3">暂无分包采购单，点击右上角「新增分包采购单」</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- 发票情况 -->
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-receipt me-1"></i>发票情况（{{ invoices | length }}）<span class="text-muted small fw-normal ms-2">合计 ¥{{ invoice_total|money }}</span></span>
+        <a href="/invoices/new?subcontract_id={{ sc.id }}&back_url=/subcontracts/{{ sc.id }}" class="btn btn-sm btn-outline-success"><i class="bi bi-plus-lg"></i> 登记发票</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>发票号</th><th>类型</th><th>金额</th><th>日期</th><th>状态</th><th>分包采购单</th><th>操作</th></tr></thead>
+          <tbody>
+            {% for i in invoices %}
+            <tr>
+              <td class="small">{{ i.invoice_no or '—' }}</td>
+              <td class="small">{{ i.invoice_type }}</td>
+              <td class="text-money">¥{{ i.amount|money }}</td>
+              <td class="small">{{ i.invoice_date or '—' }}</td>
+              <td><span class="badge text-bg-light">{{ i.status }}</span></td>
+              <td class="small">{% if i.so_no %}{{ i.so_no }}{% else %}—{% endif %}</td>
+              <td class="text-nowrap">
+                <a href="/invoices/{{ i.id }}/edit?back_url=/subcontracts/{{ sc.id }}" class="btn btn-sm btn-outline-primary py-0 px-1"><i class="bi bi-pencil"></i></a>
+                <form method="post" action="/invoices/{{ i.id }}/delete" class="d-inline"
+                      onsubmit="return confirm('删除该发票？');">
+                  <input type="hidden" name="back_url" value="/subcontracts/{{ sc.id }}">
+                  <button class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-center text-muted py-3">暂无关联发票</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <!-- 付款情况 -->
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-cash-stack me-1"></i>付款情况（{{ payments | length }}）<span class="text-muted small fw-normal ms-2">合计 ¥{{ paid_total|money }}</span></span>
+        <a href="/supplier-payments/new?subcontract_id={{ sc.id }}&back_url=/subcontracts/{{ sc.id }}" class="btn btn-sm btn-outline-success"><i class="bi bi-plus-lg"></i> 登记付款</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>日期</th><th>金额</th><th>方式</th><th>备注</th><th>分包采购单</th><th>操作</th></tr></thead>
+          <tbody>
+            {% for p in payments %}
+            <tr class="{{ 'row-voided' if p.status == '作废' else '' }}">
+              <td class="small">{{ p.pay_date or '—' }}</td>
+              <td class="text-money text-danger">¥{{ p.amount|money }}</td>
+              <td class="small">{{ p.pay_method }}
+                {% if p.status == '作废' %}
+                <span class="badge state-badge state-idle ms-1">已作废</span>
+                <div class="text-muted">{% if p.void_reason %}{{ p.void_reason }}{% endif %}</div>
+                {% endif %}
+              </td>
+              <td class="small text-muted">{{ p.note or '' }}</td>
+              <td class="small">{% if p.so_no %}{{ p.so_no }}{% else %}—{% endif %}</td>
+              <td class="text-nowrap">
+                <a href="/supplier-payments/{{ p.id }}/edit?back_url=/subcontracts/{{ sc.id }}" class="btn btn-sm btn-outline-primary py-0 px-1"><i class="bi bi-pencil"></i></a>
+                {% if p.status == '作废' %}
+                <form method="post" action="/supplier-payments/{{ p.id }}/restore" class="d-inline"
+                      onsubmit="return confirm('恢复该付款？将重新计入已付金额。');">
+                  <input type="hidden" name="back_url" value="/subcontracts/{{ sc.id }}">
+                  <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="已作废，点击恢复"><i class="bi bi-arrow-counterclockwise"></i></button>
+                </form>
+                {% else %}
+                <form method="post" action="/supplier-payments/{{ p.id }}/void" class="d-inline"
+                      onsubmit="return confirm('作废该付款记录？\n\n记录会保留以便对账与审计，但不再计入已付金额。');">
+                  <input type="hidden" name="back_url" value="/subcontracts/{{ sc.id }}">
+                  <button class="btn btn-sm btn-outline-danger py-0 px-1" title="作废（保留记录，不计入已付）"><i class="bi bi-x-octagon"></i></button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-center text-muted py-3">暂无关联付款</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 采购清单 -->
+<div class="card mb-3" id="materials">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-list-check me-1"></i>采购清单（{{ sc.materials | length }}）</span>
+    <span class="fw-bold">合计 ¥{{ sc.materials | sum(attribute='amount')|money }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead><tr><th>名称</th><th>规格</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th><th></th></tr></thead>
+      <tbody>
+        {% for m in sc.materials %}
+        <tr>
+          <td class="fw-semibold">{{ m.name }}</td>
+          <td class="small">{{ m.spec or '—' }}</td>
+          <td>{{ m.unit or '—' }}</td>
+          <td class="text-money">{{ m.quantity }}</td>
+          <td class="text-money">¥{{ m.unit_price|money }}</td>
+          <td class="text-money">¥{{ m.amount|money }}</td>
+          <td>
+            <form method="post" action="/subcontracts/materials/{{ m.id }}/delete" class="d-inline"
+                  onsubmit="return confirm('删除该清单项？');">
+              <button class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-3">暂无采购清单，可在下方添加</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer bg-white">
+    <form method="post" action="/subcontracts/{{ sc.id }}/materials" class="d-flex gap-2 align-items-end flex-wrap">
+      <div><label class="form-label small mb-0">名称</label><input name="name" class="form-control form-control-sm" style="width:150px" required></div>
+      <div><label class="form-label small mb-0">规格</label><input name="spec" class="form-control form-control-sm" style="width:100px"></div>
+      <div><label class="form-label small mb-0">单位</label><input name="unit" class="form-control form-control-sm" style="width:60px"></div>
+      <div><label class="form-label small mb-0">数量</label><input name="quantity" type="number" step="0.5" class="form-control form-control-sm" style="width:80px" value="1"></div>
+      <div><label class="form-label small mb-0">单价 ¥</label><input name="unit_price" type="number" step="any" class="form-control form-control-sm" style="width:90px" value="0"></div>
+      <button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg"></i> 添加</button>
+    </form>
+  </div>
+</div>
+
+<!-- 时间节点 -->
+<div class="card mb-3" id="milestones">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-calendar-event me-1"></i>时间节点（{{ sc.milestones | length }}）</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead><tr><th>节点</th><th>日期</th><th>金额</th><th></th></tr></thead>
+      <tbody>
+        {% for ms in sc.milestones %}
+        <tr>
+          <td class="fw-semibold">{{ ms.name }}</td>
+          <td class="small">{{ ms.m_date or '—' }}</td>
+          <td class="text-money">¥{{ ms.amount|money }}</td>
+          <td>
+            <form method="post" action="/subcontracts/milestones/{{ ms.id }}/delete" class="d-inline"
+                  onsubmit="return confirm('删除该节点？');">
+              <button class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center text-muted py-3">暂无时间节点</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer bg-white">
+    <form method="post" action="/subcontracts/{{ sc.id }}/milestones" class="d-flex gap-2 align-items-end flex-wrap">
+      <div><label class="form-label small mb-0">节点名称</label>
+        <select name="name" class="form-select form-select-sm">
+          {% for n in ['预付款', '进度款', '竣工款', '结算款', '质保款'] %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+        </select></div>
+      <div><label class="form-label small mb-0">日期</label><input name="m_date" type="date" class="form-control form-control-sm"></div>
+      <div><label class="form-label small mb-0">金额 ¥</label><input name="amount" type="number" step="0.01" class="form-control form-control-sm" value="0"></div>
+      <button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg"></i> 添加节点</button>
+    </form>
+  </div>
+</div>
+
+<script>
+// 分包采购单：拖拽排序
+(function () {
+  var tbody = document.getElementById('so-tbody');
+  if (!tbody) return;
+  var dragRow = null;
+  function getAfter(y) {
+    var els = Array.prototype.slice.call(tbody.querySelectorAll('tr.so-row:not(.dragging)'));
+    return els.reduce(function (closest, child) {
+      var box = child.getBoundingClientRect();
+      var offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) return { offset: offset, element: child };
+      return closest;
+    }, { offset: -Infinity }).element;
+  }
+  tbody.addEventListener('dragstart', function (e) {
+    dragRow = e.target.closest('tr.so-row');
+    if (!dragRow) return;
+    dragRow.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  tbody.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    if (!dragRow) return;
+    var after = getAfter(e.clientY);
+    if (after == null) tbody.appendChild(dragRow);
+    else tbody.insertBefore(dragRow, after);
+  });
+  tbody.addEventListener('drop', function (e) { e.preventDefault(); });
+  tbody.addEventListener('dragend', function () {
+    if (dragRow) dragRow.classList.remove('dragging');
+    dragRow = null;
+    var ids = Array.prototype.slice.call(tbody.querySelectorAll('tr.so-row')).map(function (el) {
+      return parseInt(el.getAttribute('data-id'), 10);
+    });
+    fetch('/subcontracts/orders/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: ids })
+    }).then(function (r) { return r.json(); }).then(function () {
+      location.reload();
+    });
+  });
+})();
+</script>
+
+{% include "_approval_bar.html" %}
+{% endblock %}

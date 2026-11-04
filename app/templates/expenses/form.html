@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑费用' if item else '新增费用' }}{% endblock %}
+{% block page_title %}{{ '编辑费用' if item else '新增费用' }}{% endblock %}
+{% block content %}
+
+<div class="card" style="max-width:700px;">
+  <div class="card-body p-4">
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="{{ '/expenses/%d/edit' % item.id if item else '/expenses/new' }}" enctype="multipart/form-data">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">所属项目 *</label>
+          <select name="project_id" class="form-select" required>
+            <option value="">请选择</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}" {{ 'selected' if item and item.project_id == p.id else '' }}>{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">费用类别</label>
+          <select name="category" class="form-select">
+            {% for c in OPTIONS.cost_categories %}
+            <option value="{{ c }}" {{ 'selected' if (item and item.category == c) or (not item and c == '人工') else '' }}>{{ c }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">费用名称 *</label>
+          <input type="text" name="item_name" class="form-control" required placeholder="如：泥工人工费 / 脚手架租赁 / 设计出图费" value="{{ item.item_name if item else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">金额（¥）*</label>
+          <input type="number" step="0.01" name="amount" class="form-control" required value="{{ item.amount if item else 0 }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">发生日期</label>
+          <input type="date" name="occurred_date" class="form-control" value="{{ item.occurred_date if item and item.occurred_date else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">凭证附件（收据/照片/票据，可选）</label>
+          <input type="file" name="file" class="form-control" accept=".pdf,image/*">
+          {% if item and item.file_path %}
+          <a href="{{ item.file_path }}" download target="_blank" class="small text-success">当前凭证：{{ item.file_path.split('/')[-1] }}</a>
+          {% endif %}
+        </div>
+        <div class="col-12">
+          <label class="form-label">备注</label>
+          <textarea name="note" class="form-control" rows="2">{{ item.note if item else '' }}</textarea>
+        </div>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">保存</button>
+        <a href="/expenses" class="btn btn-outline-secondary">取消</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% include "_approval_bar.html" %}
+{% endblock %}

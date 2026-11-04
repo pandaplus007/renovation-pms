@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block title %}发票管理{% endblock %}
+{% block page_title %}发票管理{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <form id="fltForm" class="search-row flex-wrap" method="get">
+    {% import "_multiselect.html" as ms %}
+    {{ ms.multiselect('direction', '方向', OPTIONS.invoice_directions, OPTIONS.invoice_directions, direction) }}
+    {{ ms.multiselect('invoice_type', '类型', OPTIONS.invoice_types, OPTIONS.invoice_types, invoice_type) }}
+    {{ ms.multiselect('status', '状态', OPTIONS.invoice_status, OPTIONS.invoice_status, status) }}
+    {{ ms.multiselect('supplier_id', '供应商', suppliers|map(attribute='id')|list, suppliers|map(attribute='name')|list, supplier_id) }}
+    {{ ms.multiselect('project_id', '项目', projects|map(attribute='id')|list, projects|map(attribute='name')|list, project_id) }}
+    <select name="sort" class="form-select" form="fltForm" onchange="fltSubmit()" style="width:150px">
+      <option value="date_desc" {{ 'selected' if sort == 'date_desc' else '' }}>开票日期 近→远</option>
+      <option value="date_asc" {{ 'selected' if sort == 'date_asc' else '' }}>开票日期 远→近</option>
+      <option value="amount_desc" {{ 'selected' if sort == 'amount_desc' else '' }}>金额 大→小</option>
+      <option value="amount_asc" {{ 'selected' if sort == 'amount_asc' else '' }}>金额 小→大</option>
+      <option value="no_desc" {{ 'selected' if sort == 'no_desc' else '' }}>发票号 降序</option>
+      <option value="no_asc" {{ 'selected' if sort == 'no_asc' else '' }}>发票号 升序</option>
+    </select>
+    <a href="/invoices" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> 恢复原样</a>
+  </form>
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-danger" type="submit" form="batchDelInvForm" id="batchDelBtn"><i class="bi bi-trash"></i> 批量删除</button>
+    <a href="/invoices/export" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel"></i> 导出 Excel</a>
+    <a href="/invoices/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 登记发票</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="stat-card grad-bean">
+      <div class="stat-num">¥{{ total_in|money }}</div>
+      <div class="stat-label">进项发票（当前筛选）</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card grad-pine">
+      <div class="stat-num">¥{{ total_out|money }}</div>
+      <div class="stat-label">销项发票（当前筛选）</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card grad-lotus">
+      <div class="stat-num">¥{{ (total_out - total_in)|money }}</div>
+      <div class="stat-label">销项 - 进项</div>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="result-box">
+  <div class="table-responsive">
+    <form id="batchDelInvForm" method="post" action="/invoices/batch-delete"></form>
+<table class="table-wide table table-sm table-hover align-middle mb-0 table-card" data-col-resizable data-col-key="invoices" data-sortable data-col-minor>
+      <thead><tr>
+        <th style="width:36px"><input type="checkbox" class="form-check-input" id="inv-check-all" title="全选"></th>
+        <th style="width:52px" class="sortable" data-sort="dir">方向 <span class="iv-flt" data-attr="dir"></span></th>
+        <th style="width:150px" class="sortable" data-sort="no">发票号</th>
+        <th class="sortable" data-sort="type">类型 <span class="iv-flt" data-attr="type"></span></th>
+        <th class="text-end sortable" data-sort="amount" data-type="number">金额</th><th class="text-end col-minor sortable" data-sort="tax" data-type="number">税额</th><th class="text-end col-minor sortable" data-sort="rate" data-type="number">税率</th>
+        <th class="sortable" data-sort="date" data-type="date">开票日期</th>
+        <th class="col-minor sortable" data-sort="contract">所属合同 <span class="iv-flt" data-attr="contract"></span></th>
+        <th class="sortable" data-sort="buyer">购方 <span class="iv-flt" data-attr="buyer"></span></th>
+        <th class="col-minor sortable" data-sort="seller">销方 <span class="iv-flt" data-attr="seller"></span></th>
+        <th class="col-minor sortable" data-sort="rel">关联 <span class="iv-flt" data-attr="rel"></span></th>
+        <th class="sortable" data-sort="status">状态 <span class="iv-flt" data-attr="status"></span></th>
+        <th style="width:96px">操作</th>
+      </tr></thead>
+      <tbody>
+        {% for i in invoices %}
+        <tr class="{{ 'text-muted' if i.status == '作废' else '' }}"
+            data-dir="{{ i.direction }}" data-type="{{ i.invoice_type }}" data-status="{{ i.status }}"
+            data-buyer="{{ i.title or '—' }}" data-seller="{{ i.seller_name or '—' }}" data-rel="{{ i.po_no if i.po_no else (i.suborder_no if i.suborder_no else '—') }}"
+            data-contract="{{ i.contract_name or '—' }}">
+          <td class="td-pick"><input type="checkbox" class="form-check-input inv-check" name="ids" value="{{ i.id }}" form="batchDelInvForm"></td>
+          <td data-label="方向">
+            <span class="badge {{ ('active' if i.direction == '销项' else 'idle') | tone_badge }}" style="font-size:12px">{{ i.direction }}</span>
+          </td>
+          <td data-label="发票号" class="fw-semibold" title="{{ i.invoice_no or '—' }}" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ i.invoice_no or '—' }}</td>
+          <td data-label="类型" class="small text-nowrap">{{ i.invoice_type }}</td>
+          <td data-label="金额" class="text-end text-money" data-value="{{ i.amount or 0 }}">¥{{ i.amount|money }}</td>
+          <td data-label="税额" class="text-end text-money small col-minor" data-value="{{ i.tax_amount or 0 }}">{% if i.tax_amount %}¥{{ i.tax_amount|money }}{% else %}—{% endif %}</td>
+          <td data-label="税率" class="text-end small col-minor" data-value="{{ i.tax_rate or 0 }}">{% if i.tax_rate %}{{ '%g'|format(i.tax_rate) }}%{% else %}—{% endif %}</td>
+          <td data-label="日期" class="small text-nowrap" data-value="{{ i.invoice_date or '' }}">{{ i.invoice_date or '—' }}</td>
+          <td data-label="合同" class="small col-minor">{% if i.contract_id %}<a href="/contracts/{{ i.contract_id }}">{{ i.contract_name or '—' }}</a>{% elif i.subcontract_id %}<a href="/subcontracts/{{ i.subcontract_id }}">{{ i.contract_name or '—' }}</a>{% else %}—{% endif %}</td>
+          <td data-label="购方">
+            <div class="fw-semibold text-truncate" style="max-width:110px" title="{{ i.title or '' }}{% if i.tax_no %}｜{{ i.tax_no }}{% endif %}">{{ i.title or '—' }}</div>
+          </td>
+          <td data-label="销方" class="col-minor">
+            <div class="fw-semibold text-truncate" style="max-width:110px" title="{{ i.seller_name or '' }}{% if i.seller_tax_no %}｜{{ i.seller_tax_no }}{% endif %}">{{ i.seller_name or '—' }}</div>
+          </td>
+          <td data-label="关联" class="small col-minor">
+            {% if i.supplier %}<span class="badge text-truncate" style="max-width:90px;background:#f4e9d3;color:#6b5226;font-size:12px;padding:.4em .6em;margin-right:2px;overflow:hidden;display:inline-block;vertical-align:middle;">供：{{ i.supplier.name }}</span>{% endif %}
+            {% if i.customer %}<span class="badge text-truncate" style="max-width:90px;background:#f4e9d3;color:#6b5226;font-size:12px;padding:.4em .6em;margin-right:2px;overflow:hidden;display:inline-block;vertical-align:middle;">客：{{ i.customer.name }}</span>{% endif %}
+            {% if i.project %}<a href="/projects/{{ i.project_id }}" class="badge text-truncate text-decoration-none" style="max-width:90px;background:#b7e4cd;color:#14613f;font-size:12px;padding:.4em .6em;overflow:hidden;display:inline-block;vertical-align:middle;">{{ i.project.name }}</a>{% endif %}
+            {% if i.contract %}<a href="/contracts/{{ i.contract_id }}" class="badge text-truncate text-decoration-none" style="max-width:90px;background:#efe3cb;color:#6b5226;font-size:12px;padding:.4em .6em;overflow:hidden;display:inline-block;vertical-align:middle;">合：{{ i.contract.name }}</a>{% endif %}
+          </td>
+          <td data-label="状态"><span class="badge {{ i.status | state_badge }}" style="font-size:12px">{{ i.status }}</span></td>
+          <td class="text-nowrap">
+            <a href="/invoices/{{ i.id }}/edit" class="btn btn-sm btn-outline-secondary" title="编辑"><i class="bi bi-pencil"></i></a>
+            <form method="post" action="/invoices/{{ i.id }}/delete" class="d-inline" onsubmit="return confirm('删除该发票？');">
+              <button class="btn btn-sm btn-outline-danger" title="删除"><i class="bi bi-trash"></i></button>
+            </form>
+            {% if i.file_path %}<a href="{{ i.file_path }}" target="_blank" class="btn btn-sm btn-outline-secondary" title="查看发票"><i class="bi bi-eye"></i></a><a href="{{ i.file_path }}" download class="btn btn-sm btn-outline-secondary" title="下载发票"><i class="bi bi-file-earmark-pdf"></i></a>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="14" class="text-center text-muted py-4">暂无发票记录</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function(){
+  var rows = document.querySelectorAll('tbody tr[data-dir]');
+  if(!rows.length) return;
+  var ATTRS = ['dir','type','contract','buyer','seller','rel','status'];
+  var rowAttr = {dir:'data-dir', type:'data-type', contract:'data-contract', buyer:'data-buyer', seller:'data-seller', rel:'data-rel', status:'data-status'};
+  var filters = {};
+  ATTRS.forEach(function(attr){
+    var host = document.querySelector('.iv-flt[data-attr="' + attr + '"]');
+    if(!host) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'dropdown d-inline-block ms-1';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm btn-outline-secondary py-0 px-1';
+    btn.innerHTML = '<i class="bi bi-funnel"></i>';
+    btn.setAttribute('data-bs-toggle', 'dropdown');
+    var menu = document.createElement('div');
+    menu.className = 'dropdown-menu p-2';
+    menu.style.maxHeight = '280px'; menu.style.overflow = 'auto'; menu.style.minWidth = '180px';
+    var all = document.createElement('div');
+    all.className = 'form-check mb-1';
+    var allCb = document.createElement('input');
+    allCb.type = 'checkbox'; allCb.className = 'form-check-input'; allCb.checked = true;
+    allCb.setAttribute('data-all', attr);
+    allCb.addEventListener('change', function(){ ivToggleAll(attr, this.checked); });
+    var allLb = document.createElement('label');
+    allLb.className = 'form-check-label'; allLb.textContent = '全选';
+    all.appendChild(allCb); all.appendChild(allLb);
+    menu.appendChild(all);
+    var list = document.createElement('div');
+    menu.appendChild(list);
+    wrap.appendChild(btn); wrap.appendChild(menu);
+    host.appendChild(wrap);
+    var checks = {}; filters[attr] = checks;
+    var seen = {};
+    rows.forEach(function(r){
+      var v = r.getAttribute(rowAttr[attr]) || '—';
+      if(seen[v]) return; seen[v] = 1;
+      var d = document.createElement('div');
+      d.className = 'form-check';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.className = 'form-check-input iv-cb'; cb.checked = true;
+      cb.setAttribute('data-attr', attr);
+      cb.addEventListener('change', applyAll);
+      var lb = document.createElement('label');
+      lb.className = 'form-check-label small'; lb.textContent = v;
+      d.appendChild(cb); d.appendChild(lb);
+      list.appendChild(d);
+      checks[v] = cb;
+    });
+  });
+  function applyAll(){
+    rows.forEach(function(r){
+      var show = true;
+      for(var attr in filters){
+        var checks = filters[attr];
+        var keys = Object.keys(checks);
+        var any = keys.some(function(k){ return checks[k].checked; });
+        if(!any) continue;
+        var v = r.getAttribute(rowAttr[attr]) || '—';
+        if(!(checks[v] && checks[v].checked)) show = false;
+      }
+      r.style.display = show ? '' : 'none';
+    });
+  }
+  window.ivToggleAll = function(attr, checked){
+    document.querySelectorAll('.iv-cb[data-attr="' + attr + '"]').forEach(function(cb){ cb.checked = checked; });
+    applyAll();
+  };
+})();
+</script>
+
+
+<script>
+(function(){
+  var all = document.getElementById('inv-check-all');
+  var btn = document.getElementById('batchDelBtn');
+  function visibleCbs(){
+    return Array.prototype.filter.call(document.querySelectorAll('.inv-check'), function(cb){
+      var tr = cb.closest('tr');
+      return tr && tr.style.display !== 'none';
+    });
+  }
+  if(all){
+    all.addEventListener('change', function(){
+      visibleCbs().forEach(function(cb){ cb.checked = all.checked; });
+    });
+  }
+  if(btn){
+    btn.addEventListener('click', function(e){
+      var n = visibleCbs().filter(function(cb){ return cb.checked; }).length;
+      if(n === 0){ e.preventDefault(); alert('请先勾选要删除的发票'); return; }
+      if(!confirm('确定删除所选 ' + n + ' 张发票？')){ e.preventDefault(); }
+    });
+  }
+})();
+</script>
+<script>
+function fltSubmit(cb){
+  if(!cb) cb = document.querySelector('input.flt-cb');
+  if(!cb) return;
+  var form = cb.form;
+  if(!form) return;
+  var fd = new FormData(form);
+  var qs = new URLSearchParams(fd).toString();
+  var url = location.pathname + (qs ? '?' + qs : '');
+  var boxId = form.getAttribute('data-result') || 'result-box';
+  var box = document.getElementById(boxId);
+  if(!box){ form.submit(); return; }  // 无局部容器则整页提交
+  fetch(url, {headers:{'X-Requested-With':'fetch'}})
+    .then(function(r){ if(!r.ok) throw 0; return r.text(); })
+    .then(function(html){
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var nb = doc.getElementById(boxId);
+      if(nb) box.innerHTML = nb.innerHTML;   // 仅更新表格区，下拉/页面不刷新
+      history.replaceState(null, '', url);
+      syncAllChecks(form);
+      updateFilterBadges(form);
+    })
+    .catch(function(){ form.submit(); });    // 异常时退化为整页
+}
+function syncAllChecks(form){
+  form.querySelectorAll('input[id^="all-"]').forEach(function(all){
+    var g = all.id.replace('all-','');
+    var cbs = form.querySelectorAll('input[data-group="' + g + '"]');
+    var allc = cbs.length > 0 && [].every.call(cbs, function(c){ return c.checked; });
+    all.checked = allc;
+  });
+}
+function updateFilterBadges(form){
+  form.querySelectorAll('.dropdown').forEach(function(dd){
+    var cbs = dd.querySelectorAll('input.flt-cb');
+    if(cbs.length === 0) return;  // 仅处理筛选下拉
+    var n = [].filter.call(cbs, function(c){ return c.checked; }).length;
+    var filtered = n > 0 && n < cbs.length;  // 有勾选但未全选 = 筛选状态
+    var btn = dd.querySelector('.dropdown-toggle');
+    if(!btn) return;
+    var icon = btn.querySelector('.bi');
+    if(filtered){
+      btn.classList.add('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel-fill';
+      var b = btn.querySelector('.flt-badge');
+      if(!b){ b = document.createElement('span'); b.className='flt-badge'; btn.appendChild(b); }
+      b.textContent = n;
+    } else {
+      btn.classList.remove('btn-filter-active');
+      if(icon) icon.className = 'bi bi-funnel';
+      var ob = btn.querySelector('.flt-badge');
+      if(ob) ob.remove();
+    }
+  });
+}
+function fltToggleAll(g, el){
+  var form = el.form;
+  if(!form) return;
+  var first = form.querySelector('input[data-group="' + g + '"]');
+  if(!first) return;
+  form.querySelectorAll('input[data-group="' + g + '"]').forEach(function(c){ c.checked = el.checked; });
+  if(el.checked){ fltSubmit(first); }  // 勾选全选：提交全部
+  else { updateFilterBadges(form); }  // 取消全选：清空并恢复按钮未筛选样式
+}
+</script>
+
+
+
+{% endblock %}

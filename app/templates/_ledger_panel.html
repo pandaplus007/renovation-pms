@@ -1,0 +1,199 @@
+<div class="proj-head"><span><i class="bi bi-journal-text me-1"></i>项目资金台账{% if project %} · {{ project.name }}{% endif %}</span>
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#ledgerAddModal"><i class="bi bi-plus-lg"></i> 添加流水</button>
+</div>
+
+<div class="row g-2 mb-3">
+  <div class="col-6 col-md-3"><div class="stat-card grad-pine"><div class="stat-label">合同额</div><div class="stat-num">¥{{ contract_total|money }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card grad-bean"><div class="stat-label">到款（含其他收入）</div><div class="stat-num">¥{{ ledger.summary.received|money }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card grad-oat"><div class="stat-label">材料付款</div><div class="stat-num">¥{{ ledger.summary.material|money }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card grad-terra"><div class="stat-label">劳务付款</div><div class="stat-num">¥{{ ledger.summary.labor|money }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card grad-lotus"><div class="stat-label">成本费用</div><div class="stat-num">¥{{ ledger.summary.cost|money }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card grad-stone"><div class="stat-label">税费扣费</div><div class="stat-num">¥{{ ledger.summary.tax|money }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card grad-sage"><div class="stat-label">余额</div><div class="stat-num">{{ ledger.summary.balance|money }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card grad-pine"><div class="stat-label">毛利</div><div class="stat-num">{{ ledger.summary.profit|money }}</div></div></div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-list-ul me-1"></i>资金流水（{{ ledger.rows|length }}）</span>
+    <span class="text-muted small">自动行来源于收款/付款/费用，修改请回原模块</span>
+  </div>
+  <div class="card-body py-2 border-bottom">
+    <div class="row g-2">
+      <div class="col-4 col-md-2"><div class="text-muted small">收入总金额</div><div class="fw-semibold text-success">¥{{ ledger.summary.income_total|money }}</div></div>
+      <div class="col-4 col-md-2"><div class="text-muted small">支出总金额</div><div class="fw-semibold text-danger">¥{{ ledger.summary.expense_total|money }}</div></div>
+      <div class="col-4 col-md-2"><div class="text-muted small">余额</div><div class="fw-semibold">¥{{ ledger.summary.balance|money }}</div></div>
+    </div>
+  </div>
+  <div class="card-body py-2 border-bottom">
+    <div class="row g-2">
+      {% for cat in ledger_categories %}
+      {% set cat_amt = ledger.by_cat.get(cat, 0) or 0 %}
+      <div class="col-6 col-md-3">
+        <div class="text-muted small">{{ cat }}</div>
+        <div class="fw-semibold {{ 'text-success' if cat_amt >= 0 else 'text-danger' }}">¥{{ cat_amt|abs|money }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="table-responsive" style="max-height:50vh;overflow:auto">
+    <table class="table table-sm align-middle mb-0">
+      <thead class="sticky-top" style="top:0;background:#fff;z-index:5">
+        <tr><th style="width:100px">日期</th><th>摘要</th><th style="width:90px">类型</th><th class="text-end">收入</th><th class="text-end">支出</th><th style="width:90px">来源/操作</th></tr>
+      </thead>
+      <tbody>
+        {% for r in ledger.rows %}
+        <tr>
+          <td class="small text-nowrap">{{ r.date or '—' }}</td>
+          <td>{{ r.summary }}{% if r.note %}<span class="text-muted small ms-1">{{ r.note }}</span>{% endif %}</td>
+          <td><span class="badge text-bg-light">{{ r.category }}</span></td>
+          <td class="text-end text-success">{% if r.amount > 0 %}¥{{ r.amount|money }}{% endif %}</td>
+          <td class="text-end text-danger">{% if r.amount < 0 %}¥{{ (-r.amount)|money }}{% endif %}</td>
+          <td class="text-nowrap">
+            {% if r.source == 'manual' %}
+            <button class="btn btn-sm btn-outline-secondary py-0 px-1" data-bs-toggle="modal" data-bs-target="#ledgerEdit-{{ r.id }}" title="编辑"><i class="bi bi-pencil"></i></button>
+            <form method="post" action="/projects/ledger/{{ r.id }}/delete" class="d-inline" onsubmit="return confirm('删除该流水？');"><input type="hidden" name="back_url" value="{{ ledger_back_url or '' }}"><button class="btn btn-sm btn-outline-danger py-0 px-1" title="删除"><i class="bi bi-trash"></i></button></form>
+            {% else %}
+            <span class="small text-muted">自动</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-3">暂无流水</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-receipt-cutoff me-1"></i>材料发票（进项）+ 退税</span>
+    <div class="d-flex align-items-center gap-2">
+      <span class="fw-semibold small">不含税 ¥{{ ledger.inv_totals.tax_excl|money }} · 税额 ¥{{ ledger.inv_totals.tax|money }} · 价税合计 ¥{{ ledger.inv_totals.amount|money }}</span>
+      <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#invBatchModal"><i class="bi bi-pencil-square"></i> 批量修改</button>
+    </div>
+  </div>
+  <div class="table-responsive" style="max-height:50vh;overflow:auto">
+    <form id="invBatchForm" method="post" action="/projects/{{ project.id }}/invoices/batch-refund"><input type="hidden" name="back_url" value="{{ ledger_back_url or '' }}"></form>
+    <table class="table table-sm align-middle mb-0">
+      <thead class="sticky-top" style="top:0;background:#fff;z-index:5">
+        <tr><th style="width:30px"><input type="checkbox" class="form-check-input" id="inv-check-all"></th><th style="width:96px">日期</th><th>供应商</th><th>内容</th><th class="text-end">不含税价</th><th class="text-end">税额</th><th class="text-end">价税合计</th><th style="width:210px">退税状态</th></tr>
+      </thead>
+      <tbody>
+        {% for i in ledger.invoices_in %}
+        <tr>
+          <td><input type="checkbox" class="form-check-input inv-check" name="invoice_ids" value="{{ i.id }}" form="invBatchForm"></td>
+          <td class="small text-nowrap">{{ i.invoice_date or '—' }}</td>
+          <td class="small">{{ i.seller_name or '—' }}</td>
+          <td class="small text-muted">{{ i.note or '' }}</td>
+          <td class="text-end text-money">¥{{ i.calc_tax_excl|money }}</td>
+          <td class="text-end">{% if i.tax_amount %}¥{{ i.tax_amount|money }}{% else %}—{% endif %}</td>
+          <td class="text-end text-money">¥{{ i.amount|money }}</td>
+          <td>
+            <form method="post" action="/projects/invoices/{{ i.id }}/refund" class="d-flex gap-1 align-items-center"><input type="hidden" name="back_url" value="{{ ledger_back_url or '' }}">
+              <input type="number" step="0.01" name="tax_excl" class="form-control form-control-sm" style="width:74px;font-size:12px;padding:2px 5px" value="{{ i.tax_excl if i.tax_excl else '' }}" placeholder="不含税">
+              <select name="refund_status" class="form-select form-select-sm" style="width:86px;font-size:12px;padding:2px 4px">
+                <option value="">—状态—</option>
+                {% for s in ['待退','可退','已结转','不可退','缺合同'] %}
+                <option value="{{ s }}" {{ 'selected' if i.refund_status == s else '' }}>{{ s }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-sm btn-outline-primary py-0 px-1" title="保存"><i class="bi bi-check"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-3">暂无进项发票（到「发票」tab 登记进项发票后此处自动汇总）</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 批量修改材料发票 modal -->
+<div class="modal fade" id="invBatchModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h6 class="modal-title">批量修改材料发票</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="small text-muted mb-2">已选 <span id="invBatchCount" class="fw-semibold">0</span> 张发票，留空的项目不修改。</div>
+      <div class="mb-2"><label class="form-label small">不含税价（留空不修改）</label><input type="number" step="0.01" name="tax_excl" class="form-control form-control-sm" form="invBatchForm"></div>
+      <div class="mb-2"><label class="form-label small">退税状态（留空不修改）</label>
+        <select name="refund_status" class="form-select form-select-sm" form="invBatchForm">
+          <option value="">—不修改—</option>
+          {% for s in ['待退','可退','已结转','不可退','缺合同'] %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+      <button type="submit" class="btn btn-primary" form="invBatchForm">应用</button>
+    </div>
+  </div></div>
+</div>
+
+<!-- 台账添加流水 modal -->
+<div class="modal fade" id="ledgerAddModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h6 class="modal-title">添加台账流水</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <form method="post" action="/projects/{{ project.id }}/ledger"><input type="hidden" name="back_url" value="{{ ledger_back_url or '' }}">
+      <div class="modal-body">
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label small">日期</label><input type="date" name="entry_date" class="form-control form-control-sm" value="{{ today }}"></div>
+          <div class="col-6"><label class="form-label small">类型</label>
+            <select name="category" class="form-select form-select-sm">
+              {% for c in ledger_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-12"><label class="form-label small">摘要 *</label><input type="text" name="summary" class="form-control form-control-sm" required placeholder="如：甲方到账、材料款、税费扣费等"></div>
+          <div class="col-6"><label class="form-label small">金额 *（填正数）</label><input type="number" step="0.01" name="amount" class="form-control form-control-sm" required></div>
+          <div class="col-6"><label class="form-label small">备注</label><input type="text" name="note" class="form-control form-control-sm"></div>
+        </div>
+        <div class="small text-muted mt-2">支出类（材料付款/劳务付款/成本费用/税费扣费/付个人/其他支出）自动记为负数。</div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button><button class="btn btn-primary">保存</button></div>
+    </form>
+  </div></div>
+</div>
+
+{% for r in ledger.rows %}{% if r.source == 'manual' %}
+<div class="modal fade" id="ledgerEdit-{{ r.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h6 class="modal-title">编辑流水</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <form method="post" action="/projects/ledger/{{ r.id }}/edit"><input type="hidden" name="back_url" value="{{ ledger_back_url or '' }}">
+      <div class="modal-body">
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label small">日期</label><input type="date" name="entry_date" class="form-control form-control-sm" value="{{ r.date }}"></div>
+          <div class="col-6"><label class="form-label small">类型</label>
+            <select name="category" class="form-select form-select-sm">
+              {% for c in ledger_categories %}<option value="{{ c }}" {{ 'selected' if r.category == c else '' }}>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-12"><label class="form-label small">摘要 *</label><input type="text" name="summary" class="form-control form-control-sm" value="{{ r.summary }}" required></div>
+          <div class="col-6"><label class="form-label small">金额 *（正数）</label><input type="number" step="0.01" name="amount" class="form-control form-control-sm" value="{{ r.amount|abs }}" required></div>
+          <div class="col-6"><label class="form-label small">备注</label><input type="text" name="note" class="form-control form-control-sm" value="{{ r.note }}"></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button><button class="btn btn-primary">保存</button></div>
+    </form>
+  </div></div>
+</div>
+{% endif %}{% endfor %}
+
+<script>
+(function(){
+  var all = document.getElementById('inv-check-all');
+  if(all){
+    all.addEventListener('change', function(e){
+      document.querySelectorAll('.inv-check').forEach(function(c){ c.checked = e.target.checked; });
+      updateInvBatchCount();
+    });
+  }
+  function updateInvBatchCount(){
+    var n = document.querySelectorAll('.inv-check:checked').length;
+    var el = document.getElementById('invBatchCount');
+    if(el) el.textContent = n;
+  }
+  document.querySelectorAll('.inv-check').forEach(function(c){ c.addEventListener('change', updateInvBatchCount); });
+})();
+</script>

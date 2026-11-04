@@ -1,0 +1,67 @@
+{# 审批状态条：粘在付款/合同/费用等单据页面底部。
+   用法：{% include "_approval_bar.html" with context %}
+   需要调用方提供：approval_entity（单据类型键）、approval_id（单据 id）
+   路由在 _ctx 中注入 approval_state / approval_enabled。 #}
+{% if approval_id and approval_enabled %}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-check2-square me-1"></i>审批状态</span>
+    {% if approval_state.exists %}
+      <span class="badge {{ approval_state.status | state_badge }}">
+        {{ approval_state.label }}
+      </span>
+    {% else %}
+      <span class="badge text-bg-light">未提交</span>
+    {% endif %}
+  </div>
+  <div class="card-body py-2">
+    {% if approval_state.exists %}
+      <div class="small text-muted mb-2">
+        提交人：{{ approval_state.submitted_by or '—' }}
+        {% if approval_state.submitted_at %} · 提交于 {{ approval_state.submitted_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+        {% if approval_state.finished_at %} · 完成于 {{ approval_state.finished_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+        {% if approval_state.total_steps %} · 共 {{ approval_state.total_steps }} 关，当前第 {{ approval_state.current_step + 1 }} 关{% endif %}
+      </div>
+      {% if approval_state.result_note %}
+        <div class="small mb-2"><strong>审批意见：</strong>{{ approval_state.result_note }}</div>
+      {% endif %}
+      <a href="/approvals/{{ approval_state.id }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-right"></i> 查看审批详情
+      </a>
+      {% if approval_state.status in ['已驳回', '已撤回'] and can('approvals', 'create') %}
+        <form method="post" action="/approvals/{{ approval_state.id }}/resubmit" class="d-inline">
+          <button class="btn btn-sm btn-primary"><i class="bi bi-arrow-repeat"></i> 重新提交</button>
+        </form>
+      {% endif %}
+    {% else %}
+      <div class="small text-muted mb-2">
+        该单据尚未提交审批。审批只作留痕，不影响记账。
+      </div>
+      {% if can('approvals', 'create') %}
+      <form method="post" action="/approvals/submit" class="row g-2 align-items-end">
+        <input type="hidden" name="entity_type" value="{{ approval_entity }}">
+        <input type="hidden" name="entity_id" value="{{ approval_id }}">
+        <div class="col-auto flex-grow-1">
+          <input type="text" name="comment" class="form-control form-control-sm" placeholder="提交说明（可选）">
+        </div>
+        {% if user.role in ['老板', 'admin'] %}
+        <div class="col-auto" style="min-width:180px">
+          <input type="text" name="custom_steps" class="form-control form-control-sm font-monospace"
+                 placeholder="临时流程，如 财务部,老板" title="留空则用默认流程。每行或用逗号分隔一个岗位">
+        </div>
+        {% endif %}
+        <div class="col-auto">
+          <button class="btn btn-sm btn-primary"><i class="bi bi-send"></i> 提交审批</button>
+        </div>
+      </form>
+      {% if user.role in ['老板', 'admin'] %}
+      <div class="small text-muted mt-1">
+        <i class="bi bi-shield-lock me-1"></i>
+        老板可在提交时临时指定本单据的审批岗位（留空用默认流程），并在审批中心一键全通过。
+      </div>
+      {% endif %}
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endif %}

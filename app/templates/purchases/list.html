@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}采购管理{% endblock %}
+{% block page_title %}采购管理{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <form class="search-row" method="get">
+    <select name="status" class="form-select" style="width:160px">
+      <option value="">全部状态</option>
+      {% for s in OPTIONS.po_status %}
+      <option value="{{ s }}" {{ 'selected' if status == s else '' }}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-outline-primary"><i class="bi bi-funnel"></i> 筛选</button>
+  </form>
+  <div class="d-flex gap-2">
+    <a href="/procurement?tab=orders" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回采购单</a>
+    <a href="/purchases/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 新建采购单</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 table-card" data-col-resizable data-col-key="purchases" data-sortable>
+      <thead><tr>
+        <th class="sortable" data-sort="no">单号</th><th class="sortable" data-sort="contract">合同</th><th class="sortable" data-sort="project">项目</th><th class="sortable" data-sort="supplier">供应商</th><th class="sortable" data-sort="date" data-type="date">日期</th><th class="text-end sortable" data-sort="amount" data-type="number">金额</th><th class="sortable" data-sort="status">状态</th><th>操作</th>
+      </tr></thead>
+      <tbody>
+        {% for o in orders %}
+        <tr>
+          <td><a href="/purchases/{{ o.id }}" class="fw-semibold">{{ o.order_no or ('采购单 #' ~ o.id) }}</a></td>
+          <td>
+            {% if o.contract %}
+            <a href="/contracts/{{ o.contract_id }}" class="small">{{ o.contract.name }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td data-value="{{ o.project.name if o.project else '—' }}">{{ o.project.name if o.project else '—' }}</td>
+          <td data-value="{{ o.supplier.name if o.supplier else '—' }}">{{ o.supplier.name if o.supplier else '—' }}</td>
+          <td class="small" data-value="{{ o.order_date or '' }}">{{ o.order_date or '—' }}</td>
+          <td class="text-money" data-value="{{ o.total_amount or 0 }}">¥{{ o.total_amount|money }}</td>
+          <td>
+            <span class="badge {{ o.status | state_badge }}">{{ o.status }}</span>
+          </td>
+          <td><a href="/purchases/{{ o.id }}" class="btn btn-sm btn-outline-primary">详情</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">暂无采购单</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

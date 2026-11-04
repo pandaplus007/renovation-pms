@@ -1,0 +1,355 @@
+{# ==========================================================================
+   经营大屏 · /dashboard/screen
+
+   投屏场景：站着看，不操作，3~10 米外要能读清。
+   → 刻意不继承 base.html（侧栏 24 项导航 + 顶栏在投屏上既占地方
+     又暴露系统结构），自己最小外壳。
+
+   ⚠ 主题：刻意强制深色，且**不读** localStorage。
+      理由：大屏是常驻投屏设备，"跟着我的电脑主题变" 意味着上午浅色
+      晚上深色，电视反光下浅色主题的大数字会糊掉。经营类仪表盘
+      惯例就是深底亮字。
+
+      这也顺带解决了对比度问题：直接复用 [data-bs-theme="dark"] 那一整套
+      已经过 test_dark_contrast.py 2029 个文字样本验证的令牌，
+      不必为大屏另配一套色——另配一套就等于新增一份需要独立维护的配色。
+      深底浅字在投屏环境下的实际观感更好，且同一支品牌色（蓝绿 #14B8A6）
+      在两种环境下都经过验算（见 tools/build_dark_theme.py）。
+
+      想要浅色大屏：把下面 data-bs-theme 的值改成 light 即可，
+      大屏的令牌全部走 var(--surface)/var(--text)，会自动跟着换。
+   ========================================================================== #}
+<!doctype html>
+<html lang="zh-CN" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>经营大屏 · {{ OPTIONS.company_name }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css?v={{ CSS_VERSION }}">
+  {# Basecamp 主题层必须排在 screen.css 之前：screen.css 有自己的
+     大屏专用规则，同特异度下它要能赢。 #}
+  <link rel="stylesheet" href="/static/css/basecamp.css?v={{ CSS_VERSION }}">
+  {# 层级修订层（发丝线 / 冷色阶）同样排在大屏样式之前。 #}
+  <link rel="stylesheet" href="/static/css/linear.css?v={{ CSS_VERSION }}">
+  {# 大屏样式独立成文件，见 screen.css 头部「为什么不进 style.css」。
+     放在 style.css **之后**：大屏覆盖了 body 的定位与背景，
+     同特异度下靠后的规则生效。 #}
+  <link rel="stylesheet" href="/static/css/screen.css?v={{ CSS_VERSION }}">
+</head>
+<body class="scr">
+
+{# ================= 顶栏 ================= #}
+<header class="scr-head">
+  <div class="scr-head-l">
+    {# ---------- 返回主界面 ----------
+       大屏刻意不继承 base.html（见文件头），所以侧栏与顶栏都没有，
+       而 `/` 是首页——第一版这里什么都没有，出大屏只能靠浏览器后退键。
+       投屏设备经常是常开的 kiosk/电视浏览器，压根没有后退键，
+       于是「进了大屏就出不来」。所以极简外壳里必须自带一个回路。
+
+       放顶栏最左、而不是做成浮动按钮：投屏时任何浮层都会盖住数据，
+       而顶栏本来就是「我在哪」的位置。
+       刻意用 <a href> 而不是 <button>+JS：断网/JS 异常时也能走，
+       中键新标签打开也天然可用。 #}
+    <a class="scr-back" href="/" title="返回主界面">
+      <i class="bi bi-arrow-left"></i><span>主界面</span>
+    </a>
+    {% if OPTIONS.company_logo %}<img src="{{ OPTIONS.company_logo }}" class="scr-logo" alt="">{% endif %}
+    <span class="scr-brand">{{ OPTIONS.company_name }}</span>
+    <span class="scr-sep">/</span>
+    <span class="scr-head-title">经营大屏</span>
+  </div>
+  <div class="scr-head-r">
+    {# ---------- 项目切换 ----------
+       放在顶栏而不是做成侧栏，是因为大屏没有侧栏，而顶栏本来就是
+       「我现在在看什么」的位置（项目名 + 时间）。
+       下拉只列**可见**项目（app/screen.py 的 all_projects 来自
+       visible_projects），并且服务端对 ?project_id= 做了二次校验，
+       手输别人的 id 会得到 404。 #}
+    {% if all_projects | length > 1 %}
+    <label class="scr-picker">
+      <i class="bi bi-briefcase"></i>
+      <select id="scrProject" aria-label="切换项目">
+        <option value="" {{ 'selected' if not project else '' }}>全部项目（{{ all_projects | length }}）</option>
+        {% for p in all_projects %}
+        <option value="{{ p.id }}" {{ 'selected' if project and p.id == project.id else '' }}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% elif project %}
+    <span class="scr-picker scr-picker-static"><i class="bi bi-briefcase"></i> {{ project.name }}</span>
+    {% endif %}
+
+    {# 数据范围必须显示：大屏数字全不可见时，老板无法区分"公司没钱"
+       和"我只能看到自己的项目"。这是行级权限的可见化，不是装饰。 #}
+    {% if scope != 'all' %}
+      <span class="scr-scope" title="你的数据范围不是全公司，大屏数字仅含可见项目">
+        <i class="bi bi-eye-slash"></i> {{ scope }} 范围 · {{ vis_count }} 个项目
+      </span>
+    {% elif not project %}
+      <span class="scr-scope scr-scope-all">全公司 · {{ vis_count }} 个项目</span>
+    {% endif %}
+    <time class="scr-clock" id="scrClock"></time>
+  </div>
+</header>
+
+{# ================= 主体 ================= #}
+<main class="scr-body">
+
+  {# ---------- 主数字带 ---------- #}
+  {# 数字字号是全站最大的 --scr-fs-hero。stat-card 那边刻意不复用：
+     ERP 工作区的 .stat-card 是 24px（为了信息密度），大屏要 3 米外可读，
+     两者是不同用途的东西，共用一个类只会互相拖。 #}
+  <section class="scr-hero">
+    {% for h in hero %}
+    <div class="scr-hero-cell scr-hero-{{ h.key }}">
+      <div class="scr-hero-label">{{ h.label }}</div>
+      {# 用 money_wan（万）而不是 money（元）：见 app/web.py 里 money_wan 的
+               注释。1366 宽投屏上每格只有 ~250px，「20,597,845」放不下，
+               而截断金额是绝对不能接受的。 #}
+          <div class="scr-hero-num"><span class="scr-cur">¥</span>{{ h.value | money_wan }}</div>
+      {# hint 里的金额已在 app/screen.py 用 _wan 拼好（同一单位，不用过滤器），
+               否则主数字用万、hint 用元，同一张卡片两种单位要人动脑换算。 #}
+          <div class="scr-hero-hint">{{ h.hint }}</div>
+    </div>
+    {% endfor %}
+  </section>
+
+  <div class="scr-grid">
+
+    {# ---------- 项目状态分布（仅全公司视图）----------
+       单项目视图下这一栏会退化成「1 个项目、1 个状态」，
+       占掉四分之一屏却只说一件事。所以直接不画，
+       把位置让给「阶段进度」——那才是单看一个项目时真正要问的。 #}
+    {% if not project %}
+    {# ⚠ 不列出「合计 / 2 个项目 / 2059 万」这类总数行。
+       一屏里有 5 个主数字、4 块分布/待办/应收/双进度，任何一处再加
+       一行汇总都会让人多问一次「这两个数是不是对得上」。
+       项目总数已在顶栏（数据范围那一块），金额分布在每行右侧。 #}
+    <section class="scr-card">
+      <h2 class="scr-card-h">项目状态分布</h2>
+      <div class="scr-dist">
+        {% for d in dist %}
+        <div class="scr-dist-row">
+          {# 过滤器返回的已经是完整类串 `state-badge state-xxx`，
+             所以这里只挂尺寸类，不要再写 `state-badge state-`——
+             否则渲染出 `state-badge state-state-badge`（实测已犯）。 #}
+          <span class="scr-dist-name {{ d.status | state_badge }}">{{ d.status }}</span>
+          <span class="scr-dist-n">{{ d.count }}</span>
+          <div class="scr-bar"><i style="width: {{ (d.count / vis_count * 100) if vis_count else 0 }}%"></i></div>
+          {# 分布区的金额也是万：右侧固定 7em 宽，用元必然溢出。 #}
+          <span class="scr-dist-amt">{{ d.amount | money_wan }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="scr-sub">
+        <span>本月新签 <b>{{ kpi.contract_month | money_wan }}</b></span>
+        <span>累计合同 <b>{{ kpi.contract_total | money_wan }}</b></span>
+        <span>在建 <b>{{ kpi.building }}</b></span>
+        <span>15 天内竣工 <b class="{% if kpi.due_soon %}scr-num-alert{% endif %}">{{ kpi.due_soon }}</b></span>
+      </div>
+    </section>
+    {% endif %}
+
+    {# ---------- 待办灯 ---------- #}
+    <section class="scr-card">
+      <h2 class="scr-card-h">待办</h2>
+      <div class="scr-lamps">
+        <div class="scr-lamp scr-lamp-danger">
+          <div class="scr-lamp-n">{{ todo_stat.danger }}</div>
+          <div class="scr-lamp-l">紧急</div>
+        </div>
+        <div class="scr-lamp scr-lamp-warning">
+          <div class="scr-lamp-n">{{ todo_stat.warning }}</div>
+          <div class="scr-lamp-l">关注</div>
+        </div>
+        <div class="scr-lamp scr-lamp-info">
+          <div class="scr-lamp-n">{{ todo_stat.info }}</div>
+          <div class="scr-lamp-l">提示</div>
+        </div>
+        {% if approvals %}
+        <div class="scr-lamp scr-lamp-approve">
+          <div class="scr-lamp-n">{{ approvals }}</div>
+          <div class="scr-lamp-l">待我审批</div>
+        </div>
+        {% endif %}
+      </div>
+      <ul class="scr-todo">
+        {% for it in todo_items %}
+        <li class="scr-todo-li scr-tone-{{ it.level }}">
+          <span class="scr-todo-kind">{{ it.kind }}</span>
+          <span class="scr-todo-title">{{ it.title }}</span>
+          <span class="scr-todo-detail">{{ it.detail }}</span>
+        </li>
+        {% else %}
+        <li class="scr-todo-empty"><i class="bi bi-check-circle"></i> 当前没有待办</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    {# ---------- 未来 4 周应收 ---------- #}
+    {# 柱高按 buckets.max 归一；全 0 时 max 兜底为 1，模板里不会除零。 #}
+    <section class="scr-card">
+      <h2 class="scr-card-h">未来 4 周应收</h2>
+      {# 数值在柱上方、标签在柱下方。0 值也照常显示数字——
+       柱高为 0 时若把数字放进柱内，数字会一起消失。 #}
+      <div class="scr-buckets">
+        <div class="scr-bucket scr-bucket-over">
+          <div class="scr-bucket-v">{{ buckets.overdue | money_wan }}</div>
+          <div class="scr-bucket-plot">
+            <div class="scr-bucket-bar" style="height: {{ (buckets.overdue / buckets.max * 100) if buckets.max else 0 }}%"></div>
+          </div>
+          <div class="scr-bucket-l">已逾期</div>
+        </div>
+        {% for w in buckets.weeks %}
+        <div class="scr-bucket">
+          <div class="scr-bucket-v">{{ w | money_wan }}</div>
+          <div class="scr-bucket-plot">
+            <div class="scr-bucket-bar" style="height: {{ (w / buckets.max * 100) if buckets.max else 0 }}%"></div>
+          </div>
+          <div class="scr-bucket-l">第 {{ loop.index }} 周</div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    {# ---------- 单项目：阶段进度 / 多项目：施工 vs 回款双进度 ----------
+       双进度在单项目视图下只剩一行，「谁和谁差距大」这个问题就没有对比对象了。
+       单看一个项目时真正要问的是「做到哪一步了」，所以换成阶段进度。
+       两者互斥，不是同一块内容换数据。
+
+       多项目时施工与回款**并排两条**：这两个数在装修行业经常反向，
+       合成一个「进度」会把「预付了但没开工」读成「快完工了」。
+       排序按两者差距，见 app/screen.py::_dual_progress。 #}
+    {% if project %}
+    <section class="scr-card">
+      <h2 class="scr-card-h">施工阶段 · {{ phases.done }}/{{ phases.total }}
+        {% if phases.pct is not none %}<span class="scr-pct">{{ phases.pct }}%</span>{% endif %}
+      </h2>
+      <ul class="scr-phase">
+        {% for ph in phases.rows %}
+        <li class="scr-phase-li">
+          <span class="scr-phase-n">{{ ph.name }}</span>
+          <span class="{{ ph.status | state_badge }}">{{ ph.status }}</span>
+        </li>
+        {% else %}
+        <li class="scr-todo-empty">该项目还没有阶段记录（见「阶段模板」）</li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% else %}
+    <section class="scr-card">
+      <h2 class="scr-card-h">施工 / 回款 差距</h2>
+      <div class="scr-legend">
+        <span><i class="scr-key scr-key-build"></i>施工</span>
+        <span><i class="scr-key scr-key-recv"></i>回款</span>
+        <span class="scr-legend-h">差距大的排前面</span>
+      </div>
+      {# 宽度已由 app/screen.py 保证在 0~100：
+         build 是列（int），recv 是 recv_pct（float，超收时可能 >100）。
+         这里 clamp 一次是防模板外的改动——超宽的条会让容器 overflow:hidden
+         把右侧数字切掉，而那正是「超收 112%」这个信息该出现的地方。 #}
+      <ul class="scr-dual">
+        {% for r in dual %}
+        <li class="scr-dual-li">
+          <span class="scr-dual-name">{{ r.p.name }}</span>
+          <div class="scr-dual-track">
+            <i class="scr-key-build" style="width: {{ [r.build, 100]|min }}%"></i>
+            <i class="scr-key-recv" style="width: {{ [r.recv, 100]|min }}%"></i>
+          </div>
+          <span class="scr-dual-n">施 {{ r.build }}% / 收 {{ '%.0f'|format(r.recv) }}%</span>
+        </li>
+        {% else %}
+        <li class="scr-todo-empty">没有可对比进度的项目（项目需有合同才能算回款比例）</li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+  </div>
+
+  {# ---------- 异常提示条 ---------- #}
+  {# phase_never_started 用 watch 而不是 alert：要做的是"去看一眼"，
+     不是紧急处理。红色在本项目里留给金额异常。 #}
+  {% if never_started %}
+  <section class="scr-warn">
+    <i class="bi bi-exclamation-triangle"></i>
+    <span>{{ never_started | length }} 个项目「状态写着在施工，阶段表却一步没动」——两个数据源打架，需要人确认：</span>
+    {% for r in never_started %}<b>{{ r.p.name }}</b>{% if not loop.last %}、{% endif %}{% endfor %}
+  </section>
+  {% endif %}
+</main>
+
+{# ================= 时钟 + 自动刷新 ================= #
+   时钟走浏览器本地时间，与服务端 today 不同源。
+   大屏是常驻投屏设备，允许它用设备自己的时钟——
+   真正的业务日期（本月新签、逾期判定）全部来自服务端渲染。 #}
+<script>
+(function () {
+  var el = document.getElementById('scrClock');
+  var WD = ['日','一','二','三','四','五','六'];
+  function tick() {
+    var d = new Date();
+    var p = function (n) { return n < 10 ? '0' + n : '' + n; };
+    el.textContent = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+      + ' 周' + WD[d.getDay()] + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  tick();
+  setInterval(tick, 15000);
+
+  // 项目切换：整页跳转。不用 fetch 局部更新——局部更新要新写一套
+  // JSON 接口，而那套接口又是一次新的行级权限泄露面（见 app/screen.py）。
+  var sel = document.getElementById('scrProject');
+  if (sel) {
+    sel.addEventListener('change', function () {
+      location.href = sel.value
+        ? '/dashboard/screen?project_id=' + encodeURIComponent(sel.value)
+        : '/dashboard/screen';
+    });
+  }
+
+  // 待办条数按容器实际高度裁，裁到**整条**能显示为止。
+  // 为什么要 JS 而不是 CSS：CSS 只能 overflow:hidden，裁出来的是半行——
+  // 半行看起来像渲染坏了，而不是像「还有更多」。投屏场景无人滚动。
+  // 顶部三个灯已经给出完整条数，所以少显示几条不会丢信息。
+  function clampRows(list) {
+    if (!list) return;
+    var kids = Array.prototype.slice.call(list.children);
+    if (!kids.length) return;
+    // 行高必须量「**轨道**」而不是元素实际高度：行高被压扁时
+    // getBoundingClientRect() 给的是压缩后的值，算出来的条数就偏大，
+    // 于是又多显示几行、又压扁几行——死循环式的错。
+    // 现在 CSS 里 grid-auto-rows 是 clamp() 的确定值，
+    // 所以先全部显示（拿到未被压缩的行高），量完再决定留几条。
+    kids.forEach(function (k) { k.hidden = false; });
+    var rowH = kids[0].getBoundingClientRect().height;
+    if (rowH <= 0) return;
+    var gap = parseFloat(getComputedStyle(list).rowGap) || 0;
+    var box = list.getBoundingClientRect().height;
+    // +gap 是为了算上最后一行之后不需要的间距
+    var n = Math.max(1, Math.floor((box + gap) / (rowH + gap)));
+    kids.forEach(function (k, i) { k.hidden = i >= n; });
+  }
+  function clampAll() {
+    clampRows(document.querySelector('.scr-todo'));
+    clampRows(document.querySelector('.scr-dual'));
+  }
+  // 字体是 CDN 加载的，布局会在 CSS 到位后再变一次，所以两个时机都量。
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(clampAll);
+  }
+  window.addEventListener('load', clampAll);
+  window.addEventListener('resize', clampAll);
+  clampAll();
+
+  // 自动刷新：每 5 分钟重取一次。数据是服务端渲染的，刷新才拿得到新数。
+  // 刻意用整页跳转而不是 fetch 局部更新——局部更新要新写一套 JSON 接口，
+  // 而那套接口又是一次新的行级权限泄露面（见 app/screen.py 的说明）。
+  // 大屏无人操作，整页刷新没有「丢失编辑状态」的代价。
+  setTimeout(function () { location.reload(); }, 300000);
+})();
+</script>
+</body>
+</html>

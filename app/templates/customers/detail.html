@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.name }}{% endblock %}
+{% block page_title %}客户详情{% endblock %}
+{% block content %}
+
+<a href="/customers" class="btn btn-sm btn-outline-secondary mb-3"><i class="bi bi-arrow-left"></i> 返回客户列表</a>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-person-badge me-1"></i>基本信息</span>
+        <div>
+          <a href="/customers/{{ customer.id }}/edit" class="btn btn-sm btn-outline-primary">编辑</a>
+          <form method="post" action="/customers/{{ customer.id }}/delete" class="d-inline"
+                onsubmit="return confirm('确定删除该客户吗？');">
+            <button class="btn btn-sm btn-outline-danger">删除</button>
+          </form>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6"><div class="text-muted small">公司 / 客户名称</div><div class="fw-semibold">{{ customer.name }}</div></div>
+          <div class="col-md-6"><div class="text-muted small">统一社会信用代码</div><div>{{ customer.tax_no or '—' }}</div></div>
+          <div class="col-md-4"><div class="text-muted small">联系人</div><div>{{ customer.contact_person or '—' }}</div></div>
+          <div class="col-md-4"><div class="text-muted small">联系电话</div><div>{{ customer.contact_phone or customer.phone or '—' }}</div></div>
+          <div class="col-md-4"><div class="text-muted small">备用电话</div><div>{{ customer.phone or '—' }}</div></div>
+          <div class="col-12"><div class="text-muted small">公司地址</div><div>{{ customer.company_address or '—' }}</div></div>
+          <div class="col-md-4"><div class="text-muted small">项目地点 / 楼盘</div><div>{{ customer.community or '—' }}</div></div>
+          <div class="col-md-4"><div class="text-muted small">户型</div><div>{{ customer.house_type or '—' }}</div></div>
+          <div class="col-md-4"><div class="text-muted small">面积</div><div>{{ customer.area or 0 }} ㎡</div></div>
+          <div class="col-md-4"><div class="text-muted small">需求类型</div><div>{{ customer.requirement_type or '—' }}</div></div>
+          <div class="col-md-4"><div class="text-muted small">预算区间</div><div>¥{{ customer.budget_low|money }} ~ ¥{{ customer.budget_high|money }}</div></div>
+          <div class="col-md-4"><div class="text-muted small">来源</div><div>{{ customer.source or '—' }}</div></div>
+          <div class="col-md-4">
+            <div class="text-muted small">状态</div>
+            <span class="badge {{ customer.status | state_badge }}">{{ customer.status }}</span>
+          </div>
+          <div class="col-12"><div class="text-muted small">备注</div><div>{{ customer.note or '—' }}</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-briefcase me-1"></i>关联项目</div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>项目</th><th>状态</th><th>施工</th><th>回款</th><th>合同额</th><th></th></tr></thead>
+          <tbody>
+            {% for p in customer.projects %}
+            <tr>
+              <td><a href="/projects/{{ p.id }}">{{ p.name }}</a></td>
+              <td><span class="badge badge-status {{ p.status | state_badge }}">{{ p.status }}</span></td>
+              <td>{% if p.phases %}<span class="num">{{ p.progress }}%</span>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
+              <td>{% if p.recv_pct is none %}<span class="text-muted small">—</span>{% else %}<span class="num">{{ '%.0f'|format(p.recv_pct) }}%</span>{% endif %}</td>
+              <td>{% if p.contract %}¥{{ p.contract.amount|money }}{% else %}—{% endif %}</td>
+              <td><a href="/projects/{{ p.id }}" class="btn btn-sm btn-outline-primary">进入</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-3">暂无项目，可在项目管理中为签约客户创建项目</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-chat-left-text me-1"></i>跟进记录</div>
+      <div class="card-body">
+        <form method="post" action="/customers/{{ customer.id }}/follow-ups" class="mb-3">
+          <textarea name="content" class="form-control mb-2" rows="2" placeholder="记录本次沟通内容..." required></textarea>
+          <div class="input-group input-group-sm">
+            <span class="input-group-text">下次跟进</span>
+            <input type="date" name="next_follow_at" class="form-control">
+            <button class="btn btn-primary">添加</button>
+          </div>
+        </form>
+        <div class="list-group list-group-flush">
+          {% for f in customer.follow_ups %}
+          <div class="list-group-item px-0 py-2">
+            <div class="small">{{ f.content }}</div>
+            <div class="text-muted small mt-1">
+              {{ f.follow_at.strftime('%m-%d %H:%M') if f.follow_at else '' }}
+              {% if f.next_follow_at %}<span class="badge {{ "逾期" | state_badge }} ms-1">下次 {{ f.next_follow_at.strftime('%m-%d') }}</span>{% endif %}
+            </div>
+          </div>
+          {% else %}
+          <div class="empty-state empty-state-sm"><i class="bi bi-chat-left-text"></i>暂无跟进记录</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

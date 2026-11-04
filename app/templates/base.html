@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# ---- 主题必须在样式表加载**之前**定下来 ----
+     放在 <body> 里设的话，浏览器已经按浅色画完一屏了，切深色会闪一下白。
+     首次访问（localStorage 为空）跟系统偏好走，所以还要 inline 执行、
+     不能等 script 标签。这段刻意写得又短又同步。 #}
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('pms-theme');
+        var sys = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-bs-theme', saved || sys);
+        // 浅色的底色分两档：蓝底（默认，不设属性）/ 冷纸白（data-canvas="paper"）
+        if (localStorage.getItem('pms-canvas') === 'paper') {
+          document.documentElement.setAttribute('data-canvas', 'paper');
+        }
+      } catch (e) {
+        // 无痕模式下 localStorage 会抛异常。取不到就用浅色，别让整个页面白屏。
+        document.documentElement.setAttribute('data-bs-theme', 'light');
+      }
+    })();
+  </script>
+  <title>{% block title %}装修项目管理{% endblock %} · {{ OPTIONS.company_name }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css?v={{ CSS_VERSION }}">
+  {# Basecamp 风格主题层：只覆盖视觉，不含结构。删掉这一行即回滚。 #}
+  <link rel="stylesheet" href="/static/css/basecamp.css?v={{ CSS_VERSION }}">
+  {# Linear 层级修订层：发丝线 / 密度 / 四级文字。只覆盖视觉，删掉这一行即回滚。 #}
+  <link rel="stylesheet" href="/static/css/linear.css?v={{ CSS_VERSION }}">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
+  <style>
+    /* 拖过列宽的表切到 table-layout:fixed 后，列宽可能小于内容所需，
+       内容会溢出到单元格外面，把外层 .table-responsive 撑出横向滚动条。
+       裁掉即可——这是 Excel / 飞书表格的常规行为：拖窄了内容就看不全，
+       想看全再拖回来。不加这条，拖动本身就会「制造」出一条滚动条。 */
+    table.col-fixed > tbody > tr > td { overflow: hidden; }
+    /* 含下拉菜单的单元格要豁免，否则菜单展开时会被裁没。
+       单独放在 @supports 里：不支持 :has() 的浏览器会跳过这一条，
+       退化成「照裁不误」，而不是整条规则失效、溢出又跑回来。 */
+    @supports selector(:has(*)) {
+      table.col-fixed > tbody > tr > td:has(.dropdown-menu) { overflow: visible; }
+    }
+  </style>
+</head>
+<body>
+<!-- ===== 桌面侧边栏 ===== -->
+<aside class="sidebar d-none d-lg-flex">
+  <div class="sidebar-brand">
+    {% if OPTIONS.company_logo %}<img src="{{ OPTIONS.company_logo }}" class="brand-logo" alt="logo">{% else %}<i class="bi bi-house-gear-fill"></i>{% endif %}
+    <span>{{ OPTIONS.company_name }}</span>
+  </div>
+  {% include "_sidebar.html" %}
+  <div class="sidebar-footer">
+    <a href="/logout"><i class="bi bi-box-arrow-right"></i>退出登录</a>
+  </div>
+</aside>
+<script>
+// 侧栏一解析完就落位，不等页面末尾的脚本。
+// 原因：末尾恢复虽然也是同步的，但在慢机器/慢网络下，浏览器可能在
+// 解析到那里之前就把侧栏按 scrollTop=0 画了一帧——那一下就是「抖」。
+// 这里在侧栏标记刚结束时先把项目树展开、滚动位置设好，
+// 后面的基础脚本会再跑一次同样的恢复（幂等，不产生位移）。
+(function () {
+  var nav = document.querySelector('.sidebar .sidebar-nav');
+  if (!nav) return;
+  try {
+    var open = JSON.parse(localStorage.getItem('pms-projtree-open') || '{}');
+    Array.prototype.forEach.call(nav.querySelectorAll('details.pt-item[data-pid]'), function (d) {
+      if (open[d.dataset.pid]) d.open = true;
+    });
+    var pos = JSON.parse(sessionStorage.getItem('pms-sidebar-scroll') || '{}');
+    var v = pos.desktop;
+    if (typeof v === 'number' && v > 0) nav.scrollTop = v;
+  } catch (e) {}
+})();
+</script>
+
+<!-- ===== 移动端顶栏 ===== -->
+<nav class="mobile-topbar navbar navbar-light d-lg-none">
+  <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileMenu" aria-label="菜单">
+    <i class="bi bi-list fs-4"></i>
+  </button>
+  <span class="navbar-brand mb-0 h6">
+    {% if OPTIONS.company_logo %}<img src="{{ OPTIONS.company_logo }}" class="brand-logo" alt="logo">{% else %}<i class="bi bi-house-gear-fill me-1"></i>{% endif %}
+    {{ OPTIONS.company_name }}
+  </span>
+  <a href="/search" class="btn btn-sm btn-outline-secondary" aria-label="搜索"><i class="bi bi-search"></i></a>
+  {% include "_alerts.html" %}
+</nav>
+
+<!-- ===== 移动端抽屉菜单 ===== -->
+<div class="offcanvas offcanvas-start sidebar-offcanvas" id="mobileMenu" style="width:240px" tabindex="-1">
+  <div class="offcanvas-header">
+    <span class="offcanvas-title">{% if OPTIONS.company_logo %}<img src="{{ OPTIONS.company_logo }}" class="brand-logo" alt="logo">{% else %}<i class="bi bi-house-gear-fill me-1"></i>{% endif %}{{ OPTIONS.company_name }}</span>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="offcanvas-body p-0">
+    {% include "_sidebar.html" %}
+    <div class="sidebar-footer">
+      <a href="/logout"><i class="bi bi-box-arrow-right"></i>退出登录</a>
+    </div>
+  </div>
+</div>
+
+<main class="main">
+  <header class="topbar d-none d-lg-flex">
+    <h5 class="mb-0">{% block page_title %}{% endblock %}</h5>
+    <form method="get" action="/search" class="d-flex align-items-center mx-3 flex-grow-1" style="max-width:420px">
+      <div class="input-group input-group-sm">
+        <input type="text" name="q" class="form-control" placeholder="全局搜索…" aria-label="搜索">
+        <button class="btn btn-outline-secondary" type="submit"><i class="bi bi-search"></i></button>
+      </div>
+    </form>
+    <div class="d-flex align-items-center gap-3">
+      <a href="/oa/users" class="text-muted small text-decoration-none d-none d-xl-inline-flex align-items-center gap-1">
+        <i class="bi bi-person-circle"></i>{{ user.display_name or user.username }}（{{ user.role }}）
+      </a>
+      {% include "_alerts.html" %}
+      <button type="button" id="themeToggle" class="btn btn-sm btn-outline-secondary"
+              title="切换深色 / 浅色" aria-label="切换深色或浅色主题">
+        <i class="bi bi-moon-stars"></i>
+      </button>
+    </div>
+  </header>
+  <div class="content">
+    <h5 class="page-title d-lg-none">{{ self.page_title() }}</h5>
+    {% block content %}{% endblock %}
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/l10n/zh.js"></script>
+{# 可搜索下拉。放在 base 里而不是逐页引，是因为它必须**全站**生效：
+   表单页（选客户/选合同/选材料）与列表页（筛选）两类入口都有长列表，
+   逐页引的话一定会漏 —— 而且漏掉的页面表现完全正常，
+   只是「又变回要滚轮翻的下拉」，没人会当成 bug 报上来。 #}
+<script src="/static/js/searchable-select.js?v={{ CSS_VERSION }}"></script>
+<script src="/static/js/flt-search.js?v={{ CSS_VERSION }}"></script>
+<script>
+(function(){
+  if (typeof flatpickr === 'undefined') return;
+  document.querySelectorAll('input[type="date"]').forEach(function(el){
+    try {
+      flatpickr(el, { locale: 'zh', dateFormat: 'Y-m-d', allowInput: true, disableMobile: true });
+    } catch(e){}
+  });
+})();
+</script>
+<script>
+// ---------- 深色 / 浅色主题切换 ----------
+// 主题的**初次应用**在 <head> 里（inline，见该处注释）；这里只管切换。
+//
+// 两个容易踩的点：
+//  1. flatpickr 的日历面板是它自己生成的 DOM，颜色不跟 body 的 CSS 变量走。
+//     切到深色后日期选择器的浮层还是白的，衬在深色输入框旁边像块补丁。
+//     所以切主题时要把 flatpickr 的 altInput class 换掉。
+//  2. 存在「跟随系统」这第三态。存两个值就够了：存 'dark'/'light'，
+//     没存过就说明是跟随系统——下次读系统偏好即可。
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById('themeToggle');
+  if (!btn) return;
+
+  function syncIcon() {
+    var dark = root.getAttribute('data-bs-theme') === 'dark';
+    btn.innerHTML = dark
+      ? '<i class="bi bi-sun"></i>'
+      : '<i class="bi bi-moon-stars"></i>';
+    btn.title = dark ? '切到浅色' : '切到深色';
+  }
+
+  function fixCalendar() {
+    if (typeof flatpickr === 'undefined') return;
+    var dark = root.getAttribute('data-bs-theme') === 'dark';
+    document.querySelectorAll('.flatpickr-calendar').forEach(function (c) {
+      c.classList.toggle('dark', dark);
+    });
+    // 打开着的日历需要重建才会套用新 class
+    document.querySelectorAll('.flatpickr-input._active').forEach(function (i) {
+      try { if (i._flatpickr) { i._flatpickr.close(); i._flatpickr.open(); } } catch (e) {}
+    });
+  }
+
+  btn.addEventListener('click', function () {
+    var next = root.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-bs-theme', next);
+    try { localStorage.setItem('pms-theme', next); } catch (e) {}
+    syncIcon();
+    fixCalendar();
+  });
+
+  // 设置页里换外观时，右上角的月亮/太阳图标要跟着变
+  document.addEventListener('pms-theme-change', function () { syncIcon(); fixCalendar(); });
+
+  syncIcon();
+})();
+</script>
+<script>
+// 全局打印按钮：任何页面都能得到可用的纸面。
+//
+// 为什么不逐页模板手写打印按钮：这里有 70+ 个模板，逐页加必然漏，
+// 而「漏掉的页面打出来是乱的」比「按钮位置不统一」严重得多。
+// 用 position:fixed 挂右下角，屏幕上有、纸面上没有（.no-print，样式见 style.css 的 @media print）。
+// 各页面自己的 page-head 里也可以再放语义更贴切的按钮，两者不冲突。
+(function () {
+  if (document.getElementById('pms-print-btn')) return;
+  var b = document.createElement('button');
+  b.id = 'pms-print-btn';
+  b.type = 'button';
+  b.className = 'btn btn-outline-secondary no-print';
+  b.title = '打印本页（Ctrl+P）';
+  b.setAttribute('aria-label', '打印本页');
+  b.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:1030;'
+    + 'box-shadow:0 2px 10px rgba(0,0,0,.16);background:#fff;';
+  b.innerHTML = '<i class="bi bi-printer"></i>';
+  b.addEventListener('click', function () { window.print(); });
+  document.body.appendChild(b);
+})();
+</script>
+<script>
+// 通用：列表表格列宽拖拽调整（仅对标记了 data-col-resizable 的表格生效，宽度按表格 key 保存到 localStorage）
+// 注意：不要一上来就设 table-layout:fixed——那会让所有列等宽，把宽表挤成竖排文字。
+// 正确做法是首次拖动时先量出当前自然宽度并写死，之后才切到 fixed。
+//
+// ⚠ 这套逻辑有一条硬约束：**列宽总和永远不能超过容器宽**。
+// 外层 .table-responsive 是 overflow-x:auto，只要多 1px，卡片底部就会
+// 挂一条横向滚动条；而 fixed 布局下浏览器不会自己收窄，多出来的部分
+// 原样变成溢出。所以下面每一处写宽度的地方（恢复存档 / 拖动 / 固化）
+// 都要过一遍 fitToContainer()。
+(function () {
+  document.querySelectorAll('table[data-col-resizable]').forEach(function (table) {
+    var key = table.getAttribute('data-col-key') || ('tbl-' + (table.id || Math.random().toString(36).slice(2)));
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem(key) || '{}'); } catch (e) {}
+
+    var ths = Array.prototype.slice.call(table.querySelectorAll('thead th'));
+    if (!ths.length) return;
+
+    var MIN_W = 56;   // 单列最小宽度：够放下一个 btn-sm 加内边距，再窄按钮就被切了
+
+    // 表格自身是 width:100%，所以容器宽就是可用总宽。
+    // 但 .table-wide 带 min-width:900——窄屏下它本来就该横向滚动，
+    // 不能为了消滚动条把表硬压到比 min-width 还窄。
+    function containerWidth() {
+      var minW = parseFloat(window.getComputedStyle(table).minWidth) || 0;
+      var w = table.parentElement ? table.parentElement.clientWidth : table.clientWidth;
+      return Math.max(w || 0, minW);
+    }
+    function readWidths() {
+      return ths.map(function (th) { return Math.round(th.getBoundingClientRect().width); });
+    }
+    // 有些表（比如采购页）用 <colgroup><col class="c-no"> 配百分比宽度来排版。
+    // table-layout:fixed 下 <col> 的宽度**优先于 <th>**，只写 th.style.width
+    // 根本推不动——实测 th 上写着 width:211px，渲染出来还是 151px。
+    // 所以有 colgroup 就两边一起写。
+    var cols = table.querySelectorAll('colgroup > col');
+
+    function applyWidths(widths) {
+      table.style.tableLayout = 'fixed';
+      table.classList.add('col-fixed');   // 配套 head 里的 overflow:hidden
+      for (var c = 0; c < cols.length && c < widths.length; c++) {
+        cols[c].style.width = widths[c] + 'px';
+      }
+      ths.forEach(function (th, i) { th.style.width = widths[i] + 'px'; });
+    }
+    // 隐藏列（.col-minor 被 .col-minor-hidden 设成 display:none）量出来是 0。
+    // 它们不占位，绝不能参与宽度分配——否则 fit 时会被 Math.max(MIN_W, 0)
+    // 抬成 56px，把本该给可见列的宽度白吃掉，可见列反而被压得更窄。
+    // 反过来 persist 时也不能因为它们等于 0 就整份放弃存档。
+    function fitToContainer(widths, allowGrow) {
+      var target = containerWidth();
+      if (!target) return widths;   // 容器还没布局出来（折叠/隐藏），别乱动
+
+      var live = [];                // 只统计真正占位的列
+      var total = 0;
+      widths.forEach(function (w, i) { if (w > 0) { live.push(i); total += w; } });
+      if (!live.length || !total) return widths;
+
+      var shrink = total > target;
+      // 收缩：超过容器必须收回来（否则溢出成横向滚动条）
+      // 放大：仅窗口变宽时按原比例重新铺满，保持用户拖出来的比例
+      if (!shrink && !(allowGrow && total < target - 1)) return widths;
+
+      var scale = target / total;
+      var out = widths.slice();
+      var sum = 0;
+      live.forEach(function (i) {
+        var w = Math.round(widths[i] * scale);
+        out[i] = shrink ? Math.max(MIN_W, w) : Math.max(1, w);
+        sum += out[i];
+      });
+      // 取整误差补到最宽的那列，保证总和不偏不倚落在容器宽上
+      var widest = live[0];
+      live.forEach(function (i) { if (out[i] > out[widest]) widest = i; });
+      out[widest] = Math.max(MIN_W, out[widest] + (target - sum));
+      return out;
+    }
+
+    // 每列内容真正需要多宽（min-content）——**只作参考，不参与限制**。
+    // 曾经拿它当拖动下限，结果拖不动：auto 布局下「金额」「日期」这类
+    // 不折行的列，自然宽度本来就等于它自己的 min-content，邻居一点都
+    // 让不出来（实测 /procurement 拖「日期」列 151px 纹丝不动）。
+    // 现在改为放开拖拽 + overflow:hidden 裁掉超出内容，见 head 里的样式。
+    function persist() {
+      var w = readWidths();
+      if (!w.some(function (x) { return x > 0; })) return;   // 还没布局出来，别把一堆 0 存进去
+      var obj = {};
+      w.forEach(function (x, i) { obj[i] = x; });
+      localStorage.setItem(key, JSON.stringify(obj));
+      hasSaved = true;
+    }
+
+    // 首次量到的自然宽度，作为「存档里没有这一列」时的兜底。
+    // 不能在 resize 时现读——那时表格可能已经是 fixed，读到的正是被压窄后的值，
+    // 一次次缩窗口会越缩越小。
+    var naturalWidths = readWidths();
+
+    // 已有存档 → 恢复宽度并切到 fixed。
+    // 存档可能是在更宽的窗口下固化的，直接套上去就会撑破卡片，
+    // 所以先 fit 再写回，顺手把 localStorage 里那份也纠正过来
+    // （否则用户不清缓存，这条滚动条会一直跟着他）。
+    var hasSaved = Object.keys(saved).length > 0;
+    if (hasSaved) {
+      var restored = ths.map(function (th, i) {
+        return saved[i] ? saved[i] : naturalWidths[i];
+      });
+      applyWidths(fitToContainer(restored));
+      persist();
+    }
+
+    // 窗口尺寸变化：存档里存的是绝对像素，窗口一窄就装不下。
+    // 按存档里的比例重新适配（只改视觉、不写回存档，放大后能原样还原）。
+    // 没拖过的表不插手——交给浏览器 auto 布局，它本来就是自适应的。
+    var rzTimer = null;
+    window.addEventListener('resize', function () {
+      if (!hasSaved) return;
+      clearTimeout(rzTimer);
+      rzTimer = setTimeout(function () {
+        var cur = {};
+        try { cur = JSON.parse(localStorage.getItem(key) || '{}'); } catch (e) {}
+        var now = readWidths();
+        var base = ths.map(function (th, i) {
+          return cur[i] ? cur[i] : (naturalWidths[i] || now[i]);
+        });
+        applyWidths(fitToContainer(base, true));
+      }, 150);
+    });
+
+    function freeze() {
+      applyWidths(readWidths());
+      persist();
+    }
+
+    ths.forEach(function (th, i) {
+      th.style.position = 'relative';
+      var resizer = document.createElement('div');
+      resizer.className = 'col-resizer';
+      /* 手柄默认探出单元格右缘 3px，抓起来更顺手。但**最后一列**右边没有
+         下一个单元格了，这 3px 就落到表格外面——而外层 .table-responsive
+         是 overflow-x:auto，于是每张可拖拽的表格都凭空多出 3px 溢出，
+         底部挂一条横向滚动条。滑块几乎是满的（只多 3px），所以看上去
+         像「明明没超宽却有滚动条」，非常费解。
+         实测：1440 下 /contracts /customers /expenses /invoices 四张表
+         全部 clientWidth=1116、scrollWidth=1119，正好差 3px。
+         最后一列改成贴着自己的右缘放，探出的那 3px 就没有了。 */
+      var isLast = (i === ths.length - 1);
+      resizer.style.cssText = 'position:absolute;top:0;' + (isLast ? 'right:0' : 'right:-3px') +
+        ';width:7px;height:100%;cursor:col-resize;user-select:none;z-index:3;';
+      resizer.title = '拖动调整列宽';
+      th.appendChild(resizer);
+      var frozen = hasSaved;
+      resizer.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!frozen) { freeze(); frozen = true; }   // 首次拖动：先固化当前自然宽度
+
+        var startX = e.clientX;
+        var start = readWidths();                   // 以按下时的宽度为基准，避免逐帧误差累积
+        // 借宽度的邻居：优先右边一列，没有就左边一列（拖最后一列时）。
+        // 必须跳过隐藏列（宽度 0），否则会跟一个不占位的列「借」宽度，
+        // 借了等于没借——实测 /customers 末列的前邻正好是隐藏列，
+        // 拖完末列变窄、前邻纹丝不动，总宽凭空少了 65px。
+        var j = -1;
+        for (var k = i + 1; k < ths.length; k++) { if (start[k] > 0) { j = k; break; } }
+        if (j < 0) for (var k = i - 1; k >= 0; k--) { if (start[k] > 0) { j = k; break; } }
+
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+
+        function move(ev) {
+          var w = start[i] + (ev.clientX - startX);
+          if (j >= 0) {
+            // 相邻两列总宽守恒：这一列长多少，邻居就短多少。
+            // 上限是邻居缩到 MIN_W 为止——所以怎么拖都不会撑破容器，
+            // 邻居被压窄后溢出的内容由 overflow:hidden 裁掉，不会顶出滚动条。
+            w = Math.min(w, start[i] + Math.max(0, start[j] - MIN_W));
+          } else {
+            // 只有一列时没有邻居可借，只能限制在容器宽内
+            w = Math.min(w, containerWidth());
+          }
+          w = Math.max(MIN_W, w);
+
+          var widths = start.slice();
+          widths[i] = Math.round(w);
+          if (j >= 0) widths[j] = start[i] + start[j] - widths[i];
+          applyWidths(widths);
+        }
+        function up() {
+          document.removeEventListener('mousemove', move);
+          document.removeEventListener('mouseup', up);
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+          applyWidths(fitToContainer(readWidths()));   // 兜底：窗口刚被缩窄也不会溢出
+          persist();
+        }
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', up);
+      });
+    });
+  });
+})();
+
+// 通用：列表表格点击表头排序（仅对标记了 data-sortable 的表格生效；
+// th 需加 class="sortable" 与 data-sort 名称；金额列加 data-type="number"，日期列加 data-type="date"；
+// 金额/日期单元格建议加 data-value 存原始值）
+(function () {
+  document.querySelectorAll('table[data-sortable]').forEach(function (table) {
+    var tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    var state = {};
+    table.querySelectorAll('th.sortable').forEach(function (th) {
+      th.style.cursor = 'pointer';
+      th.title = '点击排序';
+      th.addEventListener('click', function (e) {
+        // 点击筛选下拉/链接/按钮时不做排序
+        if (e.target.closest('.dropdown, button, a, input, .col-resizer')) return;
+        var key = th.getAttribute('data-sort');
+        var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+        var dir = state[key] === 'asc' ? 'desc' : 'asc';
+        state[key] = dir;
+        table.querySelectorAll('th.sortable .sort-arrow').forEach(function (a) { a.remove(); });
+        var arrow = document.createElement('span');
+        arrow.className = 'sort-arrow';
+        arrow.textContent = dir === 'asc' ? ' ▲' : ' ▼';
+        th.appendChild(arrow);
+        var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+        var type = th.getAttribute('data-type') || '';
+        rows.sort(function (a, b) {
+          var va = a.querySelector('td:nth-child(' + (idx + 1) + ')');
+          var vb = b.querySelector('td:nth-child(' + (idx + 1) + ')');
+          var av = va ? (va.getAttribute('data-value') || va.textContent.trim()) : '';
+          var bv = vb ? (vb.getAttribute('data-value') || vb.textContent.trim()) : '';
+          if (type === 'number') return (parseFloat(av) || 0) - (parseFloat(bv) || 0);
+          return String(av).localeCompare(String(bv), 'zh');
+        });
+        if (dir === 'desc') rows.reverse();
+        rows.forEach(function (r) { tbody.appendChild(r); });
+      });
+    });
+  });
+})();
+</script>
+<script>
+// 通用：移动端卡片化表格的字段标签自动生成
+// 用法：给 <table> 加 class="table-card" 即可（CSS 在窄屏把每行变成卡片）。
+// 这里把 thead 的表头文字自动复制到同列单元格的 data-label；
+// 模板中已显式写 data-label 的以模板为准；筛选/排序引起的局部刷新也会自动补全。
+(function () {
+  function thLabel(th) {
+    var c = th.cloneNode(true);
+    c.querySelectorAll('.sort-arrow, .iv-flt, .dropdown, button, input, select, i').forEach(function (n) { n.remove(); });
+    return (c.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+  function fill(root) {
+    (root || document).querySelectorAll('table.table-card').forEach(function (table) {
+      var ths = table.querySelectorAll('thead th');
+      if (!ths.length) return;
+      var labels = Array.prototype.map.call(ths, thLabel);
+      table.querySelectorAll('tbody tr').forEach(function (tr) {
+        Array.prototype.forEach.call(tr.children, function (td, i) {
+          if (td.tagName !== 'TD') return;
+          if (td.hasAttribute('colspan') || td.hasAttribute('data-label')) return;
+          if (labels[i]) td.setAttribute('data-label', labels[i]);
+        });
+      });
+    });
+  }
+  window.pmsFillTableCards = fill;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { fill(document); });
+  } else {
+    fill(document);
+  }
+  var timer = null;
+  new MutationObserver(function () {
+    if (timer) return;
+    timer = setTimeout(function () { timer = null; fill(document); }, 60);
+  }).observe(document.body, { childList: true, subtree: true });
+})();
+
+// ============================================================
+// 筛选条折叠 / 次要列收起
+// 放在 base.html 而不是逐页模板：这两个是全站行为，67 个模板里漏一个
+// 就有一页行为不一致，比样式不统一更难解释。
+// ============================================================
+(function () {
+  var FILT_KEY = 'pms-filter-collapsed';
+  var COL_KEY_PREFIX = 'pms-colminor-';
+
+  // ---------------- 筛选条折叠 ----------------
+  // 收起状态默认：没筛任何东西时收起（占 2-3 行的筛选器不是首屏该有的东西）；
+  // 一旦筛了就自动展开——筛完看不见筛了什么，是这个功能最大的坑。
+  function initFilterWrap() {
+    document.querySelectorAll('.filter-wrap').forEach(function (wrap) {
+      // 已初始化的跳过。下面的 MutationObserver 会在 DOM 变化后重跑整个
+      // 初始化流程，若不跳过，用户手动点开筛选后又会立刻被自动状态覆盖
+      // ——表现为「按钮点了没反应」。
+      if (wrap.dataset.filtInit === '1') return;
+      wrap.dataset.filtInit = '1';
+      var hasFilter = wrap.dataset.hasFilter === '1';
+      var saved = null;
+      try { saved = localStorage.getItem(FILT_KEY); } catch (e) {}
+
+      // 有筛选生效时**始终展开**，且不写入记忆。
+      // 理由：筛完看不见自己筛了什么，是折叠功能最大的坑——比多占一行屏幕
+      // 严重得多。之前这里是「记忆优先」，结果用户在上一个页面收起过一次，
+      // 带着筛选条件进到这一页就会看到空的列表，以为筛选把它筛没了。
+      var collapsed;
+      if (hasFilter) {
+        collapsed = false;
+      } else {
+        collapsed = (saved === null) ? true : (saved === '1');
+      }
+
+      var btn = wrap.querySelector('.filter-toggle');
+      if (!btn) return;
+
+      function apply(c, remember) {
+        wrap.classList.toggle('is-collapsed', c);
+        wrap.classList.toggle('is-expanded', !c);
+        btn.setAttribute('aria-expanded', c ? 'false' : 'true');
+        var label = btn.querySelector('.ft-label');
+        if (label) label.textContent = c ? '筛选' : '收起筛选';
+        var icon = btn.querySelector('.bi');
+        if (icon) icon.className = c ? 'bi bi-sliders' : 'bi bi-chevron-down';
+        // 只有「用户主动收起」才写入记忆。自动展开（有筛选时）不写，
+        // 否则这次访问的选择会污染下一次无筛选的访问。
+        if (remember !== false) {
+          try { localStorage.setItem(FILT_KEY, c ? '1' : '0'); } catch (e) {}
+        }
+      }
+      apply(collapsed, false);
+
+      btn.addEventListener('click', function () {
+        apply(!wrap.classList.contains('is-collapsed'), true);
+      });
+    });
+  }
+
+  // ---------------- 次要列收起 ----------------
+  // 只认模板显式标了 .col-minor 的列；用户的选择按表记忆。
+  // 收起后表上会显示「N 列已收起」，且列按钮始终可点——不存在找不到列的情况。
+  //
+  // 「次要列」整体一个开关，不做逐列勾选：实测 9-14 列的表逐列勾选框
+  // 会把工具栏撑爆，而且没人会为了「只多看联系人」去逐列配置。
+  // 真正需要的是「默认清爽、需要时全展开」这一个动作。
+  function initColumnToggle() {
+    document.querySelectorAll('table[data-col-minor]').forEach(function (table) {
+      if (table.dataset.colInit === '1') return;   // MutationObserver 重跑时不重复注入
+      var minors = table.querySelectorAll('thead th.col-minor');
+      if (!minors.length) return;
+      table.dataset.colInit = '1';
+
+      var key = table.getAttribute('data-col-key') || ('t' + (table.id || 'tbl'));
+      var storeKey = COL_KEY_PREFIX + key;
+      var saved = null;
+      try { saved = localStorage.getItem(storeKey); } catch (e) {}
+      // 默认收起（首次访问）；用户手动展开过就记住展开
+      var collapsed = (saved === null) ? true : (saved === '1');
+
+      var total = table.querySelectorAll('thead th').length;
+      var nMinor = minors.length;
+
+      // 收起提示挂到最近的卡片里（不在的话建一个）
+      var note = null;
+      var card = table.closest('.card');
+      var scope = card || table.parentElement;
+      note = scope.querySelector('.col-hidden-note');
+      if (!note && scope) {
+        note = document.createElement('div');
+        note.className = 'col-hidden-note';
+        scope.appendChild(note);
+      }
+
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-sm btn-outline-secondary';
+      btn.type = 'button';
+      btn.title = '收起 / 展开次要列';
+
+      function apply(c) {
+        table.classList.toggle('col-minor-hidden', c);
+        btn.innerHTML = c
+          ? '<i class="bi bi-layout-three-columns"></i> 展开 ' + nMinor + ' 列'
+          : '<i class="bi bi-layout-three-columns"></i> 收起次要列';
+        btn.setAttribute('aria-expanded', c ? 'false' : 'true');
+        if (note) {
+          note.classList.toggle('is-on', c);
+          note.textContent = c
+            ? '已收起 ' + nMinor + ' 列（共 ' + total + ' 列），点上方按钮可展开'
+            : '';
+        }
+        try { localStorage.setItem(storeKey, c ? '1' : '0'); } catch (e) {}
+      }
+
+      btn.addEventListener('click', function () {
+        apply(!table.classList.contains('col-minor-hidden'));
+      });
+
+      // 插到页头右侧（和「导入」「新增」这类操作按钮并排）；
+      // 页头没有就插到表格前面——不能插到卡片 header 里，宽表页的
+      // card-header 常被别的脚本占用。
+      var head = document.querySelector('.page-head');
+      var ops = head ? head.querySelector(':scope > .d-flex') : null;
+      if (ops) ops.appendChild(btn);
+      else if (head) head.appendChild(btn);
+      else table.parentNode.insertBefore(btn, table);
+
+      apply(collapsed);
+    });
+  }
+
+  function run() { initFilterWrap(); initColumnToggle(); }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else { run(); }
+  // 表格卡片化脚本会 MutationObserver 地改 DOM，筛选区若被局部刷新要重跑
+  var t = null;
+  new MutationObserver(function () {
+    if (t) return;
+    t = setTimeout(function () { t = null; run(); }, 80);
+  }).observe(document.body, { childList: true, subtree: true });
+})();
+
+// 侧边栏项目树：展开状态记忆（点击功能跳转后保持展开）
+(function () {
+  var KEY = 'pms-projtree-open';
+  function collect(root) {
+    return Array.prototype.slice.call((root || document).querySelectorAll('.proj-tree details.pt-item[data-pid]'));
+  }
+  // 同一项目在「桌面侧栏」和「移动抽屉」各渲染一份 <details>。
+  // ⚠ 只能以**用户看得见的那一份**为准：抽屉在桌面是 visibility:hidden 的，
+  //   它的 open 状态从页面加载后就不会再变。上一版把两份「或」起来存，
+  //   于是「收起写字楼 → 抽屉副本还开着 → 存成 1」，下次进任何页面又展开。
+  //   这就是「折叠了写字楼、点领航下面采购页，写字楼又弹开」的原因。
+  function isVisible(d) {
+    if (!d.getClientRects().length) return false;   // display:none
+    var n = d;
+    while (n && n !== document.body) {
+      if (getComputedStyle(n).visibility === 'hidden') return false;  // 抽屉关着
+      n = n.parentElement;
+    }
+    return true;
+  }
+  function save() {
+    var map = {}, seen = false;
+    collect().forEach(function (d) {
+      if (!isVisible(d)) return;
+      seen = true;
+      map[d.dataset.pid] = d.open ? 1 : 0;
+    });
+    // 两份都不可见（抽屉关着 / 页面在后台）时不写，免得把上次的完整状态清空
+    if (!seen) return;
+    try { localStorage.setItem(KEY, JSON.stringify(map)); } catch (e) {}
+    // 顺手把隐藏的那一份同步成同样的状态，下次打开抽屉不会看到过期展开
+    collect().forEach(function (d) {
+      if (isVisible(d)) return;
+      var want = map[d.dataset.pid];
+      if (typeof want === 'number' && d.open !== !!want) d.open = !!want;
+    });
+  }
+  function restore() {
+    var st = {};
+    try { st = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+    collect().forEach(function (d) { if (st[d.dataset.pid]) d.open = true; });
+  }
+  restore();
+  document.addEventListener('toggle', function (ev) {
+    if (!ev.target || !ev.target.matches || !ev.target.matches('.proj-tree details.pt-item[data-pid]')) return;
+    // 隐藏副本被上面同步时也会触发 toggle，那不是用户操作，不参与保存
+    if (!isVisible(ev.target)) return;
+    save();
+  }, true);
+})();
+
+// 侧边栏滚动位置记忆
+// --------------------
+// 侧栏的滚动容器是 .sidebar-nav（不是 .sidebar）。点进某个项目下面的
+// 「分包合同 / 材料 / 发票」会整页跳转，新页面重新渲染侧栏时 scrollTop
+// 归零，看起来就像「焦点跳回导航栏顶端」，用户得重新滚一遍找项目。
+// 展开状态由上面那段 localStorage 记住，这里把滚动位置也记住：
+// 用 sessionStorage —— 位置只属于当前标签页，换标签页不该互相影响。
+(function () {
+  var KEY = 'pms-sidebar-scroll';
+
+  function navs() {
+    return Array.prototype.slice.call(document.querySelectorAll('.sidebar-nav'));
+  }
+  // 桌面侧栏的滚动容器就是 .sidebar-nav；移动抽屉里 .sidebar-nav 是整段
+  // 展开的，真正滚的是外层 .offcanvas。所以不要假设容器，往上找第一个可滚的。
+  function scrollerOf(n) {
+    var el = n;
+    while (el && el !== document.body && el !== document.documentElement) {
+      var oy = getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) return el;
+      el = el.parentElement;
+    }
+    return n;
+  }
+  // 键只认「桌面侧栏 / 移动抽屉」：抽屉关着时没有布局，scrollerOf 会退回
+  // nav 本身，若用容器做键，存的和取的就对不上了。
+  function keyOf(n) {
+    return n.closest('.offcanvas') ? 'drawer' : 'desktop';
+  }
+  function save() {
+    var map = {};
+    navs().forEach(function (n) { map[keyOf(n)] = (scrollerOf(n).scrollTop || 0); });
+    try { sessionStorage.setItem(KEY, JSON.stringify(map)); } catch (e) {}
+  }
+  function restore() {
+    var st;
+    try { st = JSON.parse(sessionStorage.getItem(KEY) || '{}'); } catch (e) { return; }
+    navs().forEach(function (n) {
+      var v = st[keyOf(n)];
+      // 内容比上次短时浏览器会自动夹到最大值，不用自己截断
+      if (typeof v === 'number' && v > 0) scrollerOf(n).scrollTop = v;
+    });
+  }
+
+  // 同步恢复，赶在浏览器画第一帧之前。
+  // 之前用 rAF×2 是为了等项目树展开、scrollHeight 变大，但项目树的展开
+  // 就在上面同一个脚本里同步做完，这里直接设就能落位。晚一帧的代价是
+  // 侧栏先画在顶部、下一帧再跳下去——就是那一下「抖」。
+  restore();
+
+  navs().forEach(function (n) {
+    var s = scrollerOf(n);
+    s.addEventListener('scroll', function () {
+      // rAF 节流而不是 setTimeout：滚动停下那一帧就写进 sessionStorage，
+      // 不用等 80ms，也不会在点击跳转时丢掉最后一段（因此也不需要
+      // 在 click 里再存一次——那次同步读布局正是抖动感的来源之一）。
+      if (s._pmsScrollQ) return;
+      s._pmsScrollQ = requestAnimationFrame(function () {
+        s._pmsScrollQ = 0;
+        save();
+      });
+    }, { passive: true });
+  });
+
+  // 抽屉是隐藏后再显示的：合上时设 scrollTop 不会保留，等它展开再恢复一次。
+  document.addEventListener('shown.bs.offcanvas', function () {
+    requestAnimationFrame(restore);
+  });
+
+  window.addEventListener('pagehide', save);
+})();
+
+// 项目功能子链接的选中态
+// ----------------------
+// 侧栏里项目树下面的「分包合同 / 材料 / 发票」由模板静态生成，
+// 不带 active（只有主模块和附加导航有）。点进去以后侧栏没有任何标记，
+// 用户会以为「焦点丢了」。这里按当前 URL 的 pathname + project_id/pid
+// 精确匹配，命中的那条加 .active（样式沿用已有的 .pt-links a.active）。
+(function () {
+  var here = location.pathname;
+  var params = new URLSearchParams(location.search);
+  var nowPid = params.get('project_id') || params.get('pid') || '';
+
+  Array.prototype.forEach.call(
+    document.querySelectorAll('.sidebar-nav .pt-links a'),
+    function (a) {
+      var u;
+      try { u = new URL(a.href, location.origin); } catch (e) { return; }
+      if (u.pathname !== here) return;
+      var minePid = u.searchParams.get('project_id') || u.searchParams.get('pid') || '';
+      if (minePid === nowPid) a.classList.add('active');
+    }
+  );
+})();
+</script>
+{% block scripts %}{% endblock %}
+<script>
+// ---------- 项目星标（Basecamp 项目卡上的那颗星） ----------
+// 只存浏览器本地，不写后端：为一个收藏功能加表 + 迁移不划算，
+// 代价是换设备/清缓存会丢，界面上也没有承诺过同步。
+(function () {
+  var KEY = 'pms-starred-projects';
+
+  function read() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; }
+  }
+  function write(arr) {
+    try { localStorage.setItem(KEY, JSON.stringify(arr)); } catch (e) {}
+  }
+  function paint() {
+    var list = read();
+    document.querySelectorAll('.proj-star').forEach(function (btn) {
+      var on = list.indexOf(btn.dataset.pid) >= 0;
+      btn.classList.toggle('is-on', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      var icon = btn.querySelector('i');
+      if (icon) icon.className = on ? 'bi bi-star-fill' : 'bi bi-star';
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.proj-star');
+    if (!btn) return;
+    e.preventDefault();
+    var list = read(), id = btn.dataset.pid, i = list.indexOf(id);
+    if (i >= 0) list.splice(i, 1); else list.push(id);
+    write(list);
+    paint();
+  });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', paint);
+  } else {
+    paint();
+  }
+})();
+</script>
+</body>
+</html>
