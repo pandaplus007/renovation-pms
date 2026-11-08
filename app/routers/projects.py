@@ -1003,19 +1003,23 @@ def note_create(project_id: int, request: Request,
 
 
 @router.post("/notes/upload-image")
-async def note_upload_image(request: Request, file: UploadFile = File(...),
+async def note_upload_image(request: Request, file: UploadFile | None = File(None),
                             db: Session = Depends(get_db),
                             user: User = Depends(login_required)):
     """富文本笔记：上传图片，返回可插入的 URL。"""
+    if file is None or not (file.filename or "").strip():
+        return JSONResponse({"url": "", "error": "没有收到图片文件"}, status_code=400)
     path = await save_upload(file, "notes", allowed=IMAGE_EXTS)
     return JSONResponse({"url": path or ""})
 
 
 @router.post("/notes/upload-audio")
-async def note_upload_audio(request: Request, file: UploadFile = File(...),
+async def note_upload_audio(request: Request, file: UploadFile | None = File(None),
                             db: Session = Depends(get_db),
                             user: User = Depends(login_required)):
     """富文本笔记：上传语音，返回可插入的 URL。"""
+    if file is None or not (file.filename or "").strip():
+        return JSONResponse({"url": "", "error": "没有收到语音文件"}, status_code=400)
     path = await save_upload(file, "notes", allowed={".mp3", ".wav", ".ogg", ".m4a", ".webm"})
     return JSONResponse({"url": path or ""})
 
@@ -1044,9 +1048,11 @@ def payment_create(project_id: int, request: Request,
 
 
 @router.post("/payments/recognize")
-async def payment_recognize(request: Request, file: UploadFile = File(...),
+async def payment_recognize(request: Request, file: UploadFile | None = File(None),
                            db: Session = Depends(get_db), user: User = Depends(login_required)):
     """识别银行转账单（甲方回单），返回付款人/收款人/账号/开户行/金额/日期/摘要。"""
+    if file is None or not (file.filename or "").strip():
+        return JSONResponse({"ok": False, "error": "请选择转账单文件"})
     try:
         data = await file.read()
         parsed, parse_err = recognize_bank_file(file.filename or "receipt", data)
@@ -1327,13 +1333,13 @@ def budget_template(request: Request, user: User = Depends(login_required)):
 
 
 @router.post("/{project_id}/budgets/import")
-async def budget_import(project_id: int, request: Request, file: UploadFile = File(...),
+async def budget_import(project_id: int, request: Request, file: UploadFile | None = File(None),
                         db: Session = Depends(get_db), user: User = Depends(login_required)):
     """从 Excel 导入预算科目。"""
     project = db.get(Project, project_id)
     if project is None:
         return RedirectResponse(url="/projects", status_code=303)
-    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
+    if file is None or not (file.filename or "").strip() or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         msg = "请上传 .xlsx 格式的 Excel 文件"
         return RedirectResponse(
             url=f"/projects/{project_id}?import_msg={urllib.parse.quote(msg)}#costs", status_code=303)
@@ -1343,6 +1349,11 @@ async def budget_import(project_id: int, request: Request, file: UploadFile = Fi
     except ValueError as e:
         return RedirectResponse(
             url=f"/projects/{project_id}?import_msg={urllib.parse.quote(str(e))}#costs", status_code=303)
+    except Exception as e:
+        # 同 materials 导入：损坏的 xlsx 会抛 BadZipFile，兜底成页面提示
+        return RedirectResponse(
+            url=f"/projects/{project_id}?import_msg={urllib.parse.quote(f'无法读取该文件（可能已损坏或格式不符）：{e}')}#costs",
+            status_code=303)
 
     imported = 0
     for r in rows:

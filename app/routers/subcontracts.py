@@ -1,4 +1,4 @@
-﻿"""分包管理：分包合同 + 分包采购单。功能参考采购管理。"""
+"""分包管理：分包合同 + 分包采购单。功能参考采购管理。"""
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
@@ -170,14 +170,17 @@ def subcontract_update(subcontract_id: int, request: Request,
 
 
 @router.post("/parse")
-async def subcontract_parse(request: Request, file: UploadFile = File(...),
+async def subcontract_parse(request: Request, file: UploadFile | None = File(None),
                             db: Session = Depends(get_db),
                             user: User = Depends(login_required)):
     """上传分包合同 → 识别 → 预填表单。"""
     projects = db.query(Project).order_by(Project.name).all()
     suppliers = db.query(Supplier).order_by(Supplier.name).all()
     ctx = {"active": "subcontracts", "user": user, "projects": projects,
-           "categories": CATEGORIES, "parsed": None, "error": "", "suppliers": suppliers}
+           "categories": CATEGORIES, "parsed": None, "error": "", "suppliers": suppliers,
+           # 与 subcontract_new 同理：form.html 第 38 行是裸 `sc.id`，
+           # 显式传 None 才走 '/subcontracts/new' 分支，漏传会 UndefinedError → 500
+           "sc": None}
     if not file or not file.filename:
         ctx["error"] = "请选择分包合同文件"
         _resp = render(request, "subcontracts/form.html", ctx)

@@ -415,22 +415,31 @@ def purchase_item_delete(item_id: int, request: Request, back_url: str = Form(""
 
 
 @router.post("/{order_id}/import-excel")
-def purchase_import_excel(order_id: int, request: Request, file: UploadFile = File(...),
+def purchase_import_excel(order_id: int, request: Request, file: UploadFile | None = File(None),
                           db: Session = Depends(get_db),
                           user: User = Depends(login_required)):
     """Excel 导入材料明细：列=材料/材料名称、规格、数量、单价。按名称匹配材料，不存在则自动创建。"""
     order = db.get(PurchaseOrder, order_id)
     if order is None:
         return RedirectResponse(url="/purchases", status_code=303)
+    if file is None or not (file.filename or "").strip():
+        return RedirectResponse(url=f"/purchases/{order_id}?import_err=请选择要导入的文件", status_code=303)
     fname = (file.filename or "").lower()
     if not (fname.endswith(".xlsx") or fname.endswith(".xls") or fname.endswith(".csv")):
         return RedirectResponse(url=f"/purchases/{order_id}?import_err=文件格式需为 Excel/CSV", status_code=303)
     data = file.file.read()
     import io
     import openpyxl
-    wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
+    # 损坏的 xlsx / 改了后缀的文件会让 openpyxl 抛 BadZipFile 等异常，
+    # 不接住就是 500 白页；这里统一回到页面上的 import_err 提示。
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+    except Exception:
+        return RedirectResponse(
+            url=f"/purchases/{order_id}?import_err=无法读取该表格（文件可能已损坏，或并不是真正的 Excel）",
+            status_code=303)
     if not rows:
         return RedirectResponse(url=f"/purchases/{order_id}?import_err=Excel 为空", status_code=303)
     header = [str(c or "").strip().lower() for c in rows[0]]

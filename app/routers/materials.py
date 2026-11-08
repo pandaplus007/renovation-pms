@@ -290,9 +290,12 @@ def material_import_page(request: Request, msg: str = "", project_id: int = 0,
 
 
 @router.post("/preview")
-async def material_import_preview(request: Request, file: UploadFile = File(...),
+async def material_import_preview(request: Request, file: UploadFile | None = File(None),
                                   db: Session = Depends(get_db), user: User = Depends(login_required)):
     """预览接口：解析上传的 Excel/Word 材料清单，返回表格行 JSON（供前端预览）。"""
+    # 没有文件时给 ok:false，而不是让 FastAPI 回 422 / 让 file.read() 抛 AttributeError
+    if file is None or not (file.filename or "").strip():
+        return JSONResponse({"ok": False, "error": "请选择要导入的文件"})
     try:
         data = await file.read()
         rows = parse_material_file(file.filename, data)
@@ -309,7 +312,7 @@ async def material_import_submit(request: Request,
                                  contract_no: str = Form(""), supplier_id: int = Form(0),
                                  tax_rates: list[str] = Form([]),
                                  net_prices: list[str] = Form([]),
-                                 file: UploadFile = File(...),
+                                 file: UploadFile | None = File(None),
                                  db: Session = Depends(get_db), user: User = Depends(login_required)):
     projects = db.query(Project).order_by(Project.name).all()
     contracts = db.query(PurchaseContract).order_by(PurchaseContract.name).all()
@@ -325,7 +328,7 @@ async def material_import_submit(request: Request,
     _contract = db.get(PurchaseContract, contract_id) if contract_id else None
     if not supplier_id and _contract and _contract.supplier_id:
         supplier_id = _contract.supplier_id
-    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm", ".xls", ".docx", ".doc")):
+    if file is None or not (file.filename or "").strip() or not file.filename.lower().endswith((".xlsx", ".xlsm", ".xls", ".docx", ".doc")):
         return render(request, "materials/import.html", {
             "active": "materials", "user": user, "projects": projects, "contracts": contracts,
             "error": "请上传 .xlsx / .xls / .docx / .doc 格式的文件",
@@ -337,6 +340,12 @@ async def material_import_submit(request: Request,
         return render(request, "materials/import.html", {
             "active": "materials", "user": user, "projects": projects, "contracts": contracts,
             "error": str(e),
+        })
+    except Exception as e:
+        # 损坏的 xlsx（openpyxl 抛 BadZipFile）等非 ValueError 异常，别让它变成 500 白页
+        return render(request, "materials/import.html", {
+            "active": "materials", "user": user, "projects": projects, "contracts": contracts,
+            "error": f"无法读取该文件（可能已损坏或格式不符）：{e}",
         })
 
     project = db.get(Project, project_id) if project_id else None

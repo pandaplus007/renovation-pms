@@ -160,7 +160,7 @@ def payment_new(request: Request, contract_id: int = 0, po_id: int = 0,
 
 
 @router.post("/parse")
-async def payment_parse(request: Request, file: UploadFile = File(...),
+async def payment_parse(request: Request, file: UploadFile | None = File(None),
                         supplier_id: int = Form(0), project_id: int = Form(0),
                         contract_id: int = Form(0), po_id: int = Form(0),
                         subcontract_id: int = Form(0), suborder_id: int = Form(0),
@@ -203,7 +203,7 @@ async def payment_parse(request: Request, file: UploadFile = File(...),
             # 供应商名称（乙方）
             if _pc.party_b and not ctx.get("prefill_supplier_name"):
                 ctx["prefill_supplier_name"] = _pc.party_b
-    if not file.filename:
+    if file is None or not (file.filename or "").strip():
         ctx["error"] = "请选择转账单文件"
         return render(request, "supplier_payments/form.html", ctx)
 

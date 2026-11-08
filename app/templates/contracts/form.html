@@ -10,7 +10,7 @@
     <form method="post" action="/contracts/parse" enctype="multipart/form-data" id="contractParseForm"
           class="d-flex gap-2 align-items-end flex-wrap">
       <div class="flex-grow-1" style="min-width:280px">
-        <input type="file" name="file" class="form-control" accept=".pdf,.doc,.docx" id="contractParseFile">
+        <input type="file" name="file" class="form-control" accept=".pdf,.doc,.docx" id="contractParseFile" required>
       </div>
       <button type="submit" class="btn btn-outline-danger" id="contractParseBtn"><i class="bi bi-magic"></i> 识别并预填</button>
     </form>

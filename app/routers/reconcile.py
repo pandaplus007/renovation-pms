@@ -35,10 +35,15 @@ def _fmt_date(d):
 
 
 @router.post("/reconcile/bank")
-async def reconcile_upload(request: Request, file: UploadFile = File(...),
+async def reconcile_upload(request: Request, file: UploadFile | None = File(None),
                            db: Session = Depends(get_db),
                            user: User = Depends(login_required)):
     """上传银行对账单并立即匹配。"""
+    if file is None or not (file.filename or "").strip():
+        return render(request, "reconcile/bank.html", {
+            "active": "supplier_payments", "user": user, "has_result": False,
+            "error": "请选择银行对账单文件。",
+        }, status_code=400)
     data = await file.read()
     if not data:
         return render(request, "reconcile/bank.html", {

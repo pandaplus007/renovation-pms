@@ -10,7 +10,7 @@
     <form method="post" action="/subcontracts/parse" enctype="multipart/form-data" id="scParseForm"
           class="d-flex gap-2 align-items-end flex-wrap">
       <div class="flex-grow-1" style="min-width:280px">
-        <input type="file" name="file" class="form-control" accept=".pdf,.doc,.docx" id="scParseFile">
+        <input type="file" name="file" class="form-control" accept=".pdf,.doc,.docx" id="scParseFile" required>
       </div>
       <button type="submit" class="btn btn-outline-danger" id="scParseBtn"><i class="bi bi-magic"></i> 识别并预填</button>
     </form>

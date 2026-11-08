@@ -196,7 +196,7 @@ def _parse_expense_file(data: bytes, filename: str) -> list[dict]:
 
 
 @router.post("/import")
-async def expense_import_submit(request: Request, file: UploadFile = File(...),
+async def expense_import_submit(request: Request, file: UploadFile | None = File(None),
                                 db: Session = Depends(get_db),
                                 user: User = Depends(login_required)):
     """Excel 导入费用：按项目名称匹配项目，逐行创建费用记录。"""

@@ -142,11 +142,13 @@ def _match_supplier(db: Session, name: str):
 
 
 @router.post("/contracts/parse")
-async def contract_parse(request: Request, file: UploadFile = File(...),
+async def contract_parse(request: Request, file: UploadFile | None = File(None),
                          db: Session = Depends(get_db), user: User = Depends(login_required)):
     """上传合同文件（PDF/Word）→ 识别合同信息与时间节点 → 预填表单并存档。"""
     ctx = _form_ctx(db, user)
-    if not file.filename:
+    # file 声明成 None 才收得到「没选文件就点提交」的请求；写成 File(...) 的话
+    # FastAPI 会在进函数前回 422 原始 JSON，用户只看到 ["body","file"] 这种报错。
+    if file is None or not (file.filename or "").strip():
         ctx["error"] = "请选择合同文件"
         return render(request, "contracts/form.html", ctx)
     data = await file.read()
@@ -168,7 +170,7 @@ async def contract_parse(request: Request, file: UploadFile = File(...),
 
 
 @router.post("/api/contracts/parse-json")
-async def contract_parse_json(file: UploadFile = File(...),
+async def contract_parse_json(file: UploadFile | None = File(None),
                               db: Session = Depends(get_db),
                               user: User = Depends(login_required)):
     """上传合同文件并返回识别结果 JSON（供飞书等自动化客户端调用）。
@@ -176,8 +178,8 @@ async def contract_parse_json(file: UploadFile = File(...),
     与 /contracts/parse 共用同一套识别逻辑，区别只在返回 JSON 而非预填表单页。
     本接口不建单、不改任何业务数据；文件照常存档到 uploads/contract/。
     """
-    if not file.filename:
-        return JSONResponse({"ok": False, "error": "请选择合同文件"}, status_code=400)
+    if file is None or not (file.filename or "").strip():
+        return JSONResponse({"ok": False, "error": "请选择合同文件（表单字段名 file）"}, status_code=400)
 
     data = await file.read()
     file.file.seek(0)

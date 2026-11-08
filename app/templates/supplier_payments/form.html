@@ -24,7 +24,7 @@
       {% endif %}
       {% if back_url %}<input type="hidden" name="back_url" value="{{ back_url }}">{% endif %}
       <div class="flex-grow-1" style="min-width:280px">
-        <input type="file" name="file" class="form-control" accept="image/png,image/jpeg,application/pdf,.pdf">
+        <input type="file" name="file" class="form-control" accept="image/png,image/jpeg,application/pdf,.pdf" required>
       </div>
       <button class="btn btn-outline-success"><i class="bi bi-magic"></i> 识别并预填</button>
     </form>
