@@ -135,6 +135,7 @@
   "POST /gantt/tasks": "create",
   "POST /gantt/tasks/{task_id}/delete": "delete",
   "POST /gantt/tasks/{task_id}/edit": "edit",
+  "POST /gantt/tasks/{task_id}/reschedule": "edit",
   "POST /gantt/tasks/{task_id}/status": "edit",
   "POST /inventory/batch-delete": "delete",
   "POST /inventory/records": "create",

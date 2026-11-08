@@ -39,6 +39,18 @@
     <div class="form-text mt-2">
       只对本设备生效；右上角的月亮按钮仍可快速切明暗，选中的底色会保留。
     </div>
+    {# 动效强度单独一档，和底色分开：底色是「好看」，动效是「舒适度」，
+       而且有人会因为晕动/低配机器专门把它关掉。 #}
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-3 pt-3"
+         style="border-top:1px solid var(--border-color, #e5e7eb)">
+      <span class="small text-muted">动效</span>
+      <div class="btn-group btn-group-sm" id="animGroup" role="group" aria-label="动效强度">
+        <button type="button" class="btn btn-outline-secondary" data-anim="none">关闭</button>
+        <button type="button" class="btn btn-outline-secondary" data-anim="moderate">适中</button>
+        <button type="button" class="btn btn-outline-secondary" data-anim="rich">丰富</button>
+      </div>
+      <span class="small text-muted">「关闭」会停掉全部过渡与入场动画；系统开了「减少动态效果」时一律按关闭处理</span>
+    </div>
   </div>
 </div>
 
@@ -192,6 +204,36 @@ WECOM_BASE_URL=http://192.168.1.100:8018</pre>
 
   paint();
   document.addEventListener('pms-theme-change', paint);
+})();
+
+// 动效三档：none / moderate / rich。与主题同一套机制（localStorage + 根节点
+// 属性），只对本设备生效。不用刷新页面——CSS 全部读 var(--pms-dur*)，属性一变
+// 就即时生效。
+// 注意：系统级 prefers-reduced-motion 优先级更高，CSS 里的 media query 会压住
+// 这里的选择，所以这里不做额外判断（判断两次反而容易漏）。
+(function () {
+  var root = document.documentElement;
+  var group = document.getElementById('animGroup');
+  if (!group) return;
+
+  function paintAnim() {
+    var cur = root.getAttribute('data-animation') || 'moderate';
+    Array.prototype.forEach.call(group.querySelectorAll('[data-anim]'), function (b) {
+      var on = b.dataset.anim === cur;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  group.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-anim]');
+    if (!b) return;
+    root.setAttribute('data-animation', b.dataset.anim);
+    try { localStorage.setItem('pms-animation', b.dataset.anim); } catch (e) {}
+    paintAnim();
+  });
+
+  paintAnim();
 })();
 </script>
 {% endblock %}

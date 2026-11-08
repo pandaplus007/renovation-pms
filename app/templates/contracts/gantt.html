@@ -177,6 +177,33 @@ data-note="{{ t.note or '' }}"
   text-align: left; appearance: none; -webkit-appearance: none;
   font-family: inherit;
 }
+
+/* ---------- 甘特条拖拽改期 ----------
+   touch-action 用 none 而不是 pan-y：图表本身是横向滚动的，若允许 pan，
+   浏览器会在长按结束后继续试图接管手势，条形跟手会抖。代价是「从条上起始
+   的横向滑动不再滚图」——条只有 24px 高，空白轨道足够滚，这个取舍可接受。
+   另外 button 上必须显式关掉 user-select / touch-callout，否则 iOS 长按会弹
+   「拷贝 / 查询」系统菜单，长按拖拽根本触发不了。 */
+.gantt-chart .gantt-bar.drag-ready {
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
+.gantt-chart .gantt-bar.drag-ready:hover { cursor: grab; }
+.gantt-chart .gantt-bar.dragging {
+  cursor: grabbing;
+  z-index: 7; opacity: .92;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .28);
+}
+/* 被时间窗裁掉的任务不给拖：宽度本身不是真实工期，拖出来的日期会错 */
+.gantt-chart .gantt-bar[data-clipped="1"] { cursor: not-allowed; }
+.gantt-drag-tip {
+  position: fixed; z-index: 2000; display: none;
+  padding: 4px 8px; border-radius: 6px;
+  background: rgba(17, 24, 39, .92); color: #fff;
+  font-size: 12px; line-height: 1.45; white-space: nowrap; pointer-events: none;
+}
+.gantt-drag-tip.err { background: rgba(185, 28, 28, .95); }
 </style>
 
 <!-- 视图切换。两个视图各有明确职责：
@@ -502,6 +529,7 @@ data-note="{{ t.note or '' }}"
                用 button 而不是给 div 绑 onclick —— 键盘能 Tab 到、能回车打开，
                读屏也会念出「编辑任务 X」。 #}
             <button type="button" class="gantt-bar" {{ task_edit_attrs(it.task) }}
+                    {% if it.bar.clip_l or it.bar.clip_r %}data-clipped="1"{% endif %}
                     style="left:{{ it.bar.left }}%;width:{{ it.bar.width }}%"
                     title="{{ it.task.name }}：{{ it.task.start_date }} ~ {{ it.task.end_date or it.task.start_date }} · 共 {{ it.days }} 天{% if it.task.assignee %}（{{ it.task.assignee }}）{% endif %}{% if it.task.note %}｜{{ it.task.note }}{% endif %}">{{ it.task.name }}</button>
             {% else %}
@@ -541,6 +569,7 @@ data-note="{{ t.note or '' }}"
           <div class="gantt-track">
             {% if it.bar %}
             <button type="button" class="gantt-bar" {{ task_edit_attrs(it.task) }}
+                    {% if it.bar.clip_l or it.bar.clip_r %}data-clipped="1"{% endif %}
                     style="left:{{ it.bar.left }}%;width:{{ it.bar.width }}%"
                     title="{{ it.task.name }}">{{ it.task.name }}</button>
             {% else %}
@@ -861,6 +890,190 @@ data-note="{{ t.note or '' }}"
       chart.addEventListener('mouseleave', function () { tip.style.display = 'none'; });
     }
   }
+})();
+</script>
+<script>
+(function () {
+  // ---------- 甘特条拖拽改期 ----------
+  // 交互：鼠标按下即可拖；触屏要长按 350ms 才进入拖拽（否则会和滚动打架）。
+  // 左右各 12px 是改起止的手柄，中间是整体平移。松手立即提交（乐观更新），
+  // 失败整体回弹——工地上不该为了改一个日期多点一次「确认」。
+  var chart = document.getElementById('ganttChart');
+  if (!chart) return;
+  var total = parseInt(chart.getAttribute('data-total') || '0', 10);
+  if (!total) return;
+
+  var LONG_PRESS = 350, MOVE_TOL = 3, HANDLE = 12, MIN_W = 6;
+  var tip = document.createElement('div');
+  tip.className = 'gantt-drag-tip';
+  document.body.appendChild(tip);
+
+  var active = null, suppressClick = false;
+
+  // 条形是 <button data-bs-toggle="modal">：拖完松手会顺带 click 打开弹窗。
+  // 必须在捕获阶段把它掐掉，否则「拖一下弹窗就跳出来」。
+  document.addEventListener('click', function (e) {
+    if (!suppressClick) return;
+    if (e.target.closest && e.target.closest('.gantt-bar')) {
+      e.preventDefault(); e.stopPropagation();
+      suppressClick = false;
+    }
+  }, true);
+
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+  function addDays(iso, n) {
+    var d = new Date(iso + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  function diffDays(a, b) {
+    return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+  }
+
+  // 手柄拖动时不能让结束日跑到开始日之前
+  function clampDays(st, d) {
+    var span = diffDays(st.start, st.end);
+    if (st.mode === 'l') return Math.min(d, span);
+    if (st.mode === 'r') return Math.max(d, -span);
+    return d;
+  }
+
+  function preview(st, d) {
+    var ns = st.start, ne = st.end;
+    if (st.mode === 'm') { ns = addDays(st.start, d); ne = addDays(st.end, d); }
+    else if (st.mode === 'l') { ns = addDays(st.start, d); }
+    else { ne = addDays(st.end, d); }
+    return { start: ns, end: ne, text: ns + ' → ' + ne + ' · ' + (diffDays(ns, ne) + 1) + ' 天' };
+  }
+
+  function showTip(e, st, d, errText) {
+    tip.classList.toggle('err', !!errText);
+    tip.style.display = 'block';
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top = (e.clientY - 36) + 'px';
+    tip.textContent = errText || preview(st, d).text;
+  }
+
+  function paint(e, st, d) {
+    var p = st.pxPerDay;
+    if (st.mode === 'm') {
+      st.bar.style.left = (st.left + d * p) + 'px';
+    } else if (st.mode === 'l') {
+      var w = Math.max(MIN_W, st.width - d * p);
+      st.bar.style.left = (st.left + (st.width - w)) + 'px';
+      st.bar.style.width = w + 'px';
+    } else {
+      st.bar.style.width = Math.max(MIN_W, st.width + d * p) + 'px';
+    }
+  }
+
+  function reset(st) {
+    if (st.timer) clearTimeout(st.timer);
+    if (st.origStyle === null) st.bar.removeAttribute('style');
+    else st.bar.setAttribute('style', st.origStyle);
+    st.bar.classList.remove('dragging');
+    tip.style.display = 'none';
+    if (active === st) active = null;
+  }
+
+  function commit(st, d, ev) {
+    // 只要发生过位移就吃掉这次 click：成功时是为了别弹窗，失败时是为了别
+    // 在回弹之后又弹出编辑框（那时用户已经困惑了）。
+    suppressClick = true;
+    var p = preview(st, d);
+    var body = new URLSearchParams();
+    body.set('start_date', p.start);
+    body.set('end_date', p.end);
+    fetch('/gantt/tasks/' + st.id + '/reschedule', {
+      method: 'POST', body: body, credentials: 'same-origin'
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j || {} }; });
+    }).then(function (res) {
+      if (!res.ok || !res.body.ok) throw new Error(res.body.error || 'HTTP ' + res.ok);
+      st.bar.setAttribute('data-start', res.body.start);
+      st.bar.setAttribute('data-end', res.body.end);
+      st.bar.classList.remove('dragging');
+      tip.style.display = 'none';
+      suppressClick = true;
+      setTimeout(function () { suppressClick = false; }, 0);
+    }).catch(function (err) {
+      reset(st);
+      showTip(ev, st, d, '改期失败：' + err.message + '（已恢复原位）');
+      setTimeout(function () { tip.style.display = 'none'; }, 4000);
+    });
+  }
+
+  chart.querySelectorAll('.gantt-bar').forEach(function (bar) {
+    // 被时间窗裁掉的任务不参与：条形宽度不等于真实工期，拖出来的日期是错的
+    if (bar.getAttribute('data-clipped') === '1') return;
+    if (!bar.getAttribute('data-start')) return;
+    bar.classList.add('drag-ready');
+
+    bar.addEventListener('pointerdown', function (e) {
+      if (active) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      var startIso = bar.getAttribute('data-start');
+      if (!startIso) return;
+      var track = bar.parentElement;
+      var r = bar.getBoundingClientRect();
+      active = {
+        bar: bar,
+        id: bar.getAttribute('data-task'),
+        start: startIso,
+        end: bar.getAttribute('data-end') || startIso,
+        mode: e.clientX - r.left < HANDLE ? 'l'
+            : (r.right - e.clientX < HANDLE ? 'r' : 'm'),
+        x0: e.clientX,
+        left: bar.offsetLeft,
+        width: bar.offsetWidth,
+        pxPerDay: track.clientWidth / total,
+        origStyle: bar.getAttribute('style'),
+        armed: e.pointerType === 'mouse',
+        moved: false,
+        days: 0,
+        timer: 0
+      };
+      if (!active.armed) {
+        active.timer = setTimeout(function () {
+          if (!active) return;
+          active.armed = true;
+          bar.classList.add('dragging');
+        }, LONG_PRESS);
+      }
+      try { bar.setPointerCapture(e.pointerId); } catch (ignore) {}
+    });
+
+    bar.addEventListener('pointermove', function (e) {
+      var st = active;
+      if (!st || st.bar !== bar) return;
+      var dx = e.clientX - st.x0;
+      if (!st.armed) {
+        // 还没长按就动了 → 判定为「想滚图」，直接放弃，别抢手势
+        if (Math.abs(dx) > MOVE_TOL) reset(st);
+        return;
+      }
+      if (Math.abs(dx) > MOVE_TOL) st.moved = true;
+      st.days = clampDays(st, Math.round(dx / st.pxPerDay));
+      paint(e, st, st.days);
+      showTip(e, st, st.days, null);
+    });
+
+    bar.addEventListener('pointerup', function (e) {
+      var st = active;
+      if (!st || st.bar !== bar) return;
+      clearTimeout(st.timer);
+      active = null;
+      if (!st.moved) { reset(st); return; }   // 只是点了一下
+      commit(st, st.days, e);
+    });
+
+    bar.addEventListener('pointercancel', function () {
+      var st = active;
+      if (st && st.bar === bar) reset(st);
+    });
+  });
 })();
 </script>
 {% endblock %}

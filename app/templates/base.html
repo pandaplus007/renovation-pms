@@ -13,6 +13,12 @@
         var saved = localStorage.getItem('pms-theme');
         var sys = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         document.documentElement.setAttribute('data-bs-theme', saved || sys);
+        // 动画强度：none / moderate / rich（默认 moderate）。
+        // 必须和主题一样在样式表加载前定下来——否则首屏会先按 rich 播一遍
+        // 入场动画再切回 none，用户看到的是「闪一下」。缺省不写属性时，
+        // CSS 里的 :root 默认值就是 moderate，所以这里取不到也不影响。
+        document.documentElement.setAttribute(
+          'data-animation', localStorage.getItem('pms-animation') || 'moderate');
         // 浅色的底色分两档：蓝底（默认，不设属性）/ 冷纸白（data-canvas="paper"）
         if (localStorage.getItem('pms-canvas') === 'paper') {
           document.documentElement.setAttribute('data-canvas', 'paper');

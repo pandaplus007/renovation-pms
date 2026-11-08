@@ -1759,7 +1759,10 @@ h1, h2, h3, h4, h5, h6,
   text-decoration: none;
   font-size: 14px;
   border-radius: 10px;
-  transition: all .18s ease;
+  /* 原来写的是 transition: all .18s —— all 会把 width/height/left 这类
+     触发布局的属性一起卷进过渡，低端安卓上肉眼可见掉帧。这里只列真正
+     会变的三个。 */
+  transition: background-color var(--pms-dur) var(--pms-ease), color var(--pms-dur) var(--pms-ease), box-shadow var(--pms-dur) var(--pms-ease);
   position: relative;
 }
 .sidebar-nav .nav-item i { width: 18px; text-align: center; font-size: 15px; opacity: .85; flex-shrink: 0; }
@@ -2046,7 +2049,7 @@ h1, h2, h3, h4, h5, h6,
 .table-sm tbody { font-size: 14px; }
 
 /* ============ 按钮（层级清晰） ============ */
-.btn { border-radius: var(--radius-sm); font-weight: var(--fw-normal); transition: all .18s ease; }
+.btn { border-radius: var(--radius-sm); font-weight: var(--fw-normal); transition: background-color var(--pms-dur) var(--pms-ease), border-color var(--pms-dur) var(--pms-ease), color var(--pms-dur) var(--pms-ease), box-shadow var(--pms-dur) var(--pms-ease), transform var(--pms-dur-fast) var(--pms-ease); }
    /* Basecamp 用 9px（--radius-sm 已是 9px），此处不再硬编码以免与 token 脱节。 */
 .btn-primary {
   background: var(--primary-grad);
@@ -2220,7 +2223,7 @@ h1, h2, h3, h4, h5, h6,
 /* ============ 进度条（渐变） ============ */
 .progress { background: var(--surface-2); border-radius: 999px; overflow: hidden; }
 .progress-xs { height: 6px; }
-.progress-bar { background: var(--primary-grad); border-radius: 999px; transition: width .4s ease; }
+.progress-bar { background: var(--primary-grad); border-radius: 999px; transition: width var(--pms-dur-slow) var(--pms-ease); }
 /* bg-success / bg-warning 走语义色的变量，不写死浅色调 ——
    写死的那两支是为白底调的，深色下偏亮偏黄（#fbbf24 在 #121212 上
    亮得像一排小灯泡），而且与「进度条本该是强调色」的设计冲突。 */
@@ -2327,7 +2330,7 @@ a:hover { color: var(--primary-text); }
 
 /* ============ Tabs ============ */
 .tab-card .nav-tabs { border-bottom: 1px solid var(--border); background: var(--surface-2); }
-.tab-card .nav-link { color: var(--text-muted); border: none; padding: 9px 18px; margin: 5px 3px; font-weight: var(--fw-normal); transition: all .18s; border-radius: 10px !important; }
+.tab-card .nav-link { color: var(--text-muted); border: none; padding: 9px 18px; margin: 5px 3px; font-weight: var(--fw-normal); transition: background-color var(--pms-dur) var(--pms-ease), color var(--pms-dur) var(--pms-ease), border-color var(--pms-dur) var(--pms-ease); border-radius: 10px !important; }
 .tab-card .nav-link:hover { color: var(--text); background: rgba(20, 109, 199, .1); border-radius: 10px !important; }
 .tab-card .nav-link.active {
   /* 从「满格品牌渐变 + 反白字」改成「近黑文字 + 品牌下划线」。
@@ -3834,7 +3837,12 @@ a { transition: color .15s ease; }
   --bs-border-color: rgba(11,21,27,.10);
   --bs-border-color-translucent: rgba(11,21,27,.10);
   --bs-link-color: #146DC7;
-  --bs-link-color-rgb: rgba(20, 109, 199;
+  /* ⚠ 值必须是「裸三元组」：Bootstrap 用 rgb(var(--bs-link-color-rgb)) 消费它。
+     这里原来写成 rgba(20, 109, 199; —— 括号没闭合，CSS 解析器会一路找到
+     文件末尾都找不到配对的 )，于是**这一行之后的所有规则全部失效**，而且
+     不报错：深色主题重绑、表格/按钮变量、以及追加在文件末尾的样式面板
+     全都静默不生效。改动这一行前先确认括号是配平的。 */
+  --bs-link-color-rgb: 20, 109, 199;
   --bs-link-hover-color: #0F5AA5;
   --bs-link-hover-color-rgb: 15, 90, 165;
   --bs-table-border-color: rgba(11,21,27,.075);
@@ -3918,5 +3926,96 @@ a { transition: color .15s ease; }
   --bs-btn-disabled-border-color: rgba(225,229,232,.12);
   --bs-table-accent-bg: rgba(225,229,232,.04);
   --bs-table-bg: transparent;
+}
+
+/* ============================================================================
+   动画强度系统（三档）
+   ----------------------------------------------------------------------------
+   为什么要有这一层：本文件有 20 多处 transition，但**一个 @keyframes 都没有**
+   —— 所以站点不缺「过渡」，缺的是「入场」和「状态切换」，观感偏静。直接往
+   各组件里塞动画会没法统一调整，所以先建一层变量，所有过渡/动画只读变量。
+
+   用法：<html data-animation="none|moderate|rich">。base.html 在样式表加载
+   之前同步设置（读 localStorage 的 pms-animation，缺省 moderate），否则首屏
+   会先按 rich 播一遍再切回去，用户看到的是「闪一下」。
+
+     none      关掉全部动效（--dur 全为 0），给「只看数据」的人
+     moderate  默认档，只有状态过渡（hover / focus / 展开）
+     rich      额外启用入场动画，且**只作用于下面的白名单选择器**
+
+   无障碍：prefers-reduced-motion 压到 0，优先级**高于**三档设置——用户开了
+   「减少动态效果」是明确表达，不该被应用内设置覆盖。
+   ============================================================================ */
+/* ⚠ 变量名刻意带 pms- 前缀：linear.css 已经占用了 --dur / --ease，
+   而且它有一条 html:root[data-bs-theme="dark"] 的规则（选择器权重 0,2,1）
+   声明 --dur:160ms。本轮建在 style.css 里，权重比不过它、加载顺序也在它
+   前面，所以一旦复用 --dur，深色模式下「关闭动效」就会被那条规则悄悄顶回
+   160ms —— 症状是浅色下能关、深色下关不掉，极难排查。用独立命名绕开。 */
+:root {
+  --pms-dur-fast: .12s;
+  --pms-dur: .18s;
+  --pms-dur-slow: .28s;
+  --pms-ease: cubic-bezier(.2, .8, .2, 1);
+  --pms-shift: 4px;
+}
+html[data-animation="none"] {
+  --pms-dur-fast: 0s;
+  --pms-dur: 0s;
+  --pms-dur-slow: 0s;
+  --pms-shift: 0px;
+}
+html[data-animation="rich"] {
+  --pms-dur-fast: .14s;
+  --pms-dur: .22s;
+  --pms-dur-slow: .34s;
+}
+
+/* none 档不能只把自己的变量清零——linear.css 里还有一批 transition 用的是
+   它自己的 --dur。**通配 !important 是这里唯一可靠的做法**：不依赖任何变量
+   解析，也不依赖样式表加载顺序，一档开关压住全部来源。 */
+html[data-animation="none"] *,
+html[data-animation="none"] *::before,
+html[data-animation="none"] *::after {
+  animation-duration: .001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .001ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  html[data-animation="rich"] {
+    --pms-dur-fast: 0s;
+    --pms-dur: 0s;
+    --pms-dur-slow: 0s;
+    --pms-shift: 0px;
+  }
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes pms-fade-up {
+  from { opacity: 0; transform: translateY(var(--pms-shift)); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pms-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* 入场动画白名单：只给「整页渲染后值得看一眼」的行级元素。
+   刻意**不选** .card / .table —— 那是全站容器，动了会让每次翻页都像在闪，
+   业务系统里「稳」比「动」重要。 */
+html[data-animation="rich"] .gantt-item,
+html[data-animation="rich"] .timeline-item {
+  animation: pms-fade-up var(--pms-dur-slow) var(--pms-ease) both;
+}
+
+/* 窄屏把入场位移减半：手机上 4px 位移配合滚动容易晕。 */
+@media (max-width: 576px) {
+  :root { --pms-shift: 2px; }
 }
 

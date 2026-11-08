@@ -1,4 +1,5 @@
-﻿"""采购合同管理：登记、文件识别、存档、时间节点、工期规划。"""
+"""采购合同管理：登记、文件识别、存档、时间节点、工期规划。"""
+import hashlib
 import os
 import tempfile
 from datetime import date, timedelta
@@ -164,6 +165,76 @@ async def contract_parse(request: Request, file: UploadFile = File(...),
         ctx["error"] = (parse_err or "未能识别该合同文件（可能是扫描件或格式特殊）"
                         ).rstrip("。") + "；文件已存档。"
     return render(request, "contracts/form.html", ctx)
+
+
+@router.post("/api/contracts/parse-json")
+async def contract_parse_json(file: UploadFile = File(...),
+                              db: Session = Depends(get_db),
+                              user: User = Depends(login_required)):
+    """上传合同文件并返回识别结果 JSON（供飞书等自动化客户端调用）。
+
+    与 /contracts/parse 共用同一套识别逻辑，区别只在返回 JSON 而非预填表单页。
+    本接口不建单、不改任何业务数据；文件照常存档到 uploads/contract/。
+    """
+    if not file.filename:
+        return JSONResponse({"ok": False, "error": "请选择合同文件"}, status_code=400)
+
+    data = await file.read()
+    file.file.seek(0)
+    file_path = await save_upload(file, "contract", allowed=CONTRACT_EXTS)
+    if not file_path:
+        return JSONResponse(
+            {"ok": False, "error": "文件保存失败（仅支持 PDF / Word，且不超过 20MB）"},
+            status_code=400)
+
+    parsed, parse_err = recognize_contract_file(file.filename, data)
+
+    payload = {
+        "ok": bool(parsed),
+        "file": {
+            "name": file.filename,
+            "path": file_path,
+            "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        },
+        "fields": None,
+        "warnings": [],
+        "error": parse_err or "",
+    }
+    if parsed:
+        sign_date = parsed.get("sign_date")
+        milestones = [
+            {"name": m.get("name", ""),
+             "m_date": m["m_date"].isoformat() if m.get("m_date") else ""}
+            for m in (parsed.get("milestones") or [])
+        ]
+        supplier = _match_supplier(db, parsed.get("party_b", ""))
+        payload["fields"] = {
+            "name": parsed.get("name", ""),
+            "party_a": parsed.get("party_a", ""),
+            "party_b": parsed.get("party_b", ""),
+            "amount": float(parsed.get("amount") or 0),
+            "category": parsed.get("category", ""),
+            "sign_date": sign_date.isoformat() if sign_date else "",
+            "milestones": milestones,
+            # 合同纸上通常没有该编号，仅作提示，建议由系统自动生成
+            "contract_no_hint": parsed.get("contract_no", ""),
+            "supplier_match": ({"id": supplier.id, "name": supplier.name}
+                               if supplier is not None else None),
+            "summary": str(parsed.get("raw_text", "") or "")[:500],
+        }
+        # 供调用方决定「哪些字段必须人工补」，避免把空值直接写进业务表
+        warn = payload["warnings"]
+        if not payload["fields"]["sign_date"]:
+            warn.append("sign_date_missing")
+        if not milestones:
+            warn.append("milestones_missing")
+        if not payload["fields"]["party_b"]:
+            warn.append("party_b_missing")
+        if payload["fields"]["amount"] <= 0:
+            warn.append("amount_zero")
+
+    return JSONResponse(payload)
 
 
 def _ensure_material_from_contract_line(db: Session, cm: ContractMaterial) -> None:
@@ -974,21 +1045,34 @@ def _deliveries(db: Session, today: date) -> list[dict]:
 
 def _gantt_payload(db: Session, project: Project, tasks, today: date,
                    rng: str, zoom: int = 100) -> dict:
-    """单项目甘特图。窗口 = 近端 N 周 ∪ 项目工期，且总长不超过 26 周。"""
+    """单项目甘特图。窗口 = 今天前后各 N 周 ∪ 本项目已有工期，总长不超过 26 周。"""
     weeks = GANTT_RANGES.get(rng, 56)
-    span_start = today - timedelta(days=7)          # 往前留一周，看清刚过去的
+    p_tasks = [t for t in tasks if t.project_id == project.id]
+
+    # 前后对称。原来只往前留 7 天，结果是「已经干完的活」永远在窗口外——
+    # 项目没填 start_date 时尤其明显（存量项目一个都没填），甘特图只剩未来，
+    # 没法回答「这活干到哪了」。
+    span_start = today - timedelta(days=weeks)
     span_end = today + timedelta(days=weeks)
     if project.start_date and project.start_date < span_start:
         span_start = project.start_date
     if project.end_date and project.end_date > span_end:
         span_end = project.end_date
-    # 兜底：项目工期填成两年（存量数据里真有），窗口会再次爆成横滚十几屏。
+
+    # 没填开工日时用本项目最早的任务兜底，否则存量项目的历史依旧不可见。
+    # 这里接受「新增一条更早的任务会让窗口左移」：项目视图本来就要看全生命周期，
+    # 和全局图那种「怕每次编辑都重排」不是一回事。真正防爆的是下面 26 周上限。
+    first_task = min((t.start_date for t in p_tasks if t.start_date), default=None)
+    if first_task and first_task < span_start:
+        span_start = first_task
+
+    # 兜底：项目工期填成两年（存量数据里真有），窗口会再爆成横滚十几屏。
     # 26 周是「一屏半」，再长就该靠切项目来看，不是靠横滚。
+    # 超长时**裁历史而不是裁未来**：明天的活必须看得见，去年的可以滚掉。
     if (span_end - span_start).days > 182:
-        span_end = span_start + timedelta(days=182)
+        span_start = span_end - timedelta(days=182)
     total_days = max((span_end - span_start).days, 1)
 
-    p_tasks = [t for t in tasks if t.project_id == project.id]
     by_phase: dict[int, list] = {}
     for t in p_tasks:
         if t.phase_id:
@@ -1195,6 +1279,38 @@ def gantt_task_edit(task_id: int, request: Request,
         task.note = note
         db.commit()
     return RedirectResponse(url=_back_url(back), status_code=303)
+
+
+@router.post("/gantt/tasks/{task_id}/reschedule")
+def gantt_task_reschedule(task_id: int,
+                          start_date: str = Form(...), end_date: str = Form(""),
+                          db: Session = Depends(get_db), user: User = Depends(login_required)):
+    """拖拽改期：只改起止日期，**返回 JSON 而不是 303**。
+
+    为什么不复用 /edit：那个端点收 8 个字段并返回 RedirectResponse。拖拽用
+    fetch 调它会把整页 HTML 也拉一遍（白流量 + 白渲染），而且拖一根条不该
+    要求前端回填 name / project_id / phase_id —— 少传一个就会把任务改挂到
+    别的项目或阶段上。
+
+    只动 start_date / end_date，其余字段一律不碰。调用方必须已在
+    app/_route_actions.json 里登记本路由，否则 role_guard 会 fail-closed 403。
+    """
+    task = db.get(GanttTask, task_id)
+    if not task:
+        return JSONResponse({"ok": False, "error": "任务不存在或已删除"}, status_code=404)
+
+    start = _date(start_date)
+    if not start:
+        return JSONResponse({"ok": False, "error": "开始日期无法解析"}, status_code=400)
+    end = _date(end_date) or start
+    if end < start:
+        end = start        # 脏输入不报错，按一天处理；比 500 友好
+
+    task.start_date = start
+    task.end_date = end
+    db.commit()
+    return {"ok": True, "start": start.isoformat(), "end": end.isoformat(),
+            "days": (end - start).days + 1}
 
 
 @router.post("/gantt/tasks/{task_id}/delete")
