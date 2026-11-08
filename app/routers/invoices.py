@@ -210,7 +210,7 @@ def invoice_new(request: Request, project_id: int = 0, payment_id: int = 0,
 
 
 @router.post("/parse")
-async def invoice_parse(request: Request, file: UploadFile = File(...),
+async def invoice_parse(request: Request, file: UploadFile | None = File(None),
                         project_id: int = Form(0), contract_id: int = Form(0),
                         subcontract_id: int = Form(0), suborder_id: int = Form(0),
                         back_url: str = Form(""),
@@ -239,7 +239,16 @@ async def invoice_parse(request: Request, file: UploadFile = File(...),
         if _pc and _pc.supplier:
             ctx["prefill_seller_name"] = _pc.supplier.name
             ctx["prefill_supplier_id"] = _pc.supplier.id
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
+    # 没选文件就点「识别并预填」时，浏览器有时连 file 段都不发（而不是发一个空文件）。
+    # 若声明成 File(...)，FastAPI 会在进函数之前就回 422 原始 JSON，用户看到的是
+    # {"detail":[{"type":"missing","loc":["body","file"],...}]} 这种天书。
+    # 所以收 None，统一走模板里的红色提示。
+    if file is None or not (file.filename or "").strip():
+        ctx["error"] = "请先选择发票 PDF 文件，再点「识别并预填」"
+        _resp = render(request, "invoices/form.html", ctx)
+        _resp.headers["Cache-Control"] = "no-store"
+        return _resp
+    if not file.filename.lower().endswith(".pdf"):
         ctx["error"] = "请上传 PDF 格式的发票文件"
         _resp = render(request, "invoices/form.html", ctx)
         _resp.headers["Cache-Control"] = "no-store"
@@ -253,7 +262,16 @@ async def invoice_parse(request: Request, file: UploadFile = File(...),
         return render(request, "invoices/form.html", ctx)
     ctx["file_path"] = pdf_path
 
-    text = extract_pdf_text(data)
+    # pdfplumber 对「不是 PDF / 文件损坏」会直接抛 PdfminerException（"No /Root object!"），
+    # 不接住就是 500 白页。空文件、别的文件改个后缀、下载中断的 PDF 都会走到这里。
+    try:
+        text = extract_pdf_text(data)
+    except Exception:
+        ctx["error"] = ("无法读取这个 PDF（文件可能已损坏、不完整，或其实不是 PDF）。"
+                        "请换一份电子发票原文件；PDF 已存档为附件，也可以手动填写。")
+        _resp = render(request, "invoices/form.html", ctx)
+        _resp.headers["Cache-Control"] = "no-store"
+        return _resp
     if not text.strip():
         ctx["error"] = "未能从 PDF 提取文本（该发票可能是扫描件），请手动填写表单。PDF 已保存为附件，可继续登记。"
         return render(request, "invoices/form.html", ctx)
